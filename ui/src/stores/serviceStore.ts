@@ -44,11 +44,19 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
   },
 
   startService: async (id) => {
-    await api.startService(id);
+    try {
+      await api.startService(id);
+    } catch (e) {
+      get().appendLog(id, ["[error] " + e]);
+    }
   },
 
   stopService: async (id) => {
-    await api.stopService(id);
+    try {
+      await api.stopService(id);
+    } catch (e) {
+      get().appendLog(id, ["[error] " + e]);
+    }
   },
 
   appendLog: (id, lines) => {

@@ -28,8 +28,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   loaded: false,
 
   loadConfig: async () => {
-    const config = await api.getConfig();
-    set({ groups: config.groups, loaded: true });
+    try {
+      const config = await api.getConfig();
+      set({ groups: config.groups, loaded: true });
+    } catch {
+      set({ groups: [], loaded: true });
+    }
   },
 
   saveConfig: async () => {

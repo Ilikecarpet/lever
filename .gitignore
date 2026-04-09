@@ -2,6 +2,7 @@
 src-tauri/target/
 ui/dist/
 ui/node_modules/
+*.tsbuildinfo
 
 # macOS
 .DS_Store

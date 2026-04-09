@@ -30,7 +30,7 @@ export interface AppConfig {
 
 export interface ServiceStatus {
   id: string;
-  status: string;
+  status: "running" | "stopped";
 }
 
 export interface PollResult {
@@ -71,7 +71,7 @@ export interface GitCommitInfo {
 
 export interface GitFileStatus {
   path: string;
-  status: string;
+  status: "modified" | "new" | "deleted" | "renamed" | "typechange";
   staged: boolean;
 }
 
