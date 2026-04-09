@@ -1,5 +1,7 @@
 # Build artifacts
 src-tauri/target/
+ui/dist/
+ui/node_modules/
 
 # macOS
 .DS_Store
