@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:webview:default",
+    "core:webview:allow-set-webview-size",
+    "core:window:default",
+    "core:window:allow-set-size"
+  ]
+}

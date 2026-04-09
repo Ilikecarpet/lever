@@ -1,0 +1,25 @@
+{
+  "productName": "Lever",
+  "version": "1.0.0",
+  "identifier": "com.lever.app",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Lever",
+        "width": 900,
+        "height": 700,
+        "minWidth": 600,
+        "minHeight": 400,
+        "titleBarStyle": "Visible",
+        "decorations": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}
