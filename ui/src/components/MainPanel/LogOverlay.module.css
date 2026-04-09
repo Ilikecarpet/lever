@@ -1,0 +1,93 @@
+@keyframes logSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.logOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 12, 18, 0.95);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  animation: logSlideIn 0.15s ease;
+}
+
+.logHeader {
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.logHeaderActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.logClose {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.logClose:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.clearBtn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.clearBtn:hover {
+  background: var(--surface-hover);
+}
+
+.logOutput {
+  flex: 1;
+  padding: 12px 16px;
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-dim);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.logOutput::-webkit-scrollbar {
+  width: 6px;
+}
+.logOutput::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.stderr {
+  color: var(--yellow);
+}
