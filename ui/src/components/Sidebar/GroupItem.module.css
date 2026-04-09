@@ -1,0 +1,117 @@
+.group {
+  margin-bottom: 2px;
+}
+
+.groupHeader {
+  padding: 8px 14px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.groupHeader:hover {
+  background: var(--surface-hover);
+}
+
+.groupChevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  display: inline-block;
+  margin-right: 4px;
+}
+.groupChevronCollapsed {
+  transform: rotate(-90deg);
+}
+
+.groupLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.groupCount {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.groupActions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.groupHeader:hover .groupActions {
+  opacity: 1;
+}
+
+.groupBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.groupBtnStart {
+  color: var(--green);
+}
+.groupBtnStart:hover {
+  background: var(--green-dim);
+}
+.groupBtnStop {
+  color: var(--red);
+}
+.groupBtnStop:hover {
+  background: var(--red-dim);
+}
+
+.groupServices {
+  padding: 2px 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.groupServicesCollapsed {
+  max-height: 0 !important;
+  padding: 0;
+}
+
+/* Git branch indicator */
+.gitBranch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px 6px 26px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.gitBranch:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.gitBranchIcon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.gitBranchName {
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.gitDirty {
+  color: var(--yellow);
+  font-size: 9px;
+  margin-left: 2px;
+}
