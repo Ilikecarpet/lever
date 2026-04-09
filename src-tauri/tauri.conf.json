@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "identifier": "com.lever.app",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui/dist",
+    "beforeDevCommand": "cd ../ui && npm run dev",
+    "beforeBuildCommand": "cd ../ui && npm run build"
   },
   "app": {
     "windows": [
