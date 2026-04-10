@@ -1,4 +1,4 @@
-.tabBar {
+.bar {
   display: flex;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
@@ -6,7 +6,7 @@
   overflow-x: auto;
   align-items: stretch;
 }
-.tabBar::-webkit-scrollbar {
+.bar::-webkit-scrollbar {
   height: 0;
 }
 
@@ -34,17 +34,7 @@
   background: var(--bg);
 }
 
-.tdot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-.tdotRunning {
-  background: var(--green);
-}
-
-.tclose {
+.close {
   font-size: 14px;
   opacity: 0;
   color: var(--text-dim);
@@ -54,14 +44,14 @@
   border: none;
   line-height: 1;
 }
-.tab:hover .tclose {
+.tab:hover .close {
   opacity: 0.5;
 }
-.tclose:hover {
+.close:hover {
   opacity: 1 !important;
 }
 
-.tabNew {
+.newBtn {
   padding: 0 10px;
   height: 32px;
   display: flex;
@@ -72,6 +62,6 @@
   background: none;
   border: none;
 }
-.tabNew:hover {
+.newBtn:hover {
   color: var(--text);
 }
