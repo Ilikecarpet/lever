@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useConfigStore } from "./stores/configStore";
 import { useServiceStore } from "./stores/serviceStore";
 import { useGitStore } from "./stores/gitStore";
-import { useTerminalStore } from "./stores/terminalStore";
+import { useWorkspaceStore } from "./stores/workspaceStore";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import Sidebar from "./components/Sidebar/Sidebar";
 import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
@@ -15,23 +16,25 @@ export default function App() {
   const groups = useConfigStore((s) => s.groups);
   const poll = useServiceStore((s) => s.poll);
   const refreshAllGit = useGitStore((s) => s.refreshAllGit);
-  const addTab = useTerminalStore((s) => s.addTab);
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const initialized = useRef(false);
+
+  useKeyboardShortcuts();
 
   // Load config on mount
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
 
-  // After config loads: open first terminal, start polling loops
+  // After config loads: open first workspace, start polling loops
   useEffect(() => {
     if (!loaded || initialized.current) return;
     initialized.current = true;
 
-    // Open first terminal tab
-    addTab();
+    // Open first workspace
+    addWorkspace();
 
     // Initial git refresh
     const gitGroups = groups

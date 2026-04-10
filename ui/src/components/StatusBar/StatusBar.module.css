@@ -13,3 +13,26 @@
 .info {
   flex: 1;
 }
+
+.paneControls {
+  display: flex;
+  gap: 2px;
+}
+
+.paneBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 5px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+
+.paneBtn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}

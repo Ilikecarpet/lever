@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useGitStore } from "../../stores/gitStore";
-import { useTerminalStore } from "../../stores/terminalStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
 
@@ -20,10 +20,9 @@ export default function GroupItem({ group }: Props) {
 
   const gitInfo = useGitStore((s) => s.gitInfo[group.id]);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
-  const loadPrs = useGitStore((s) => s.loadPrs);
   const refreshGitInfo = useGitStore((s) => s.refreshGitInfo);
 
-  const setActiveTab = useTerminalStore((s) => s.setActiveTab);
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
 
   const runningCount = group.services.filter(
     (svc) => (statuses[svc.id] ?? "stopped") === "running"
@@ -50,10 +49,9 @@ export default function GroupItem({ group }: Props) {
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveLog(null);
-    setActiveTab(null);
+    setActiveWorkspace(null);
     setActiveGitGroup(group.id);
     refreshGitInfo(group.id, group.repo_path);
-    loadPrs(group.id, group.repo_path);
   };
 
   return (

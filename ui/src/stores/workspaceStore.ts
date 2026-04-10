@@ -126,11 +126,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   resizePane: (splitId, ratio) => {
     const { activeWorkspaceId } = get();
     set((s) => ({
-      workspaces: s.workspaces.map((w) =>
-        w.id === activeWorkspaceId
-          ? { ...w, root: updateRatio(w.root, splitId, ratio) }
-          : w
-      ),
+      workspaces: s.workspaces.map((w) => {
+        if (w.id !== activeWorkspaceId) return w;
+        const newRoot = updateRatio(w.root, splitId, ratio);
+        return newRoot ? { ...w, root: newRoot } : w;
+      }),
     }));
   },
 
@@ -165,10 +165,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setPtyId: (paneId, ptyId) => {
     set((s) => ({
-      workspaces: s.workspaces.map((w) => ({
-        ...w,
-        root: setPtyIdInTree(w.root, paneId, ptyId),
-      })),
+      workspaces: s.workspaces.map((w) => {
+        const newRoot = setPtyIdInTree(w.root, paneId, ptyId);
+        return newRoot ? { ...w, root: newRoot } : w;
+      }),
     }));
   },
 }));
