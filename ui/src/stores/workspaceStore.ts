@@ -8,6 +8,7 @@ import {
   updateRatio,
   collectLeaves,
   setPtyIdInTree,
+  setTitleInTree,
 } from "../lib/paneTree";
 
 interface WorkspaceState {
@@ -18,6 +19,7 @@ interface WorkspaceState {
   closeWorkspace: (id: string) => void;
   setActiveWorkspace: (id: string | null) => void;
   renameWorkspace: (id: string, label: string) => void;
+  moveWorkspace: (fromIndex: number, toIndex: number) => void;
 
   splitPane: (direction: "horizontal" | "vertical") => void;
   closePane: () => void;
@@ -26,6 +28,7 @@ interface WorkspaceState {
   focusNextPane: () => void;
   focusPrevPane: () => void;
   setPtyId: (paneId: string, ptyId: string) => void;
+  setPaneTitle: (paneId: string, title: string) => void;
 }
 
 function createWorkspace(label: string): Workspace {
@@ -38,15 +41,21 @@ function createWorkspace(label: string): Workspace {
   };
 }
 
-let wsCounter = 0;
+function nextWorkspaceName(workspaces: Workspace[]): string {
+  const numbers = workspaces
+    .map((w) => w.label.match(/^Workspace (\d+)$/))
+    .filter(Boolean)
+    .map((m) => parseInt(m![1], 10));
+  const max = numbers.length > 0 ? Math.max(...numbers) : 0;
+  return `Workspace ${max + 1}`;
+}
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
 
   addWorkspace: () => {
-    wsCounter++;
-    const ws = createWorkspace(`Workspace ${wsCounter}`);
+    const ws = createWorkspace(nextWorkspaceName(get().workspaces));
     set((s) => ({
       workspaces: [...s.workspaces, ws],
       activeWorkspaceId: ws.id,
@@ -79,6 +88,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }));
   },
 
+  moveWorkspace: (fromIndex, toIndex) => {
+    set((s) => {
+      const ws = [...s.workspaces];
+      const [moved] = ws.splice(fromIndex, 1);
+      ws.splice(toIndex, 0, moved);
+      return { workspaces: ws };
+    });
+  },
+
   splitPane: (direction) => {
     const { workspaces, activeWorkspaceId } = get();
     const ws = workspaces.find((w) => w.id === activeWorkspaceId);
@@ -105,9 +123,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
     if (newRoot === null) {
       get().closeWorkspace(ws.id);
-      if (get().workspaces.length === 0) {
-        get().addWorkspace();
-      }
       return;
     }
 
@@ -167,6 +182,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((s) => ({
       workspaces: s.workspaces.map((w) => {
         const newRoot = setPtyIdInTree(w.root, paneId, ptyId);
+        return newRoot ? { ...w, root: newRoot } : w;
+      }),
+    }));
+  },
+
+  setPaneTitle: (paneId, title) => {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => {
+        const newRoot = setTitleInTree(w.root, paneId, title);
         return newRoot ? { ...w, root: newRoot } : w;
       }),
     }));

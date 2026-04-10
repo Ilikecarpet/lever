@@ -51,24 +51,12 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd+Shift+] — next workspace
-      if (e.key === "}" || (e.key === "]" && e.shiftKey)) {
+      // Cmd+1..9 — switch to workspace by index
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= 9) {
         e.preventDefault();
-        const { workspaces, activeWorkspaceId } = store;
-        const idx = workspaces.findIndex((w) => w.id === activeWorkspaceId);
-        const next = workspaces[(idx + 1) % workspaces.length];
-        if (next) store.setActiveWorkspace(next.id);
-        return;
-      }
-
-      // Cmd+Shift+[ — prev workspace
-      if (e.key === "{" || (e.key === "[" && e.shiftKey)) {
-        e.preventDefault();
-        const { workspaces, activeWorkspaceId } = store;
-        const idx = workspaces.findIndex((w) => w.id === activeWorkspaceId);
-        const prev =
-          workspaces[(idx - 1 + workspaces.length) % workspaces.length];
-        if (prev) store.setActiveWorkspace(prev.id);
+        const ws = store.workspaces[num - 1];
+        if (ws) store.setActiveWorkspace(ws.id);
         return;
       }
     };

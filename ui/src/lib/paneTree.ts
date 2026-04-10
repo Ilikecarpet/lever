@@ -20,7 +20,7 @@ export function resetCounter(val = 0): void {
 // ---------------------------------------------------------------------------
 
 export function makeLeaf(): PaneLeaf {
-  return { type: "leaf", id: nextId("pane"), ptyId: null };
+  return { type: "leaf", id: nextId("pane"), ptyId: null, title: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +207,33 @@ export function setPtyIdInTree(
   }
 
   const rightResult = setPtyIdInTree(root.children[1], paneId, ptyId);
+  if (rightResult !== null) {
+    return { ...root, children: [root.children[0], rightResult] };
+  }
+
+  return null;
+}
+
+/**
+ * Set `title` on the leaf identified by `paneId`.
+ * Returns a new tree, or null if the leaf was not found.
+ */
+export function setTitleInTree(
+  root: PaneNode,
+  paneId: string,
+  title: string,
+): PaneNode | null {
+  if (root.type === "leaf") {
+    if (root.id === paneId) return { ...root, title };
+    return null;
+  }
+
+  const leftResult = setTitleInTree(root.children[0], paneId, title);
+  if (leftResult !== null) {
+    return { ...root, children: [leftResult, root.children[1]] };
+  }
+
+  const rightResult = setTitleInTree(root.children[1], paneId, title);
   if (rightResult !== null) {
     return { ...root, children: [root.children[0], rightResult] };
   }

@@ -1,22 +1,14 @@
 import { create } from "zustand";
-import type { GitRepoInfo, GitPrInfo } from "../types";
+import type { GitRepoInfo } from "../types";
 import * as api from "../lib/tauri";
 
 interface GitState {
   gitInfo: Record<string, GitRepoInfo>;
-  prCache: Record<string, GitPrInfo[]>;
   activeGitGroupId: string | null;
   statusMessage: string | null;
 
   refreshGitInfo: (groupId: string, repoPath: string) => Promise<void>;
   refreshAllGit: (groups: { id: string; repo_path: string }[]) => Promise<void>;
-  loadPrs: (groupId: string, repoPath: string) => Promise<void>;
-  checkout: (
-    groupId: string,
-    repoPath: string,
-    branch: string,
-    isRemote: boolean
-  ) => Promise<void>;
   fetch: (groupId: string, repoPath: string) => Promise<void>;
   pull: (groupId: string, repoPath: string) => Promise<void>;
   setActiveGitGroup: (groupId: string | null) => void;
@@ -31,7 +23,6 @@ function autoClearStatus(set: (partial: Partial<GitState>) => void) {
 
 export const useGitStore = create<GitState>((set, get) => ({
   gitInfo: {},
-  prCache: {},
   activeGitGroupId: null,
   statusMessage: null,
 
@@ -51,30 +42,6 @@ export const useGitStore = create<GitState>((set, get) => ({
         .filter((g) => g.repo_path)
         .map((g) => get().refreshGitInfo(g.id, g.repo_path))
     );
-  },
-
-  loadPrs: async (groupId, repoPath) => {
-    if (!repoPath) return;
-    try {
-      const prs = await api.gitPrList(repoPath);
-      set((s) => ({ prCache: { ...s.prCache, [groupId]: prs } }));
-    } catch (e) {
-      console.error(`Failed to load PRs for ${groupId}:`, e);
-    }
-  },
-
-  checkout: async (groupId, repoPath, branch, isRemote) => {
-    try {
-      set({ statusMessage: `Checking out ${branch}...` });
-      await api.gitCheckout(repoPath, branch, isRemote);
-      await get().refreshGitInfo(groupId, repoPath);
-      set({ statusMessage: `Checked out ${isRemote ? branch.split("/").slice(1).join("/") : branch}` });
-      autoClearStatus(set);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Checkout failed: ${msg}` });
-      autoClearStatus(set);
-    }
   },
 
   fetch: async (groupId, repoPath) => {

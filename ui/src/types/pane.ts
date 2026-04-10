@@ -2,6 +2,7 @@ export interface PaneLeaf {
   type: "leaf";
   id: string;
   ptyId: string | null;
+  title: string | null;
 }
 
 export interface PaneSplit {

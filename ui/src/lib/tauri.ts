@@ -5,7 +5,6 @@ import type {
   PollResult,
   PtyInfo,
   GitRepoInfo,
-  GitPrInfo,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -68,24 +67,12 @@ export function gitInfo(path: string): Promise<GitRepoInfo> {
   return invoke<GitRepoInfo>("git_info", { path });
 }
 
-export function gitCheckout(
-  path: string,
-  branch: string,
-  isRemote: boolean
-): Promise<void> {
-  return invoke<void>("git_checkout", { path, branch, isRemote });
-}
-
 export function gitFetch(path: string): Promise<void> {
   return invoke<void>("git_fetch", { path });
 }
 
 export function gitPull(path: string): Promise<string> {
   return invoke<string>("git_pull", { path });
-}
-
-export function gitPrList(path: string): Promise<GitPrInfo[]> {
-  return invoke<GitPrInfo[]>("git_pr_list", { path });
 }
 
 // ---------------------------------------------------------------------------

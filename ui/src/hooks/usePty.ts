@@ -104,6 +104,11 @@ export function usePty(
         term.write(`\r\nFailed to create PTY: ${err}\r\n`);
       });
 
+    // Terminal title change -> store
+    const onTitleDisposable = term.onTitleChange((title) => {
+      useWorkspaceStore.getState().setPaneTitle(paneId, title);
+    });
+
     // Terminal input -> PTY
     const onDataDisposable = term.onData((data) => {
       if (ptyId) {
@@ -137,6 +142,7 @@ export function usePty(
       if (resizeTimeout) clearTimeout(resizeTimeout);
       observer.disconnect();
 
+      onTitleDisposable.dispose();
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
 
