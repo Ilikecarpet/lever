@@ -16,6 +16,7 @@ export default function GroupItem({ group }: Props) {
   const statuses = useServiceStore((s) => s.statuses);
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
+  const setActiveLog = useServiceStore((s) => s.setActiveLog);
 
   const gitInfo = useGitStore((s) => s.gitInfo[group.id]);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
@@ -48,6 +49,7 @@ export default function GroupItem({ group }: Props) {
 
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setActiveLog(null);
     setActiveTab(null);
     setActiveGitGroup(group.id);
     refreshGitInfo(group.id, group.repo_path);
