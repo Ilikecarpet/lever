@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "identifier": "com.lever.app",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev --prefix ui",
+    "beforeBuildCommand": "npm run build --prefix ui"
   },
   "app": {
     "windows": [

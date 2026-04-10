@@ -1,0 +1,82 @@
+.svcItem {
+  padding: 6px 14px 6px 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 12px;
+}
+.svcItem:hover {
+  background: var(--surface-hover);
+}
+
+.svcDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.svcDotRunning {
+  background: var(--green);
+  box-shadow: 0 0 5px rgba(52, 211, 153, 0.4);
+}
+
+.svcName {
+  flex: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.svcBadge {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--blue-dim);
+  color: var(--blue);
+}
+
+.svcHoverActions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.svcItem:hover .svcHoverActions {
+  opacity: 1;
+}
+
+.svcBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+.svcBtnPlay {
+  color: var(--green);
+}
+.svcBtnPlay:hover {
+  background: var(--green-dim);
+}
+.svcBtnKill {
+  color: var(--red);
+}
+.svcBtnKill:hover {
+  background: var(--red-dim);
+}
+.svcBtn:disabled {
+  opacity: 0.15;
+  cursor: default;
+}
