@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
-import { useTerminalStore } from "../stores/terminalStore";
+import { useWorkspaceStore } from "../stores/workspaceStore";
 import type { PtyDataEvent } from "../types";
 
 const THEME = {
@@ -30,7 +30,7 @@ const THEME = {
 };
 
 export function usePty(
-  tabId: string,
+  paneId: string,
   containerRef: React.RefObject<HTMLDivElement | null>
 ) {
   const termRef = useRef<Terminal | null>(null);
@@ -69,7 +69,7 @@ export function usePty(
     let unlistenPtyData: (() => void) | null = null;
     let disposed = false;
 
-    const setPtyId = useTerminalStore.getState().setPtyId;
+    const setPtyId = useWorkspaceStore.getState().setPtyId;
 
     // Create PTY and wire everything up
     api
@@ -81,7 +81,7 @@ export function usePty(
         }
 
         ptyId = info.id;
-        setPtyId(tabId, ptyId);
+        setPtyId(paneId, ptyId);
 
         // PTY output -> terminal
         unlistenPtyData = await tauriListen<PtyDataEvent>(
@@ -152,7 +152,7 @@ export function usePty(
       fitAddonRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabId]);
+  }, [paneId]);
 
   return { focus, fit };
 }
