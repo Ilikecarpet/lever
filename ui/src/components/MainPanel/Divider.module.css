@@ -1,0 +1,36 @@
+/* ui/src/components/MainPanel/Divider.module.css */
+.divider {
+  flex-shrink: 0;
+  background: var(--border);
+  z-index: 1;
+  transition: background 0.15s;
+}
+
+.divider:hover,
+.dividerActive {
+  background: var(--blue);
+}
+
+.vertical {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.horizontal {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.dragOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.dragOverlayVertical {
+  cursor: col-resize;
+}
+
+.dragOverlayHorizontal {
+  cursor: row-resize;
+}
