@@ -55,20 +55,6 @@ export interface PtyDataEvent {
 // Git types
 // ---------------------------------------------------------------------------
 
-export interface GitBranchInfo {
-  name: string;
-  is_current: boolean;
-  is_remote: boolean;
-}
-
-export interface GitCommitInfo {
-  hash: string;
-  short_hash: string;
-  summary: string;
-  author: string;
-  time_ago: string;
-}
-
 export interface GitFileStatus {
   path: string;
   status: "modified" | "new" | "deleted" | "renamed" | "typechange";
@@ -77,29 +63,7 @@ export interface GitFileStatus {
 
 export interface GitRepoInfo {
   current_branch: string;
-  branches: GitBranchInfo[];
   is_dirty: boolean;
   changed_files: GitFileStatus[];
-  recent_commits: GitCommitInfo[];
 }
 
-export interface GitPrInfo {
-  number: number;
-  title: string;
-  author: string;
-  branch: string;
-  state: string;
-  url: string;
-  is_draft: boolean;
-  updated: string;
-}
-
-// ---------------------------------------------------------------------------
-// UI-only types
-// ---------------------------------------------------------------------------
-
-export interface TerminalTab {
-  id: string;
-  label: string;
-  ptyId: string | null;
-}
