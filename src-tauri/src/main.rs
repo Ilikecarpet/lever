@@ -582,22 +582,6 @@ fn close_pty(id: String, state: State<'_, AppState>) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
-struct GitBranchInfo {
-    name: String,
-    is_current: bool,
-    is_remote: bool,
-}
-
-#[derive(Serialize)]
-struct GitCommitInfo {
-    hash: String,
-    short_hash: String,
-    summary: String,
-    author: String,
-    time_ago: String,
-}
-
-#[derive(Serialize)]
 struct GitFileStatus {
     path: String,
     status: String, // "modified", "new", "deleted", "renamed", "typechange"
@@ -607,35 +591,8 @@ struct GitFileStatus {
 #[derive(Serialize)]
 struct GitRepoInfo {
     current_branch: String,
-    branches: Vec<GitBranchInfo>,
     is_dirty: bool,
     changed_files: Vec<GitFileStatus>,
-    recent_commits: Vec<GitCommitInfo>,
-}
-
-#[derive(Serialize)]
-struct GitPrInfo {
-    number: u64,
-    title: String,
-    author: String,
-    branch: String,
-    state: String,
-    url: String,
-    is_draft: bool,
-    updated: String,
-}
-
-fn format_time_ago(secs: i64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let diff = now - secs;
-    if diff < 60 { return "just now".into(); }
-    if diff < 3600 { return format!("{}m ago", diff / 60); }
-    if diff < 86400 { return format!("{}h ago", diff / 3600); }
-    if diff < 604800 { return format!("{}d ago", diff / 86400); }
-    format!("{}w ago", diff / 604800)
 }
 
 fn git_status_str(s: git2::Status) -> &'static str {
@@ -667,46 +624,6 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
         .unwrap_or("HEAD")
         .to_string();
 
-    // Local branches
-    let mut branches = Vec::new();
-    let local = repo.branches(Some(git2::BranchType::Local)).map_err(|e| e.to_string())?;
-    for branch_result in local {
-        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
-        if let Some(name) = branch.name().ok().flatten() {
-            branches.push(GitBranchInfo {
-                name: name.to_string(),
-                is_current: name == current_branch,
-                is_remote: false,
-            });
-        }
-    }
-
-    // Remote branches
-    let remote = repo.branches(Some(git2::BranchType::Remote)).map_err(|e| e.to_string())?;
-    for branch_result in remote {
-        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
-        if let Some(name) = branch.name().ok().flatten() {
-            // Skip HEAD pointers like origin/HEAD
-            if name.ends_with("/HEAD") { continue; }
-            // Skip if a local branch with the same short name exists
-            let short = name.splitn(2, '/').nth(1).unwrap_or(name);
-            if branches.iter().any(|b| !b.is_remote && b.name == short) { continue; }
-            branches.push(GitBranchInfo {
-                name: name.to_string(),
-                is_current: false,
-                is_remote: true,
-            });
-        }
-    }
-
-    // Sort: current first, then local alpha, then remote alpha
-    branches.sort_by(|a, b| {
-        b.is_current
-            .cmp(&a.is_current)
-            .then(a.is_remote.cmp(&b.is_remote))
-            .then(a.name.cmp(&b.name))
-    });
-
     // File statuses
     let mut changed_files = Vec::new();
     let statuses = repo.statuses(Some(
@@ -726,78 +643,11 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
         }
     }
 
-    // Recent commits (last 20)
-    let mut recent_commits = Vec::new();
-    if let Ok(mut revwalk) = repo.revwalk() {
-        let _ = revwalk.push_head();
-        revwalk.set_sorting(git2::Sort::TIME).ok();
-        for (i, oid) in revwalk.enumerate() {
-            if i >= 20 { break; }
-            if let Ok(oid) = oid {
-                if let Ok(commit) = repo.find_commit(oid) {
-                    recent_commits.push(GitCommitInfo {
-                        hash: oid.to_string(),
-                        short_hash: oid.to_string()[..7].to_string(),
-                        summary: commit.summary().unwrap_or("").to_string(),
-                        author: commit.author().name().unwrap_or("").to_string(),
-                        time_ago: format_time_ago(commit.time().seconds()),
-                    });
-                }
-            }
-        }
-    }
-
     Ok(GitRepoInfo {
         current_branch,
-        branches,
         is_dirty,
         changed_files,
-        recent_commits,
     })
-}
-
-#[tauri::command]
-fn git_checkout(path: String, branch: String, is_remote: bool) -> Result<(), String> {
-    let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
-
-    if is_remote {
-        // Remote branch: create a local tracking branch and check it out
-        let short = branch.splitn(2, '/').nth(1).unwrap_or(&branch);
-        let remote_ref = repo
-            .find_branch(&branch, git2::BranchType::Remote)
-            .map_err(|e| format!("Remote branch '{}' not found: {}", branch, e))?;
-        let commit = remote_ref.get().peel_to_commit().map_err(|e| e.to_string())?;
-
-        // Create local branch from remote
-        let local_branch = repo
-            .branch(short, &commit, false)
-            .map_err(|e| format!("Failed to create local branch '{}': {}", short, e))?;
-
-        let obj = local_branch.get().peel(git2::ObjectType::Commit).map_err(|e| e.to_string())?;
-        repo.checkout_tree(&obj, Some(git2::build::CheckoutBuilder::new().safe()))
-            .map_err(|e| format!("Checkout failed: {}", e))?;
-        let refname = local_branch.get().name().ok_or("Invalid ref")?;
-        repo.set_head(refname).map_err(|e| e.to_string())?;
-    } else {
-        let branch_ref = repo
-            .find_branch(&branch, git2::BranchType::Local)
-            .map_err(|e| format!("Branch '{}' not found: {}", branch, e))?;
-
-        let obj = branch_ref
-            .get()
-            .peel(git2::ObjectType::Commit)
-            .map_err(|e| format!("Cannot resolve branch: {}", e))?;
-
-        repo.checkout_tree(&obj, Some(git2::build::CheckoutBuilder::new().safe()))
-            .map_err(|e| format!("Checkout failed: {}", e))?;
-
-        let refname = branch_ref.get().name()
-            .ok_or_else(|| "Invalid branch ref name".to_string())?;
-        repo.set_head(refname)
-            .map_err(|e| format!("Failed to set HEAD: {}", e))?;
-    }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -831,46 +681,6 @@ fn git_pull(path: String) -> Result<String, String> {
         return Err(format!("git pull failed: {}", stderr));
     }
     Ok(stdout)
-}
-
-#[tauri::command]
-fn git_pr_list(path: String) -> Result<Vec<GitPrInfo>, String> {
-    let shell_path = get_shell_path();
-    let output = Command::new("gh")
-        .args([
-            "pr", "list",
-            "--json", "number,title,author,headRefName,state,url,isDraft,updatedAt",
-            "--limit", "30",
-        ])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
-        .map_err(|e| format!("Failed to run gh: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("gh pr list failed: {}", stderr));
-    }
-
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
-
-    let mut prs = Vec::new();
-    if let Some(arr) = json.as_array() {
-        for item in arr {
-            prs.push(GitPrInfo {
-                number: item["number"].as_u64().unwrap_or(0),
-                title: item["title"].as_str().unwrap_or("").to_string(),
-                author: item["author"]["login"].as_str().unwrap_or("").to_string(),
-                branch: item["headRefName"].as_str().unwrap_or("").to_string(),
-                state: item["state"].as_str().unwrap_or("").to_string(),
-                url: item["url"].as_str().unwrap_or("").to_string(),
-                is_draft: item["isDraft"].as_bool().unwrap_or(false),
-                updated: item["updatedAt"].as_str().unwrap_or("").to_string(),
-            });
-        }
-    }
-    Ok(prs)
 }
 
 // ---------------------------------------------------------------------------
@@ -948,10 +758,8 @@ fn main() {
             resize_pty,
             close_pty,
             git_info,
-            git_checkout,
             git_fetch,
             git_pull,
-            git_pr_list,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

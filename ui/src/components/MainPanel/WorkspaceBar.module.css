@@ -1,4 +1,4 @@
-.tabBar {
+.bar {
   display: flex;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
@@ -6,7 +6,7 @@
   overflow-x: auto;
   align-items: stretch;
 }
-.tabBar::-webkit-scrollbar {
+.bar::-webkit-scrollbar {
   height: 0;
 }
 
@@ -23,6 +23,7 @@
   white-space: nowrap;
   flex-shrink: 0;
   font-weight: 500;
+  user-select: none;
 }
 .tab:hover {
   color: var(--text);
@@ -33,18 +34,15 @@
   border-bottom-color: var(--blue);
   background: var(--bg);
 }
-
-.tdot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
+.tabDragging {
+  opacity: 0.4;
 }
-.tdotRunning {
-  background: var(--green);
+.paneTitle {
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
-.tclose {
+.close {
   font-size: 14px;
   opacity: 0;
   color: var(--text-dim);
@@ -54,14 +52,14 @@
   border: none;
   line-height: 1;
 }
-.tab:hover .tclose {
+.tab:hover .close {
   opacity: 0.5;
 }
-.tclose:hover {
+.close:hover {
   opacity: 1 !important;
 }
 
-.tabNew {
+.newBtn {
   padding: 0 10px;
   height: 32px;
   display: flex;
@@ -72,6 +70,47 @@
   background: none;
   border: none;
 }
-.tabNew:hover {
+.newBtn:hover {
   color: var(--text);
+}
+
+.renameInput {
+  background: var(--surface);
+  border: 1px solid var(--blue);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 1px 4px;
+  outline: none;
+  width: 100px;
+}
+
+.contextMenu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  min-width: 120px;
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.contextMenuItem:hover {
+  background: var(--surface-hover);
 }
