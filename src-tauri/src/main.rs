@@ -301,52 +301,6 @@ fn name_to_id(name: &str) -> String {
 // Migration
 // ---------------------------------------------------------------------------
 
-fn migrate_old_config(data_dir: &PathBuf) {
-    let proj_dir = projects_dir(data_dir);
-    if proj_dir.exists() {
-        return;
-    }
-
-    let old_config_path = data_dir.join("config.json");
-    if !old_config_path.exists() {
-        let _ = fs::create_dir_all(&proj_dir);
-        let _ = save_project_index(&proj_dir, &ProjectIndex::default());
-        return;
-    }
-
-    let config: AppConfig = match fs::read_to_string(&old_config_path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => AppConfig::default(),
-    };
-
-    let _ = fs::create_dir_all(&proj_dir);
-    let project_id = "default";
-    let _ = save_project_config(&proj_dir, project_id, &config);
-
-    let old_state = data_dir.join("state.json");
-    let new_state = project_state_file_path(&proj_dir, project_id);
-    if old_state.exists() {
-        let _ = fs::rename(&old_state, &new_state);
-    }
-
-    let old_logs = data_dir.join("logs");
-    let new_logs = project_dir(&proj_dir, project_id).join("logs");
-    if old_logs.exists() {
-        let _ = fs::rename(&old_logs, &new_logs);
-    }
-
-    let index = ProjectIndex {
-        projects: vec![ProjectMeta {
-            id: project_id.to_string(),
-            name: "Default".to_string(),
-            created_at: now_unix(),
-            last_opened: now_unix(),
-        }],
-    };
-    let _ = save_project_index(&proj_dir, &index);
-    let _ = fs::remove_file(&old_config_path);
-}
-
 // ---------------------------------------------------------------------------
 // Tauri commands: project CRUD
 // ---------------------------------------------------------------------------
@@ -1017,8 +971,6 @@ fn main() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let _ = fs::create_dir_all(&data_dir);
-
-            migrate_old_config(&data_dir);
 
             let proj_dir = projects_dir(&data_dir);
             let _ = fs::create_dir_all(&proj_dir);
