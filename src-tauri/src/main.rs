@@ -518,8 +518,27 @@ fn import_project(name: String, config_json: String, state: State<'_, AppState>)
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands: open project window
+// Tauri commands: start page + open project window
 // ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "main",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Lever — Start")
+        .inner_size(700.0, 500.0)
+        .min_inner_size(500.0, 350.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
 #[tauri::command]
 fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
@@ -1019,6 +1038,7 @@ fn main() {
             rename_project,
             clone_project,
             import_project,
+            show_start_page,
             open_project,
             get_config,
             save_config,

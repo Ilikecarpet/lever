@@ -59,6 +59,10 @@ export function openProject(id: string): Promise<void> {
   return invoke<void>("open_project", { id });
 }
 
+export function showStartPage(): Promise<void> {
+  return invoke<void>("show_start_page");
+}
+
 // ---------------------------------------------------------------------------
 // Config commands (project-scoped)
 // ---------------------------------------------------------------------------

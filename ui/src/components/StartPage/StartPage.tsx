@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
 import styles from "./StartPage.module.css";
@@ -43,6 +44,7 @@ export default function StartPage() {
 
   const handleOpen = async (id: string) => {
     await api.openProject(id);
+    await getCurrentWindow().close();
   };
 
   const handleContextMenu = (e: React.MouseEvent, project: ProjectMeta) => {

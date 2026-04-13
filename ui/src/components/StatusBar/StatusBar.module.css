@@ -36,3 +36,11 @@
   color: var(--text);
   background: var(--surface-hover);
 }
+
+.projectControls {
+  display: flex;
+  gap: 2px;
+  margin-right: 6px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
