@@ -7,6 +7,7 @@ import type {
   PtyInfo,
   GitRepoInfo,
   ProjectMeta,
+  WorktreeDef,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -131,8 +132,8 @@ export function getRepoPath(id: string): Promise<string> {
 // Worktree commands
 // ---------------------------------------------------------------------------
 
-export function createWorktree(projectId: string, branch: string, path: string): Promise<void> {
-  return invoke<void>("create_worktree", { projectId, branch, path });
+export function createWorktree(projectId: string, branch: string, path: string): Promise<WorktreeDef> {
+  return invoke<WorktreeDef>("create_worktree", { projectId, branch, path });
 }
 
 export function removeWorktree(projectId: string, worktreeId: string, cleanup: boolean): Promise<void> {
