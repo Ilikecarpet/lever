@@ -2,7 +2,6 @@ import { useConfigStore } from "../../stores/configStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import * as api from "../../lib/tauri";
 import styles from "./StatusBar.module.css";
 
 export default function StatusBar() {
@@ -18,41 +17,8 @@ export default function StatusBar() {
     (svc) => statuses[svc.id] === "running"
   ).length;
 
-  const handleHome = async () => {
-    await api.showStartPage();
-  };
-
-  const handleExport = async () => {
-    const config = await api.getConfig();
-    const json = JSON.stringify(config, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const projectId = api.getProjectId() ?? "project";
-    a.download = `${projectId}-config.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className={styles.statusbar}>
-      <div className={styles.projectControls}>
-        <button
-          className={styles.paneBtn}
-          onClick={handleHome}
-          title="Back to projects"
-        >
-          Home
-        </button>
-        <button
-          className={styles.paneBtn}
-          onClick={handleExport}
-          title="Export config as JSON"
-        >
-          Export
-        </button>
-      </div>
       <span>
         {running}/{total} running
       </span>
