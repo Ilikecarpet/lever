@@ -11,11 +11,12 @@
   "app": {
     "windows": [
       {
-        "title": "Lever",
-        "width": 900,
-        "height": 700,
-        "minWidth": 600,
-        "minHeight": 400,
+        "label": "main",
+        "title": "Lever — Start",
+        "width": 700,
+        "height": 500,
+        "minWidth": 500,
+        "minHeight": 350,
         "titleBarStyle": "Visible",
         "decorations": true,
         "resizable": true
