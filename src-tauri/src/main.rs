@@ -57,56 +57,25 @@ struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        AppConfig {
-            groups: vec![ServiceGroup {
-                id: "autohive".into(),
-                label: "Autohive".into(),
-                repo_path: "/Users/onil/Repos/Work/Autohive".into(),
-                services: vec![
-                    ServiceDef {
-                        id: "build".into(),
-                        label: "Build Solution".into(),
-                        description: "dotnet build".into(),
-                        command: "dotnet".into(),
-                        args: vec!["build".into()],
-                        cwd: "/Users/onil/Repos/Work/Autohive".into(),
-                        service_type: "task".into(),
-                        stop_command: vec![],
-                    },
-                    ServiceDef {
-                        id: "docker".into(),
-                        label: "Docker Compose".into(),
-                        description: "PostgreSQL, S3 Mock, Storage, Execution Engine".into(),
-                        command: "docker".into(),
-                        args: vec!["compose".into(), "up".into()],
-                        cwd: "/Users/onil/Repos/Work/Autohive".into(),
-                        service_type: "service".into(),
-                        stop_command: vec!["docker".into(), "compose".into(), "stop".into()],
-                    },
-                    ServiceDef {
-                        id: "r2platform".into(),
-                        label: "R2.Platform".into(),
-                        description: "ASP.NET backend — localhost:5001".into(),
-                        command: "dotnet".into(),
-                        args: vec!["run".into(), "--project".into(), "src/R2.Platform/".into()],
-                        cwd: "/Users/onil/Repos/Work/Autohive".into(),
-                        service_type: "service".into(),
-                        stop_command: vec![],
-                    },
-                    ServiceDef {
-                        id: "rrapp".into(),
-                        label: "rr-app".into(),
-                        description: "React frontend — localhost:3000".into(),
-                        command: "bun".into(),
-                        args: vec!["run".into(), "dev".into()],
-                        cwd: "/Users/onil/Repos/Work/Autohive/rr-app".into(),
-                        service_type: "service".into(),
-                        stop_command: vec![],
-                    },
-                ],
-            }],
-        }
+        AppConfig { groups: vec![] }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Project metadata & index
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ProjectMeta {
+    id: String,
+    name: String,
+    created_at: i64,
+    last_opened: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct ProjectIndex {
+    projects: Vec<ProjectMeta>,
 }
 
 // ---------------------------------------------------------------------------
@@ -138,12 +107,17 @@ struct PtyDataEvent {
     data: String,
 }
 
+struct ProjectState {
+    config: AppConfig,
+    tracked: HashMap<String, TrackedService>,
+    log_offsets: HashMap<String, u64>,
+    pty_sessions: HashMap<String, PtySession>,
+}
+
 struct AppState {
-    config: Mutex<AppConfig>,
-    tracked: Mutex<HashMap<String, TrackedService>>,
-    log_offsets: Mutex<HashMap<String, u64>>,
-    pty_sessions: Mutex<HashMap<String, PtySession>>,
+    projects: Mutex<HashMap<String, ProjectState>>,
     pty_counter: Mutex<u32>,
+    projects_dir: PathBuf,
     data_dir: PathBuf,
 }
 
@@ -165,7 +139,7 @@ struct PtyInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers: shell / process
 // ---------------------------------------------------------------------------
 
 fn get_shell_path() -> String {
@@ -180,32 +154,6 @@ fn get_shell_path() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
-fn log_file_path(data_dir: &PathBuf, id: &str) -> PathBuf {
-    let p = data_dir.join("logs");
-    let _ = fs::create_dir_all(&p);
-    p.join(format!("{}.log", id))
-}
-
-fn state_file_path(data_dir: &PathBuf) -> PathBuf {
-    data_dir.join("state.json")
-}
-
-fn save_persistent_state(data_dir: &PathBuf, tracked: &HashMap<String, TrackedService>) {
-    let ps = PersistentState {
-        running: tracked.iter().map(|(k, v)| (k.clone(), v.pid)).collect(),
-    };
-    if let Ok(json) = serde_json::to_string_pretty(&ps) {
-        let _ = fs::write(state_file_path(data_dir), json);
-    }
-}
-
-fn load_persistent_state(data_dir: &PathBuf) -> PersistentState {
-    match fs::read_to_string(state_file_path(data_dir)) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => PersistentState::default(),
-    }
-}
-
 fn is_pid_alive(pid: u32) -> bool {
     unsafe {
         let mut status: i32 = 0;
@@ -217,29 +165,18 @@ fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
-fn save_config_to_disk(config: &AppConfig, data_dir: &PathBuf) -> Result<(), String> {
-    let path = data_dir.join("config.json");
-    let _ = fs::create_dir_all(data_dir);
-    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+fn find_service<'a>(config: &'a AppConfig, id: &str) -> Option<&'a ServiceDef> {
+    config.groups.iter().flat_map(|g| g.services.iter()).find(|s| s.id == id)
 }
 
-fn load_config_from_disk(data_dir: &PathBuf) -> AppConfig {
-    let path = data_dir.join("config.json");
-    match fs::read_to_string(&path) {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-        Err(_) => {
-            let config = AppConfig::default();
-            let _ = save_config_to_disk(&config, data_dir);
-            config
-        }
-    }
+fn all_services(config: &AppConfig) -> Vec<&ServiceDef> {
+    config.groups.iter().flat_map(|g| g.services.iter()).collect()
 }
 
-fn tail_log_file(data_dir: &PathBuf, id: &str, offsets: &mut HashMap<String, u64>) -> Vec<String> {
-    let path = log_file_path(data_dir, id);
+// Updated tail_log_file: caller passes the log path directly
+fn tail_log_file(log_path: &PathBuf, id: &str, offsets: &mut HashMap<String, u64>) -> Vec<String> {
     let mut lines = Vec::new();
-    let file = match File::open(&path) {
+    let file = match File::open(log_path) {
         Ok(f) => f,
         Err(_) => return lines,
     };
@@ -275,58 +212,424 @@ fn tail_log_file(data_dir: &PathBuf, id: &str, offsets: &mut HashMap<String, u64
     lines
 }
 
-fn find_service<'a>(config: &'a AppConfig, id: &str) -> Option<&'a ServiceDef> {
-    config.groups.iter().flat_map(|g| g.services.iter()).find(|s| s.id == id)
+// ---------------------------------------------------------------------------
+// Helpers: project storage
+// ---------------------------------------------------------------------------
+
+fn projects_dir(data_dir: &PathBuf) -> PathBuf {
+    data_dir.join("projects")
 }
 
-fn all_services(config: &AppConfig) -> Vec<&ServiceDef> {
-    config.groups.iter().flat_map(|g| g.services.iter()).collect()
+fn project_dir(projects_dir: &PathBuf, id: &str) -> PathBuf {
+    projects_dir.join(id)
+}
+
+fn index_path(projects_dir: &PathBuf) -> PathBuf {
+    projects_dir.join("index.json")
+}
+
+fn load_project_index(projects_dir: &PathBuf) -> ProjectIndex {
+    let path = index_path(projects_dir);
+    match fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => ProjectIndex::default(),
+    }
+}
+
+fn save_project_index(projects_dir: &PathBuf, index: &ProjectIndex) -> Result<(), String> {
+    let _ = fs::create_dir_all(projects_dir);
+    let json = serde_json::to_string_pretty(index).map_err(|e| e.to_string())?;
+    fs::write(index_path(projects_dir), json).map_err(|e| e.to_string())
+}
+
+fn load_project_config(projects_dir: &PathBuf, id: &str) -> Result<AppConfig, String> {
+    let path = project_dir(projects_dir, id).join("config.json");
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read project config: {}", e))?;
+    serde_json::from_str(&contents).map_err(|e| format!("Invalid project config: {}", e))
+}
+
+fn save_project_config(projects_dir: &PathBuf, id: &str, config: &AppConfig) -> Result<(), String> {
+    let dir = project_dir(projects_dir, id);
+    let _ = fs::create_dir_all(&dir);
+    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    fs::write(dir.join("config.json"), json).map_err(|e| e.to_string())
+}
+
+fn project_log_file_path(projects_dir: &PathBuf, project_id: &str, service_id: &str) -> PathBuf {
+    let p = project_dir(projects_dir, project_id).join("logs");
+    let _ = fs::create_dir_all(&p);
+    p.join(format!("{}.log", service_id))
+}
+
+fn project_state_file_path(projects_dir: &PathBuf, project_id: &str) -> PathBuf {
+    project_dir(projects_dir, project_id).join("state.json")
+}
+
+fn save_project_persistent_state(projects_dir: &PathBuf, project_id: &str, tracked: &HashMap<String, TrackedService>) {
+    let ps = PersistentState {
+        running: tracked.iter().map(|(k, v)| (k.clone(), v.pid)).collect(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&ps) {
+        let _ = fs::write(project_state_file_path(projects_dir, project_id), json);
+    }
+}
+
+fn load_project_persistent_state(projects_dir: &PathBuf, project_id: &str) -> PersistentState {
+    match fs::read_to_string(project_state_file_path(projects_dir, project_id)) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => PersistentState::default(),
+    }
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn name_to_id(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands: config
+// Migration
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-fn get_config(state: State<'_, AppState>) -> AppConfig {
-    state.config.lock().unwrap().clone()
+fn migrate_old_config(data_dir: &PathBuf) {
+    let proj_dir = projects_dir(data_dir);
+    if proj_dir.exists() {
+        return;
+    }
+
+    let old_config_path = data_dir.join("config.json");
+    if !old_config_path.exists() {
+        let _ = fs::create_dir_all(&proj_dir);
+        let _ = save_project_index(&proj_dir, &ProjectIndex::default());
+        return;
+    }
+
+    let config: AppConfig = match fs::read_to_string(&old_config_path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => AppConfig::default(),
+    };
+
+    let _ = fs::create_dir_all(&proj_dir);
+    let project_id = "default";
+    let _ = save_project_config(&proj_dir, project_id, &config);
+
+    let old_state = data_dir.join("state.json");
+    let new_state = project_state_file_path(&proj_dir, project_id);
+    if old_state.exists() {
+        let _ = fs::rename(&old_state, &new_state);
+    }
+
+    let old_logs = data_dir.join("logs");
+    let new_logs = project_dir(&proj_dir, project_id).join("logs");
+    if old_logs.exists() {
+        let _ = fs::rename(&old_logs, &new_logs);
+    }
+
+    let index = ProjectIndex {
+        projects: vec![ProjectMeta {
+            id: project_id.to_string(),
+            name: "Default".to_string(),
+            created_at: now_unix(),
+            last_opened: now_unix(),
+        }],
+    };
+    let _ = save_project_index(&proj_dir, &index);
+    let _ = fs::remove_file(&old_config_path);
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands: project CRUD
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Serialize)]
+struct ProjectListEntry {
+    id: String,
+    name: String,
+    created_at: i64,
+    last_opened: i64,
+    group_count: usize,
+    service_count: usize,
+    service_names: Vec<String>,
 }
 
 #[tauri::command]
-fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
-    save_config_to_disk(&config, &state.data_dir)?;
-    *state.config.lock().unwrap() = config;
+fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, String> {
+    let index = load_project_index(&state.projects_dir);
+    let mut entries = Vec::new();
+    for meta in index.projects {
+        let (group_count, service_count, service_names) =
+            match load_project_config(&state.projects_dir, &meta.id) {
+                Ok(config) => {
+                    let gc = config.groups.len();
+                    let names: Vec<String> = config.groups.iter()
+                        .flat_map(|g| g.services.iter().map(|s| s.label.clone()))
+                        .collect();
+                    let sc = names.len();
+                    (gc, sc, names)
+                }
+                Err(_) => (0, 0, vec![]),
+            };
+        entries.push(ProjectListEntry {
+            id: meta.id,
+            name: meta.name,
+            created_at: meta.created_at,
+            last_opened: meta.last_opened,
+            group_count,
+            service_count,
+            service_names,
+        });
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    let mut index = load_project_index(&state.projects_dir);
+    let id = name_to_id(&name);
+    if id.is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+    if index.projects.iter().any(|p| p.id == id) {
+        return Err(format!("Project '{}' already exists", name));
+    }
+    let config = AppConfig::default();
+    save_project_config(&state.projects_dir, &id, &config)?;
+    let meta = ProjectMeta {
+        id: id.clone(),
+        name,
+        created_at: now_unix(),
+        last_opened: now_unix(),
+    };
+    index.projects.push(meta.clone());
+    save_project_index(&state.projects_dir, &index)?;
+    Ok(meta)
+}
+
+#[tauri::command]
+fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let label = format!("project-{}", id);
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.close();
+    }
+    {
+        let mut projects = state.projects.lock().unwrap();
+        projects.remove(&id);
+    }
+    let dir = project_dir(&state.projects_dir, &id);
+    if dir.exists() {
+        let _ = fs::remove_dir_all(&dir);
+    }
+    let mut index = load_project_index(&state.projects_dir);
+    index.projects.retain(|p| p.id != id);
+    save_project_index(&state.projects_dir, &index)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut index = load_project_index(&state.projects_dir);
+    if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+        meta.name = name;
+    } else {
+        return Err("Project not found".to_string());
+    }
+    save_project_index(&state.projects_dir, &index)
+}
+
+#[tauri::command]
+fn clone_project(source_id: String, name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    let config = load_project_config(&state.projects_dir, &source_id)?;
+    let new_id = name_to_id(&name);
+    if new_id.is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+    let mut index = load_project_index(&state.projects_dir);
+    if index.projects.iter().any(|p| p.id == new_id) {
+        return Err(format!("Project '{}' already exists", name));
+    }
+    save_project_config(&state.projects_dir, &new_id, &config)?;
+    let meta = ProjectMeta {
+        id: new_id,
+        name,
+        created_at: now_unix(),
+        last_opened: now_unix(),
+    };
+    index.projects.push(meta.clone());
+    save_project_index(&state.projects_dir, &index)?;
+    Ok(meta)
+}
+
+#[tauri::command]
+fn import_project(name: String, config_json: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    let config: AppConfig = serde_json::from_str(&config_json)
+        .map_err(|e| format!("Invalid config JSON: {}", e))?;
+    let id = name_to_id(&name);
+    if id.is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+    let mut index = load_project_index(&state.projects_dir);
+    if index.projects.iter().any(|p| p.id == id) {
+        return Err(format!("Project '{}' already exists", name));
+    }
+    save_project_config(&state.projects_dir, &id, &config)?;
+    let meta = ProjectMeta {
+        id,
+        name,
+        created_at: now_unix(),
+        last_opened: now_unix(),
+    };
+    index.projects.push(meta.clone());
+    save_project_index(&state.projects_dir, &index)?;
+    Ok(meta)
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands: open project window
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let label = format!("project-{}", id);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let config = load_project_config(&state.projects_dir, &id)?;
+
+    let ps = load_project_persistent_state(&state.projects_dir, &id);
+    let mut tracked = HashMap::new();
+    let mut log_offsets = HashMap::new();
+
+    for (svc_id, pid) in &ps.running {
+        if is_pid_alive(*pid) {
+            tracked.insert(svc_id.clone(), TrackedService { pid: *pid });
+            let log_path = project_log_file_path(&state.projects_dir, &id, svc_id);
+            if let Ok(meta) = fs::metadata(&log_path) {
+                log_offsets.insert(svc_id.clone(), meta.len());
+            }
+
+            let projects_dir = state.projects_dir.clone();
+            let project_id = id.clone();
+            let svc_id_clone = svc_id.clone();
+            let pid_val = *pid;
+            let log_path_clone = log_path.clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if !is_pid_alive(pid_val) {
+                        if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path_clone) {
+                            let _ = writeln!(f, "\n--- Process exited (PID {}) ---", pid_val);
+                        }
+                        let sp = project_state_file_path(&projects_dir, &project_id);
+                        if let Ok(s) = fs::read_to_string(&sp) {
+                            if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
+                                ps.running.remove(&svc_id_clone);
+                                if let Ok(json) = serde_json::to_string_pretty(&ps) {
+                                    let _ = fs::write(&sp, json);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    save_project_persistent_state(&state.projects_dir, &id, &tracked);
+
+    {
+        let mut projects = state.projects.lock().unwrap();
+        projects.insert(id.clone(), ProjectState {
+            config,
+            tracked,
+            log_offsets,
+            pty_sessions: HashMap::new(),
+        });
+    }
+
+    let mut index = load_project_index(&state.projects_dir);
+    if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+        meta.last_opened = now_unix();
+    }
+    let _ = save_project_index(&state.projects_dir, &index);
+
+    let project_name = index.projects.iter()
+        .find(|p| p.id == id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| id.clone());
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title(format!("Lever — {}", project_name))
+    .inner_size(900.0, 700.0)
+    .min_inner_size(600.0, 400.0)
+    .build()
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands: services
+// Tauri commands: config (project-scoped)
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn start_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let config = state.config.lock().unwrap();
-    let def = find_service(&config, &id).cloned()
-        .ok_or_else(|| format!("Unknown service: {}", id))?;
-    drop(config);
+fn get_config(project_id: String, state: State<'_, AppState>) -> Result<AppConfig, String> {
+    let projects = state.projects.lock().unwrap();
+    let ps = projects.get(&project_id).ok_or("Project not loaded")?;
+    Ok(ps.config.clone())
+}
 
-    {
-        let tracked = state.tracked.lock().unwrap();
-        if tracked.contains_key(&id) {
-            return Err(format!("{} is already running", id));
-        }
+#[tauri::command]
+fn save_config(project_id: String, config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
+    save_project_config(&state.projects_dir, &project_id, &config)?;
+    let mut projects = state.projects.lock().unwrap();
+    if let Some(ps) = projects.get_mut(&project_id) {
+        ps.config = config;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands: services (project-scoped)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn start_service(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+
+    let def = find_service(&ps.config, &id).cloned()
+        .ok_or_else(|| format!("Unknown service: {}", id))?;
+
+    if ps.tracked.contains_key(&id) {
+        return Err(format!("{} is already running", id));
     }
 
     let shell_path = get_shell_path();
-    let log_path = log_file_path(&state.data_dir, &id);
+    let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
     let log_file = OpenOptions::new().create(true).write(true).truncate(true).open(&log_path)
         .map_err(|e| format!("Failed to open log file: {}", e))?;
     let log_file_err = log_file.try_clone().map_err(|e| format!("Clone: {}", e))?;
 
-    {
-        let mut offsets = state.log_offsets.lock().unwrap();
-        offsets.insert(id.clone(), 0);
-    }
+    ps.log_offsets.insert(id.clone(), 0);
 
     let cwd = if def.cwd.is_empty() { ".".to_string() } else { def.cwd.clone() };
     let mut cmd = Command::new(&def.command);
@@ -343,19 +646,17 @@ fn start_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
     let child = cmd.spawn().map_err(|e| format!("Failed to start {}: {}", def.label, e))?;
     let pid = child.id();
 
-    {
-        let mut tracked = state.tracked.lock().unwrap();
-        tracked.insert(id.clone(), TrackedService { pid });
-        save_persistent_state(&state.data_dir, &tracked);
-    }
+    ps.tracked.insert(id.clone(), TrackedService { pid });
+    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
 
-    // Write starting message to log
+    drop(projects);
+
     if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path) {
         let _ = writeln!(f, "Starting {} (PID {})...\n", def.label, pid);
     }
 
-    // Exit watcher
-    let data_dir = state.data_dir.clone();
+    let projects_dir = state.projects_dir.clone();
+    let proj_id = project_id.clone();
     let id_clone = id.clone();
     let log_path_clone = log_path.clone();
     std::thread::spawn(move || {
@@ -365,7 +666,7 @@ fn start_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
                 if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path_clone) {
                     let _ = writeln!(f, "\n--- Process exited (PID {}) ---", pid);
                 }
-                let sp = state_file_path(&data_dir);
+                let sp = project_state_file_path(&projects_dir, &proj_id);
                 if let Ok(s) = fs::read_to_string(&sp) {
                     if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
                         ps.running.remove(&id_clone);
@@ -383,14 +684,12 @@ fn start_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn stop_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let config = state.config.lock().unwrap();
-    let def = find_service(&config, &id).cloned();
-    drop(config);
+fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    let tracked = state.tracked.lock().unwrap();
-    let pid = tracked.get(&id).map(|t| t.pid);
-    drop(tracked);
+    let def = find_service(&ps.config, &id).cloned();
+    let pid = ps.tracked.get(&id).map(|t| t.pid);
 
     if let (Some(def), Some(_)) = (&def, pid) {
         if !def.stop_command.is_empty() {
@@ -407,98 +706,75 @@ fn stop_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
             libc::kill(-(pid as i32), libc::SIGTERM);
             libc::kill(pid as i32, libc::SIGTERM);
         }
-        let log_path = log_file_path(&state.data_dir, &id);
+        let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
         if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path) {
             let _ = writeln!(f, "\n--- Stopped by user ---");
         }
     }
 
-    {
-        let mut tracked = state.tracked.lock().unwrap();
-        tracked.remove(&id);
-        save_persistent_state(&state.data_dir, &tracked);
-    }
+    ps.tracked.remove(&id);
+    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
 
-    // Clean up stale log file and offset
-    let log_path = log_file_path(&state.data_dir, &id);
+    let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
     let _ = fs::remove_file(&log_path);
-    state.log_offsets.lock().unwrap().remove(&id);
+    ps.log_offsets.remove(&id);
 
     Ok(())
 }
 
 #[tauri::command]
-fn poll(state: State<'_, AppState>) -> PollResult {
-    let config = state.config.lock().unwrap();
+fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    // Reap dead processes
-    {
-        let mut tracked = state.tracked.lock().unwrap();
-        let dead: Vec<String> = tracked.iter()
-            .filter(|(_, t)| !is_pid_alive(t.pid))
-            .map(|(k, _)| k.clone())
-            .collect();
-        if !dead.is_empty() {
-            for id in &dead { tracked.remove(id); }
-            save_persistent_state(&state.data_dir, &tracked);
-        }
+    let dead: Vec<String> = ps.tracked.iter()
+        .filter(|(_, t)| !is_pid_alive(t.pid))
+        .map(|(k, _)| k.clone())
+        .collect();
+    if !dead.is_empty() {
+        for id in &dead { ps.tracked.remove(id); }
+        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
     }
 
-    let tracked = state.tracked.lock().unwrap();
-    let svcs = all_services(&config);
+    let svcs = all_services(&ps.config);
     let statuses: Vec<ServiceStatus> = svcs.iter().map(|s| {
         ServiceStatus {
             id: s.id.clone(),
-            status: if tracked.contains_key(&s.id) { "running" } else { "stopped" }.to_string(),
+            status: if ps.tracked.contains_key(&s.id) { "running" } else { "stopped" }.to_string(),
         }
     }).collect();
-    drop(tracked);
 
     let mut all_logs: HashMap<String, Vec<String>> = HashMap::new();
-    {
-        let tracked = state.tracked.lock().unwrap();
-        let mut offsets = state.log_offsets.lock().unwrap();
-        for svc in &svcs {
-            if !tracked.contains_key(&svc.id) {
-                continue;
-            }
-            let lines = tail_log_file(&state.data_dir, &svc.id, &mut offsets);
-            if !lines.is_empty() {
-                all_logs.insert(svc.id.clone(), lines);
-            }
+    for svc in &svcs {
+        if !ps.tracked.contains_key(&svc.id) { continue; }
+        let log_path = project_log_file_path(&state.projects_dir, &project_id, &svc.id);
+        let lines = tail_log_file(&log_path, &svc.id, &mut ps.log_offsets);
+        if !lines.is_empty() {
+            all_logs.insert(svc.id.clone(), lines);
         }
     }
-    drop(config);
 
-    PollResult { statuses, logs: all_logs }
+    Ok(PollResult { statuses, logs: all_logs })
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands: PTY terminals
+// Tauri commands: PTY terminals (project-scoped)
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn create_pty(cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
+fn create_pty(project_id: String, cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
-        .openpty(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
+        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l"); // login shell to get full PATH
-
-    // Set terminal capabilities so TUI apps (Claude Code, etc.) use correct escape sequences
+    cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    pair.slave
-        .spawn_command(cmd)
+    pair.slave.spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn shell: {}", e))?;
 
     let mut reader = pair.master.try_clone_reader()
@@ -511,15 +787,14 @@ fn create_pty(cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppS
     let pty_id = format!("pty-{}", *counter);
     drop(counter);
 
-    let session = PtySession {
-        writer,
-        master: pair.master,
-    };
+    let session = PtySession { writer, master: pair.master };
 
-    state.pty_sessions.lock().unwrap().insert(pty_id.clone(), session);
+    {
+        let mut projects = state.projects.lock().unwrap();
+        let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+        ps.pty_sessions.insert(pty_id.clone(), session);
+    }
 
-    // Spawn a background thread that reads PTY output and pushes it to the frontend via events.
-    // This replaces IPC polling — data is streamed as soon as it's available.
     let app_handle = app.clone();
     let pty_id_clone = pty_id.clone();
     std::thread::spawn(move || {
@@ -527,15 +802,12 @@ fn create_pty(cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppS
         let mut leftover: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
-                Ok(0) => break, // EOF — PTY closed
+                Ok(0) => break,
                 Ok(n) => {
-                    // Prepend any leftover bytes from a previous incomplete UTF-8 sequence
                     let mut data = Vec::with_capacity(leftover.len() + n);
                     data.extend_from_slice(&leftover);
                     data.extend_from_slice(&buf[..n]);
                     leftover.clear();
-
-                    // Find the last valid UTF-8 boundary to avoid splitting multi-byte chars
                     match std::str::from_utf8(&data) {
                         Ok(s) => {
                             let _ = app_handle.emit("pty-data", PtyDataEvent {
@@ -552,12 +824,11 @@ fn create_pty(cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppS
                                     data: s.to_string(),
                                 });
                             }
-                            // Buffer the incomplete trailing bytes for the next read
                             leftover.extend_from_slice(&data[valid_up_to..]);
                         }
                     }
                 }
-                Err(_) => break, // read error — PTY closed
+                Err(_) => break,
             }
         }
     });
@@ -566,33 +837,33 @@ fn create_pty(cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppS
 }
 
 #[tauri::command]
-fn write_pty(id: String, data: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut sessions = state.pty_sessions.lock().unwrap();
-    let session = sessions.get_mut(&id).ok_or("PTY not found")?;
+fn write_pty(project_id: String, id: String, data: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+    let session = ps.pty_sessions.get_mut(&id).ok_or("PTY not found")?;
     session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-fn resize_pty(id: String, cols: u16, rows: u16, state: State<'_, AppState>) -> Result<(), String> {
-    let sessions = state.pty_sessions.lock().unwrap();
-    let session = sessions.get(&id).ok_or("PTY not found")?;
-    session.master.resize(PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    }).map_err(|e| e.to_string())
+fn resize_pty(project_id: String, id: String, cols: u16, rows: u16, state: State<'_, AppState>) -> Result<(), String> {
+    let projects = state.projects.lock().unwrap();
+    let ps = projects.get(&project_id).ok_or("Project not loaded")?;
+    let session = ps.pty_sessions.get(&id).ok_or("PTY not found")?;
+    session.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn close_pty(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    state.pty_sessions.lock().unwrap().remove(&id);
+fn close_pty(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+    ps.pty_sessions.remove(&id);
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Tauri commands: Git
+// Tauri commands: Git (unchanged — take path directly)
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
@@ -631,14 +902,12 @@ fn is_staged(s: git2::Status) -> bool {
 fn git_info(path: String) -> Result<GitRepoInfo, String> {
     let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
 
-    // Current branch
     let head = repo.head().map_err(|e| format!("No HEAD: {}", e))?;
     let current_branch = head
         .shorthand()
         .unwrap_or("HEAD")
         .to_string();
 
-    // File statuses
     let mut changed_files = Vec::new();
     let statuses = repo.statuses(Some(
         git2::StatusOptions::new()
@@ -707,61 +976,28 @@ fn main() {
             let data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let _ = fs::create_dir_all(&data_dir);
 
-            let config = load_config_from_disk(&data_dir);
+            migrate_old_config(&data_dir);
 
-            // Reconnect to running processes
-            let ps = load_persistent_state(&data_dir);
-            let mut tracked = HashMap::new();
-            let mut log_offsets = HashMap::new();
-
-            for (id, pid) in &ps.running {
-                if is_pid_alive(*pid) {
-                    tracked.insert(id.clone(), TrackedService { pid: *pid });
-                    let log_path = log_file_path(&data_dir, id);
-                    if let Ok(meta) = fs::metadata(&log_path) {
-                        log_offsets.insert(id.clone(), meta.len());
-                    }
-
-                    let data_dir_clone = data_dir.clone();
-                    let id_clone = id.clone();
-                    let pid_val = *pid;
-                    let log_path_clone = log_path.clone();
-                    std::thread::spawn(move || {
-                        loop {
-                            std::thread::sleep(std::time::Duration::from_secs(1));
-                            if !is_pid_alive(pid_val) {
-                                if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path_clone) {
-                                    let _ = writeln!(f, "\n--- Process exited (PID {}) ---", pid_val);
-                                }
-                                let sp = state_file_path(&data_dir_clone);
-                                if let Ok(s) = fs::read_to_string(&sp) {
-                                    if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
-                                        ps.running.remove(&id_clone);
-                                        if let Ok(json) = serde_json::to_string_pretty(&ps) {
-                                            let _ = fs::write(&sp, json);
-                                        }
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    });
-                }
-            }
-            save_persistent_state(&data_dir, &tracked);
+            let proj_dir = projects_dir(&data_dir);
+            let _ = fs::create_dir_all(&proj_dir);
 
             app.manage(AppState {
-                config: Mutex::new(config),
-                tracked: Mutex::new(tracked),
-                log_offsets: Mutex::new(log_offsets),
-                pty_sessions: Mutex::new(HashMap::new()),
+                projects: Mutex::new(HashMap::new()),
                 pty_counter: Mutex::new(0),
+                projects_dir: proj_dir,
                 data_dir,
             });
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            list_projects,
+            create_project,
+            delete_project,
+            rename_project,
+            clone_project,
+            import_project,
+            open_project,
             get_config,
             save_config,
             start_service,
@@ -777,12 +1013,17 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let state = window.state::<AppState>();
-                let tracked = state.tracked.lock().unwrap();
-                save_persistent_state(&state.data_dir, &tracked);
-                // Don't kill services — they survive
-                // But do close PTY sessions
-                state.pty_sessions.lock().unwrap().clear();
+                let label = window.label().to_string();
+                if label.starts_with("project-") {
+                    let project_id = label[8..].to_string();
+                    let state = window.state::<AppState>();
+                    let mut projects = state.projects.lock().unwrap();
+                    if let Some(ps) = projects.get_mut(&project_id) {
+                        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+                        ps.pty_sessions.clear();
+                    }
+                    projects.remove(&project_id);
+                }
             }
         })
         .run(tauri::generate_context!())
