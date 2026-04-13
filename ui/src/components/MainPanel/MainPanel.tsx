@@ -13,7 +13,6 @@ export default function MainPanel() {
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
 
-  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
   const showEmpty =
     workspaces.length === 0 && !activeGitGroupId && !activeLogSvcId;
   const showGitPanel = activeGitGroupId && !activeWorkspaceId;
@@ -28,14 +27,23 @@ export default function MainPanel() {
           </div>
         )}
 
-        {activeWs && (
-          <div style={{ position: "absolute", inset: 0 }}>
+        {workspaces.map((ws) => (
+          <div
+            key={ws.id}
+            style={{
+              position: "absolute",
+              inset: 0,
+              visibility: ws.id === activeWorkspaceId ? "visible" : "hidden",
+              pointerEvents: ws.id === activeWorkspaceId ? "auto" : "none",
+            }}
+          >
             <PaneView
-              node={activeWs.root}
-              activePaneId={activeWs.activePaneId}
+              node={ws.root}
+              activePaneId={ws.activePaneId}
+              visible={ws.id === activeWorkspaceId}
             />
           </div>
-        )}
+        ))}
 
         {showGitPanel && <GitPanel />}
 
