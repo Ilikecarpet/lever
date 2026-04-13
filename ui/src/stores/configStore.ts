@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import type { AppConfig, ServiceDef, ServiceGroup } from "../types";
+import type { AppConfig, ServiceDef, ServiceGroup, WorktreeDef } from "../types";
 import * as api from "../lib/tauri";
+import { useWorktreeStore } from "./worktreeStore";
 
 interface ConfigState {
   groups: ServiceGroup[];
@@ -31,13 +32,15 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     try {
       const config = await api.getConfig();
       set({ groups: config.groups, loaded: true });
+      useWorktreeStore.getState().setWorktrees(config.worktrees ?? []);
     } catch {
       set({ groups: [], loaded: true });
     }
   },
 
   saveConfig: async () => {
-    const config: AppConfig = { groups: get().groups };
+    const worktrees = useWorktreeStore.getState().worktrees;
+    const config: AppConfig = { groups: get().groups, worktrees };
     await api.saveConfig(config);
   },
 
