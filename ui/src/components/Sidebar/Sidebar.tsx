@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useConfigStore } from "../../stores/configStore";
+import * as api from "../../lib/tauri";
 import GroupItem from "./GroupItem";
 import styles from "./Sidebar.module.css";
 
@@ -13,6 +14,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const saveConfig = useConfigStore((s) => s.saveConfig);
 
   const [adding, setAdding] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -24,6 +27,18 @@ export default function Sidebar({ onOpenSettings }: Props) {
       }
     }
   }, [adding]);
+
+  // Close menu on click outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   const handleAddConfirm = (value: string) => {
     setAdding(false);
@@ -47,17 +62,55 @@ export default function Sidebar({ onOpenSettings }: Props) {
     handleAddConfirm(e.currentTarget.value);
   };
 
+  const handleHome = async () => {
+    setMenuOpen(false);
+    await api.showStartPage();
+  };
+
+  const handleExport = async () => {
+    setMenuOpen(false);
+    const config = await api.getConfig();
+    const json = JSON.stringify(config, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const projectId = api.getProjectId() ?? "project";
+    a.download = `${projectId}-config.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSettings = () => {
+    setMenuOpen(false);
+    onOpenSettings();
+  };
+
   return (
     <div className={styles.sidebar}>
-      <div className={styles.sidebarTop}>
-        <h1>Lever</h1>
+      <div className={styles.sidebarTop} ref={menuRef}>
         <button
-          className={styles.iconBtn}
-          onClick={onOpenSettings}
-          title="Settings"
+          className={styles.titleBtn}
+          onClick={() => setMenuOpen((o) => !o)}
         >
-          &#9881;
+          Lever
+          <span className={styles.chevron}>{menuOpen ? "▴" : "▾"}</span>
         </button>
+
+        {menuOpen && (
+          <div className={styles.menu}>
+            <button className={styles.menuItem} onClick={handleHome}>
+              Projects
+            </button>
+            <button className={styles.menuItem} onClick={handleExport}>
+              Export Config
+            </button>
+            <div className={styles.menuDivider} />
+            <button className={styles.menuItem} onClick={handleSettings}>
+              Settings
+            </button>
+          </div>
+        )}
       </div>
 
       <div className={styles.sidebarScroll} ref={scrollRef}>

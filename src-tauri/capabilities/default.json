@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities",
-  "windows": ["main"],
+  "windows": ["*"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -10,6 +10,9 @@
     "core:webview:default",
     "core:webview:allow-set-webview-size",
     "core:window:default",
-    "core:window:allow-set-size"
+    "core:window:allow-set-size",
+    "core:window:allow-create",
+    "core:window:allow-set-focus",
+    "core:window:allow-close"
   ]
 }
