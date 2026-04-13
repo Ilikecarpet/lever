@@ -1,0 +1,67 @@
+.sectionDivider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 4px;
+  font-size: 11px;
+  color: var(--blue);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  user-select: none;
+}
+.sectionDivider:hover {
+  background: var(--surface-hover);
+}
+
+.branchIcon {
+  font-size: 12px;
+}
+
+.branchName {
+  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+
+.worktreePath {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.worktreeGroup {
+  border-left: 3px solid var(--blue);
+}
+
+.contextMenu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  min-width: 160px;
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.contextMenuItem:hover {
+  background: var(--surface-hover);
+}
+
+.contextMenuDanger {
+  color: var(--red);
+}
