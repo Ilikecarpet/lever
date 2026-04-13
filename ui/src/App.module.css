@@ -3,3 +3,11 @@
   flex: 1;
   overflow: hidden;
 }
+
+.startPage {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}

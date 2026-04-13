@@ -67,3 +67,17 @@ export interface GitRepoInfo {
   changed_files: GitFileStatus[];
 }
 
+// ---------------------------------------------------------------------------
+// Project types
+// ---------------------------------------------------------------------------
+
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  created_at: number;
+  last_opened: number;
+  group_count: number;
+  service_count: number;
+  service_names: string[];
+}
+

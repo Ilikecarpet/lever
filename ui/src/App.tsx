@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { initProjectId } from "./lib/tauri";
 import { useConfigStore } from "./stores/configStore";
 import { useServiceStore } from "./stores/serviceStore";
 import { useGitStore } from "./stores/gitStore";
@@ -8,9 +9,12 @@ import Sidebar from "./components/Sidebar/Sidebar";
 import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ConfigModal from "./components/Modals/ConfigModal";
+import StartPage from "./components/StartPage/StartPage";
 import styles from "./App.module.css";
 
-export default function App() {
+const projectId = initProjectId();
+
+function ProjectApp() {
   const loaded = useConfigStore((s) => s.loaded);
   const loadConfig = useConfigStore((s) => s.loadConfig);
   const groups = useConfigStore((s) => s.groups);
@@ -23,29 +27,23 @@ export default function App() {
 
   useKeyboardShortcuts();
 
-  // Load config on mount
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
 
-  // After config loads: open first workspace, start polling loops
   useEffect(() => {
     if (!loaded || initialized.current) return;
     initialized.current = true;
 
-    // Open first workspace
     addWorkspace();
 
-    // Initial git refresh
     const gitGroups = groups
       .filter((g) => g.repo_path)
       .map((g) => ({ id: g.id, repo_path: g.repo_path }));
     refreshAllGit(gitGroups);
 
-    // Service poll loop (300ms)
     const servicePollId = setInterval(poll, 300);
 
-    // Git poll loop (5000ms)
     const gitPollId = setInterval(() => {
       const currentGroups = useConfigStore.getState().groups;
       const gitGrps = currentGroups
@@ -76,4 +74,11 @@ export default function App() {
       )}
     </>
   );
+}
+
+export default function App() {
+  if (projectId) {
+    return <ProjectApp />;
+  }
+  return <StartPage />;
 }
