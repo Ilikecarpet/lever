@@ -3,14 +3,17 @@ import type { GitRepoInfo } from "../types";
 import * as api from "../lib/tauri";
 
 interface GitState {
-  gitInfo: Record<string, GitRepoInfo>;
+  repoPath: string;
+  gitInfo: GitRepoInfo | null;
+  worktreeGitInfo: Record<string, GitRepoInfo>;
   activeGitGroupId: string | null;
   statusMessage: string | null;
 
-  refreshGitInfo: (groupId: string, repoPath: string) => Promise<void>;
-  refreshAllGit: (groups: { id: string; repo_path: string }[]) => Promise<void>;
-  fetch: (groupId: string, repoPath: string) => Promise<void>;
-  pull: (groupId: string, repoPath: string) => Promise<void>;
+  setRepoPath: (path: string) => void;
+  refreshGitInfo: () => Promise<void>;
+  refreshWorktreeGitInfo: (worktreeId: string, worktreePath: string) => Promise<void>;
+  fetch: () => Promise<void>;
+  pull: () => Promise<void>;
   setActiveGitGroup: (groupId: string | null) => void;
   setStatusMessage: (msg: string | null) => void;
 }
@@ -22,33 +25,44 @@ function autoClearStatus(set: (partial: Partial<GitState>) => void) {
 }
 
 export const useGitStore = create<GitState>((set, get) => ({
-  gitInfo: {},
+  repoPath: "",
+  gitInfo: null,
+  worktreeGitInfo: {},
   activeGitGroupId: null,
   statusMessage: null,
 
-  refreshGitInfo: async (groupId, repoPath) => {
+  setRepoPath: (path) => set({ repoPath: path }),
+
+  refreshGitInfo: async () => {
+    const { repoPath } = get();
     if (!repoPath) return;
     try {
       const info = await api.gitInfo(repoPath);
-      set((s) => ({ gitInfo: { ...s.gitInfo, [groupId]: info } }));
+      set({ gitInfo: info });
     } catch (e) {
-      console.error(`Failed to get git info for ${groupId}:`, e);
+      console.error("Failed to get git info:", e);
     }
   },
 
-  refreshAllGit: async (groups) => {
-    await Promise.all(
-      groups
-        .filter((g) => g.repo_path)
-        .map((g) => get().refreshGitInfo(g.id, g.repo_path))
-    );
+  refreshWorktreeGitInfo: async (worktreeId, worktreePath) => {
+    if (!worktreePath) return;
+    try {
+      const info = await api.gitInfo(worktreePath);
+      set((s) => ({
+        worktreeGitInfo: { ...s.worktreeGitInfo, [worktreeId]: info },
+      }));
+    } catch (e) {
+      console.error(`Failed to get worktree git info for ${worktreeId}:`, e);
+    }
   },
 
-  fetch: async (groupId, repoPath) => {
+  fetch: async () => {
+    const { repoPath } = get();
+    if (!repoPath) return;
     try {
       set({ statusMessage: "Fetching..." });
       await api.gitFetch(repoPath);
-      await get().refreshGitInfo(groupId, repoPath);
+      await get().refreshGitInfo();
       set({ statusMessage: "Fetch complete" });
       autoClearStatus(set);
     } catch (e) {
@@ -58,11 +72,13 @@ export const useGitStore = create<GitState>((set, get) => ({
     }
   },
 
-  pull: async (groupId, repoPath) => {
+  pull: async () => {
+    const { repoPath } = get();
+    if (!repoPath) return;
     try {
       set({ statusMessage: "Pulling..." });
       const result = await api.gitPull(repoPath);
-      await get().refreshGitInfo(groupId, repoPath);
+      await get().refreshGitInfo();
       const summary = result.trim().split("\n")[0] || "Pull complete";
       set({ statusMessage: summary });
       autoClearStatus(set);
