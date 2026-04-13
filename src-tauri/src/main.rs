@@ -118,7 +118,6 @@ struct AppState {
     projects: Mutex<HashMap<String, ProjectState>>,
     pty_counter: Mutex<u32>,
     projects_dir: PathBuf,
-    data_dir: PathBuf,
 }
 
 #[derive(Serialize)]
@@ -1009,7 +1008,6 @@ fn main() {
                 projects: Mutex::new(HashMap::new()),
                 pty_counter: Mutex::new(0),
                 projects_dir: proj_dir,
-                data_dir,
             });
 
             Ok(())
