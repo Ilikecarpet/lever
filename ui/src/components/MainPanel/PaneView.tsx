@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { PaneNode } from "../../types/pane";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
 import { usePty, focusPty } from "../../hooks/usePty";
 import Divider from "./Divider";
 import "@xterm/xterm/css/xterm.css";
@@ -8,7 +9,11 @@ import styles from "./PaneView.module.css";
 
 function LeafPane({ id, isActive, visible }: { id: string; isActive: boolean; visible: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { fit } = usePty(id, containerRef);
+  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const activeWorktree = worktrees.find((w) => w.id === activeWorktreeId);
+  const cwd = activeWorktree?.path;
+  const { fit } = usePty(id, containerRef, cwd);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
 
   useEffect(() => {
