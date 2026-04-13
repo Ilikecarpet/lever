@@ -45,8 +45,6 @@ struct ServiceGroup {
     label: String,
     #[serde(default)]
     services: Vec<ServiceDef>,
-    #[serde(default)]
-    repo_path: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -69,6 +67,8 @@ impl Default for AppConfig {
 struct ProjectMeta {
     id: String,
     name: String,
+    #[serde(default)]
+    repo_path: String,
     created_at: i64,
     last_opened: i64,
 }
@@ -301,6 +301,34 @@ fn name_to_id(name: &str) -> String {
 // Migration
 // ---------------------------------------------------------------------------
 
+/// Migrate old configs: move repo_path from groups to project meta
+fn migrate_repo_path(projects_dir: &PathBuf, id: &str) -> Option<String> {
+    let config_path = project_dir(projects_dir, id).join("config.json");
+    let contents = fs::read_to_string(&config_path).ok()?;
+    let mut json: serde_json::Value = serde_json::from_str(&contents).ok()?;
+
+    let groups = json.get_mut("groups")?.as_array_mut()?;
+    let mut repo_path: Option<String> = None;
+
+    for group in groups.iter_mut() {
+        if let Some(rp) = group.get("repo_path").and_then(|v| v.as_str()) {
+            if !rp.is_empty() && repo_path.is_none() {
+                repo_path = Some(rp.to_string());
+            }
+        }
+        if let Some(obj) = group.as_object_mut() {
+            obj.remove("repo_path");
+        }
+    }
+
+    // Re-save cleaned config
+    if let Ok(json_str) = serde_json::to_string_pretty(&json) {
+        let _ = fs::write(&config_path, json_str);
+    }
+
+    repo_path
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands: project CRUD
 // ---------------------------------------------------------------------------
@@ -309,6 +337,7 @@ fn name_to_id(name: &str) -> String {
 struct ProjectListEntry {
     id: String,
     name: String,
+    repo_path: String,
     created_at: i64,
     last_opened: i64,
     group_count: usize,
@@ -336,6 +365,7 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
         entries.push(ProjectListEntry {
             id: meta.id,
             name: meta.name,
+            repo_path: meta.repo_path,
             created_at: meta.created_at,
             last_opened: meta.last_opened,
             group_count,
@@ -361,6 +391,7 @@ fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMet
     let meta = ProjectMeta {
         id: id.clone(),
         name,
+        repo_path: String::new(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -425,6 +456,25 @@ fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
+fn set_repo_path(id: String, repo_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut index = load_project_index(&state.projects_dir);
+    if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+        meta.repo_path = repo_path;
+    } else {
+        return Err("Project not found".to_string());
+    }
+    save_project_index(&state.projects_dir, &index)
+}
+
+#[tauri::command]
+fn get_repo_path(id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == id)
+        .ok_or("Project not found")?;
+    Ok(meta.repo_path.clone())
+}
+
+#[tauri::command]
 fn clone_project(source_id: String, name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
     let config = load_project_config(&state.projects_dir, &source_id)?;
     let new_id = name_to_id(&name);
@@ -436,9 +486,15 @@ fn clone_project(source_id: String, name: String, state: State<'_, AppState>) ->
         return Err(format!("Project '{}' already exists", name));
     }
     save_project_config(&state.projects_dir, &new_id, &config)?;
+    // Copy repo_path from source project
+    let source_repo_path = index.projects.iter()
+        .find(|p| p.id == source_id)
+        .map(|p| p.repo_path.clone())
+        .unwrap_or_default();
     let meta = ProjectMeta {
         id: new_id,
         name,
+        repo_path: source_repo_path,
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -463,6 +519,7 @@ fn import_project(name: String, config_json: String, state: State<'_, AppState>)
     let meta = ProjectMeta {
         id,
         name,
+        repo_path: String::new(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -501,6 +558,19 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     if let Some(window) = app.get_webview_window(&label) {
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
+    }
+
+    // Migrate repo_path from groups to project meta if needed
+    {
+        let mut index = load_project_index(&state.projects_dir);
+        if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+            if meta.repo_path.is_empty() {
+                if let Some(rp) = migrate_repo_path(&state.projects_dir, &id) {
+                    meta.repo_path = rp;
+                    let _ = save_project_index(&state.projects_dir, &index);
+                }
+            }
+        }
     }
 
     let config = load_project_config(&state.projects_dir, &id)?;
@@ -988,6 +1058,8 @@ fn main() {
             create_project,
             delete_project,
             rename_project,
+            set_repo_path,
+            get_repo_path,
             clone_project,
             import_project,
             show_start_page,
