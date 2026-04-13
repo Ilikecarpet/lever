@@ -418,14 +418,38 @@ fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMet
 
 #[tauri::command]
 fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Stop all running services for this project before deleting
+    {
+        let mut projects = state.projects.lock().unwrap();
+        if let Some(ps) = projects.get_mut(&id) {
+            let pids: Vec<(String, u32)> = ps.tracked.iter()
+                .map(|(k, v)| (k.clone(), v.pid))
+                .collect();
+            for (_svc_id, pid) in &pids {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(-(*pid as i32), libc::SIGTERM);
+                    libc::kill(*pid as i32, libc::SIGTERM);
+                }
+            }
+            ps.tracked.clear();
+            ps.pty_sessions.clear();
+        }
+    }
+
+    // Close window if open
     let label = format!("project-{}", id);
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.close();
     }
+
+    // Remove from memory
     {
         let mut projects = state.projects.lock().unwrap();
         projects.remove(&id);
     }
+
+    // Remove project directory
     let dir = project_dir(&state.projects_dir, &id);
     if dir.exists() {
         let _ = fs::remove_dir_all(&dir);
