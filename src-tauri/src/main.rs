@@ -247,7 +247,11 @@ fn tail_log_file(data_dir: &PathBuf, id: &str, offsets: &mut HashMap<String, u64
         Ok(m) => m.len(),
         Err(_) => return lines,
     };
-    let current_offset = offsets.get(id).copied().unwrap_or(0);
+    let current_offset = offsets.get(id).copied().unwrap_or_else(|| {
+        // First poll for this service: skip to end so we don't read the entire log history
+        offsets.insert(id.to_string(), file_size);
+        file_size
+    });
     let offset = if current_offset > file_size { 0 } else { current_offset };
     if offset >= file_size {
         return lines;
@@ -414,6 +418,12 @@ fn stop_service(id: String, state: State<'_, AppState>) -> Result<(), String> {
         tracked.remove(&id);
         save_persistent_state(&state.data_dir, &tracked);
     }
+
+    // Clean up stale log file and offset
+    let log_path = log_file_path(&state.data_dir, &id);
+    let _ = fs::remove_file(&log_path);
+    state.log_offsets.lock().unwrap().remove(&id);
+
     Ok(())
 }
 
@@ -446,8 +456,12 @@ fn poll(state: State<'_, AppState>) -> PollResult {
 
     let mut all_logs: HashMap<String, Vec<String>> = HashMap::new();
     {
+        let tracked = state.tracked.lock().unwrap();
         let mut offsets = state.log_offsets.lock().unwrap();
         for svc in &svcs {
+            if !tracked.contains_key(&svc.id) {
+                continue;
+            }
             let lines = tail_log_file(&state.data_dir, &svc.id, &mut offsets);
             if !lines.is_empty() {
                 all_logs.insert(svc.id.clone(), lines);

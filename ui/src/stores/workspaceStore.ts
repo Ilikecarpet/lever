@@ -10,6 +10,7 @@ import {
   setPtyIdInTree,
   setTitleInTree,
 } from "../lib/paneTree";
+import { destroyPty } from "../hooks/usePty";
 
 interface WorkspaceState {
   workspaces: Workspace[];
@@ -64,6 +65,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   closeWorkspace: (id) => {
+    const ws = get().workspaces.find((w) => w.id === id);
+    if (ws) {
+      collectLeaves(ws.root).forEach((leaf) => destroyPty(leaf.id));
+    }
     set((s) => {
       const workspaces = s.workspaces.filter((w) => w.id !== id);
       let activeWorkspaceId = s.activeWorkspaceId;
@@ -119,12 +124,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const ws = workspaces.find((w) => w.id === activeWorkspaceId);
     if (!ws) return;
 
-    const newRoot = removeNode(ws.root, ws.activePaneId);
+    const closedPaneId = ws.activePaneId;
+    const newRoot = removeNode(ws.root, closedPaneId);
 
     if (newRoot === null) {
       get().closeWorkspace(ws.id);
       return;
     }
+
+    destroyPty(closedPaneId);
 
     const leaves = collectLeaves(newRoot);
     const newActive = leaves[0]?.id ?? ws.activePaneId;

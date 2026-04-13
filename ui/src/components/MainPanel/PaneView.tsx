@@ -1,22 +1,24 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { PaneNode } from "../../types/pane";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { usePty } from "../../hooks/usePty";
+import { usePty, focusPty } from "../../hooks/usePty";
 import Divider from "./Divider";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./PaneView.module.css";
 
-function LeafPane({ id, isActive }: { id: string; isActive: boolean }) {
+function LeafPane({ id, isActive, visible }: { id: string; isActive: boolean; visible: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { focus, fit } = usePty(id, containerRef);
+  const { fit } = usePty(id, containerRef);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
 
   useEffect(() => {
-    if (isActive) {
+    if (visible && isActive) {
       fit();
-      focus();
+      // focusPty reads directly from the module-level store,
+      // so it works even right after a remount/reattach
+      focusPty(id);
     }
-  }, [isActive, fit, focus]);
+  }, [id, isActive, visible, fit]);
 
   const handleClick = useCallback(() => {
     setActivePane(id);
@@ -35,11 +37,12 @@ function LeafPane({ id, isActive }: { id: string; isActive: boolean }) {
 interface PaneViewProps {
   node: PaneNode;
   activePaneId: string;
+  visible?: boolean;
 }
 
-export default function PaneView({ node, activePaneId }: PaneViewProps) {
+export default function PaneView({ node, activePaneId, visible = true }: PaneViewProps) {
   if (node.type === "leaf") {
-    return <LeafPane id={node.id} isActive={node.id === activePaneId} />;
+    return <LeafPane id={node.id} isActive={node.id === activePaneId} visible={visible} />;
   }
 
   const { direction, ratio, children } = node;
@@ -82,11 +85,11 @@ export default function PaneView({ node, activePaneId }: PaneViewProps) {
       className={`${styles.splitContainer} ${direction === "vertical" ? styles.splitVertical : styles.splitHorizontal}`}
     >
       <div className={styles.paneChild} style={{ flexBasis: firstBasis, flexGrow: 0, flexShrink: 0 }}>
-        <PaneView node={children[0]} activePaneId={activePaneId} />
+        <PaneView node={children[0]} activePaneId={activePaneId} visible={visible} />
       </div>
       <Divider direction={direction} onResize={handleResize} />
       <div className={styles.paneChild} style={{ flex: 1 }}>
-        <PaneView node={children[1]} activePaneId={activePaneId} />
+        <PaneView node={children[1]} activePaneId={activePaneId} visible={visible} />
       </div>
     </div>
   );
