@@ -17,11 +17,18 @@ export interface ServiceGroup {
   id: string;
   label: string;
   services: ServiceDef[];
-  repo_path: string;
+}
+
+export interface WorktreeDef {
+  id: string;
+  branch: string;
+  path: string;
+  groups: ServiceGroup[];
 }
 
 export interface AppConfig {
   groups: ServiceGroup[];
+  worktrees: WorktreeDef[];
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +81,7 @@ export interface GitRepoInfo {
 export interface ProjectMeta {
   id: string;
   name: string;
+  repo_path: string;
   created_at: number;
   last_opened: number;
   group_count: number;

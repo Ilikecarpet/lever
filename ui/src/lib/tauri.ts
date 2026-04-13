@@ -95,8 +95,8 @@ export function poll(): Promise<PollResult> {
 // PTY commands (project-scoped)
 // ---------------------------------------------------------------------------
 
-export function createPty(cols: number, rows: number): Promise<PtyInfo> {
-  return invoke<PtyInfo>("create_pty", { projectId: _projectId, cols, rows });
+export function createPty(cols: number, rows: number, cwd?: string): Promise<PtyInfo> {
+  return invoke<PtyInfo>("create_pty", { projectId: _projectId, cols, rows, cwd: cwd ?? null });
 }
 
 export function writePty(id: string, data: string): Promise<void> {
@@ -113,6 +113,34 @@ export function resizePty(
 
 export function closePty(id: string): Promise<void> {
   return invoke<void>("close_pty", { projectId: _projectId, id });
+}
+
+// ---------------------------------------------------------------------------
+// Project repo path commands
+// ---------------------------------------------------------------------------
+
+export function setRepoPath(id: string, repoPath: string): Promise<void> {
+  return invoke<void>("set_repo_path", { id, repoPath });
+}
+
+export function getRepoPath(id: string): Promise<string> {
+  return invoke<string>("get_repo_path", { id });
+}
+
+// ---------------------------------------------------------------------------
+// Worktree commands
+// ---------------------------------------------------------------------------
+
+export function createWorktree(projectId: string, branch: string, path: string): Promise<void> {
+  return invoke<void>("create_worktree", { projectId, branch, path });
+}
+
+export function removeWorktree(projectId: string, worktreeId: string, cleanup: boolean): Promise<void> {
+  return invoke<void>("remove_worktree", { projectId, worktreeId, cleanup });
+}
+
+export function listBranches(projectId: string): Promise<string[]> {
+  return invoke<string[]>("list_branches", { projectId });
 }
 
 // ---------------------------------------------------------------------------
