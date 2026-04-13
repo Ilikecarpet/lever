@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useConfigStore } from "../../stores/configStore";
+import { useGitStore } from "../../stores/gitStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
+import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
 import GroupItem from "./GroupItem";
+import WorktreeSection from "./WorktreeSection";
+import NewWorktreeModal from "../Modals/NewWorktreeModal";
 import styles from "./Sidebar.module.css";
 
 interface Props {
@@ -13,7 +18,19 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const addGroup = useConfigStore((s) => s.addGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
 
+  const gitInfo = useGitStore((s) => s.gitInfo);
+  const repoPath = useGitStore((s) => s.repoPath);
+  const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
+
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
+  const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
+  const createWorktree = useWorktreeStore((s) => s.createWorktree);
+
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
+
   const [adding, setAdding] = useState(false);
+  const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -28,7 +45,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
     }
   }, [adding]);
 
-  // Close menu on click outside
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
@@ -46,7 +62,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
     if (!name) return;
     const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     if (groups.find((g) => g.id === gid)) return;
-    addGroup({ id: gid, label: name, services: [], repo_path: "" });
+    addGroup({ id: gid, label: name, services: [] });
     saveConfig();
   };
 
@@ -86,6 +102,32 @@ export default function Sidebar({ onOpenSettings }: Props) {
     onOpenSettings();
   };
 
+  const handleMainContextClick = () => {
+    setActiveWorktree(null);
+    setActiveGitGroup(null);
+    const workspaces = useWorkspaceStore.getState().workspaces;
+    const mainWs = workspaces.find((w) => w.worktreeId === null);
+    if (mainWs) {
+      setActiveWorkspace(mainWs.id);
+    }
+  };
+
+  const handleOpenGitPanel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveWorktree(null);
+    setActiveWorkspace(null);
+    setActiveGitGroup("project");
+  };
+
+  const handleCreateWorktree = async (branch: string, path: string) => {
+    const wt = await createWorktree(branch, path);
+    await saveConfig();
+    setActiveWorktree(wt.id);
+    useWorkspaceStore.getState().addWorkspaceForWorktree(wt.id);
+  };
+
+  const isMainActive = activeWorktreeId === null;
+
   return (
     <div className={styles.sidebar}>
       <div className={styles.sidebarTop} ref={menuRef}>
@@ -113,9 +155,35 @@ export default function Sidebar({ onOpenSettings }: Props) {
         )}
       </div>
 
+      {repoPath && (
+        <div
+          className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
+          onClick={handleMainContextClick}
+        >
+          <span className={styles.mainContextDot}>●</span>
+          <span className={styles.mainContextBranch}>
+            {gitInfo?.current_branch ?? "..."}
+          </span>
+          {gitInfo?.is_dirty && (
+            <span className={styles.mainContextDirty}>●</span>
+          )}
+          <span
+            style={{ marginLeft: "auto", cursor: "pointer" }}
+            onClick={handleOpenGitPanel}
+            title="Git panel"
+          >
+            &#9579;
+          </span>
+        </div>
+      )}
+
       <div className={styles.sidebarScroll} ref={scrollRef}>
         {groups.map((group) => (
           <GroupItem key={group.id} group={group} />
+        ))}
+
+        {worktrees.map((wt) => (
+          <WorktreeSection key={wt.id} worktree={wt} />
         ))}
 
         {adding ? (
@@ -128,14 +196,30 @@ export default function Sidebar({ onOpenSettings }: Props) {
             />
           </div>
         ) : (
-          <button
-            className={styles.addGroupBtn}
-            onClick={() => setAdding(true)}
-          >
-            + Add Group
-          </button>
+          <div className={styles.bottomBar}>
+            <button
+              className={styles.addGroupBtn}
+              onClick={() => setAdding(true)}
+            >
+              + Add Group
+            </button>
+            {repoPath && (
+              <button
+                className={styles.newWorktreeBtn}
+                onClick={() => setWorktreeModalOpen(true)}
+              >
+                + New Worktree
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      <NewWorktreeModal
+        open={worktreeModalOpen}
+        onClose={() => setWorktreeModalOpen(false)}
+        onCreate={handleCreateWorktree}
+      />
     </div>
   );
 }
