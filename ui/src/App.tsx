@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { initProjectId } from "./lib/tauri";
+import { initProjectId, getProjectId } from "./lib/tauri";
+import * as api from "./lib/tauri";
 import { useConfigStore } from "./stores/configStore";
 import { useServiceStore } from "./stores/serviceStore";
 import { useGitStore } from "./stores/gitStore";
+import { useWorktreeStore } from "./stores/worktreeStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import Sidebar from "./components/Sidebar/Sidebar";
@@ -17,9 +19,9 @@ const projectId = initProjectId();
 function ProjectApp() {
   const loaded = useConfigStore((s) => s.loaded);
   const loadConfig = useConfigStore((s) => s.loadConfig);
-  const groups = useConfigStore((s) => s.groups);
   const poll = useServiceStore((s) => s.poll);
-  const refreshAllGit = useGitStore((s) => s.refreshAllGit);
+  const setRepoPath = useGitStore((s) => s.setRepoPath);
+  const refreshGitInfo = useGitStore((s) => s.refreshGitInfo);
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -37,19 +39,28 @@ function ProjectApp() {
 
     addWorkspace();
 
-    const gitGroups = groups
-      .filter((g) => g.repo_path)
-      .map((g) => ({ id: g.id, repo_path: g.repo_path }));
-    refreshAllGit(gitGroups);
+    // Load project repo path and init git
+    const pid = getProjectId();
+    if (pid) {
+      api.getRepoPath(pid).then((rp) => {
+        if (rp) {
+          setRepoPath(rp);
+          refreshGitInfo();
+        }
+      });
+    }
 
     const servicePollId = setInterval(poll, 300);
 
     const gitPollId = setInterval(() => {
-      const currentGroups = useConfigStore.getState().groups;
-      const gitGrps = currentGroups
-        .filter((g) => g.repo_path)
-        .map((g) => ({ id: g.id, repo_path: g.repo_path }));
-      refreshAllGit(gitGrps);
+      const repoPath = useGitStore.getState().repoPath;
+      if (repoPath) {
+        useGitStore.getState().refreshGitInfo();
+        const worktrees = useWorktreeStore.getState().worktrees;
+        for (const wt of worktrees) {
+          useGitStore.getState().refreshWorktreeGitInfo(wt.id, wt.path);
+        }
+      }
     }, 5000);
 
     return () => {
