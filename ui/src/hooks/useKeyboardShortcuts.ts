@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useWorktreeStore } from "../stores/worktreeStore";
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -34,8 +35,9 @@ export function useKeyboardShortcuts() {
       if (e.key === "t" && !e.shiftKey) {
         e.preventDefault();
         const currentWs = store.workspaces.find((w) => w.id === store.activeWorkspaceId);
-        if (currentWs?.worktreeId) {
-          store.addWorkspaceForWorktree(currentWs.worktreeId);
+        const wtId = currentWs?.worktreeId ?? useWorktreeStore.getState().activeWorktreeId;
+        if (wtId) {
+          store.addWorkspaceForWorktree(wtId);
         } else {
           store.addWorkspace();
         }
