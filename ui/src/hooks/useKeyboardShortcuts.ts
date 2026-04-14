@@ -30,10 +30,15 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd+T — new workspace
+      // Cmd+T — new workspace (inherits worktree from current workspace)
       if (e.key === "t" && !e.shiftKey) {
         e.preventDefault();
-        store.addWorkspace();
+        const currentWs = store.workspaces.find((w) => w.id === store.activeWorkspaceId);
+        if (currentWs?.worktreeId) {
+          store.addWorkspaceForWorktree(currentWs.worktreeId);
+        } else {
+          store.addWorkspace();
+        }
         return;
       }
 
