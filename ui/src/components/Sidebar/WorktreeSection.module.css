@@ -87,3 +87,74 @@
 .contextMenuDanger:hover {
   background: var(--red-dim);
 }
+
+/* Delete confirmation accordion */
+.confirmAccordion {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.confirmOpen {
+  max-height: 80px;
+}
+
+.confirmWarning {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.confirmActions {
+  display: flex;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+
+.confirmCancel {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.confirmCancel:hover {
+  background: var(--border);
+}
+
+.confirmYes {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.confirmYes:hover {
+  background: var(--border);
+}
+
+.confirmYesDanger {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--red-dim);
+  color: var(--red);
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.confirmYesDanger:hover {
+  background: var(--red);
+  color: #fff;
+}

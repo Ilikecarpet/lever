@@ -60,6 +60,8 @@ export default function ConfigModal({ open, onClose }: Props) {
   const renameRef = useRef<HTMLInputElement>(null);
 
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<string | null>(null);
+  const mouseDownOnOverlay = useRef(false);
+  const mouseDownOnFormOverlay = useRef(false);
 
   useEffect(() => {
     if (renamingGroupId && renameRef.current) {
@@ -79,7 +81,16 @@ export default function ConfigModal({ open, onClose }: Props) {
 
   const openAddForm = () => {
     setEditing(null);
-    setForm({ ...emptyForm, groupId: groups[0]?.id ?? "" });
+    let groupId = groups[0]?.id ?? "";
+    if (!groupId) {
+      let n = 1;
+      while (groups.some((g) => g.id === `group-${n}`)) n++;
+      const gid = `group-${n}`;
+      addGroup({ id: gid, label: `Group ${n}`, services: [] });
+      saveConfig();
+      groupId = gid;
+    }
+    setForm({ ...emptyForm, groupId });
     setFormOpen(true);
   };
 
@@ -109,7 +120,8 @@ export default function ConfigModal({ open, onClose }: Props) {
     if (!label || !command) return;
 
     const targetGroupId = form.groupId;
-    if (targetGroupId === "__new__") return;
+    if (targetGroupId === "__new__" || !targetGroupId) return;
+    if (!groups.some((g) => g.id === targetGroupId)) return;
 
     const args = form.args.trim() ? form.args.trim().split(/\s+/) : [];
     const stopCommand = form.stopCommand.trim()
@@ -206,8 +218,9 @@ export default function ConfigModal({ open, onClose }: Props) {
       {/* ---- Service list modal ---- */}
       <div
         className={styles.overlay}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) handleDone();
+        onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+        onMouseUp={(e) => {
+          if (mouseDownOnOverlay.current && e.target === e.currentTarget) handleDone();
         }}
       >
         <div className={styles.modal}>
@@ -307,8 +320,9 @@ export default function ConfigModal({ open, onClose }: Props) {
       {formOpen && (
         <div
           className={styles.formOverlay}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeForm();
+          onMouseDown={(e) => { mouseDownOnFormOverlay.current = e.target === e.currentTarget; }}
+          onMouseUp={(e) => {
+            if (mouseDownOnFormOverlay.current && e.target === e.currentTarget) closeForm();
           }}
         >
           <div className={styles.formModal}>

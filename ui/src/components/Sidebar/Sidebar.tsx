@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { useConfigStore } from "../../stores/configStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
@@ -91,16 +92,16 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const handleExport = async () => {
     setMenuOpen(false);
+    const projectId = api.getProjectId() ?? "project";
+    const filePath = await save({
+      title: "Export Config",
+      defaultPath: `${projectId}-config.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!filePath) return;
     const config = await api.getConfig();
     const json = JSON.stringify(config, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const projectId = api.getProjectId() ?? "project";
-    a.download = `${projectId}-config.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await api.writeTextFile(filePath, json);
   };
 
   const handleSettings = () => {
@@ -211,7 +212,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
       <div className={styles.sidebarScroll} ref={scrollRef}>
         {groups.map((group) => (
-          <GroupItem key={group.id} group={group} />
+          <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
         ))}
 
         {worktrees.map((wt) => (

@@ -36,8 +36,16 @@ export function listProjects(): Promise<ProjectMeta[]> {
   return invoke<ProjectMeta[]>("list_projects");
 }
 
-export function createProject(name: string): Promise<ProjectMeta> {
-  return invoke<ProjectMeta>("create_project", { name });
+export function createProject(name: string, repoPath?: string): Promise<ProjectMeta> {
+  return invoke<ProjectMeta>("create_project", { name, repoPath: repoPath ?? null });
+}
+
+export function checkIsGitRepo(path: string): Promise<boolean> {
+  return invoke<boolean>("check_is_git_repo", { path });
+}
+
+export function writeTextFile(path: string, contents: string): Promise<void> {
+  return invoke<void>("write_text_file", { path, contents });
 }
 
 export function deleteProject(id: string): Promise<void> {

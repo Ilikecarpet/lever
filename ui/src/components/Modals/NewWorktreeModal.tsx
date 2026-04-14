@@ -27,6 +27,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mouseDownOnOverlay = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -81,10 +82,13 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   };
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
+    <div
+      className={styles.overlay}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
       <div
         className={styles.modal}
-        onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
         <div className={styles.title}>New Worktree</div>
