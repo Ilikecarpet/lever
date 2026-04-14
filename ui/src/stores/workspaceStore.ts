@@ -17,7 +17,9 @@ interface WorkspaceState {
   activeWorkspaceId: string | null;
 
   addWorkspace: () => string;
+  addWorkspaceForWorktree: (worktreeId: string) => string;
   closeWorkspace: (id: string) => void;
+  closeWorktreeWorkspaces: (worktreeId: string) => void;
   setActiveWorkspace: (id: string | null) => void;
   renameWorkspace: (id: string, label: string) => void;
   moveWorkspace: (fromIndex: number, toIndex: number) => void;
@@ -32,13 +34,14 @@ interface WorkspaceState {
   setPaneTitle: (paneId: string, title: string) => void;
 }
 
-function createWorkspace(label: string): Workspace {
+function createWorkspace(label: string, worktreeId: string | null = null): Workspace {
   const leaf = makeLeaf();
   return {
     id: nextId("ws"),
     label,
     root: leaf,
     activePaneId: leaf.id,
+    worktreeId,
   };
 }
 
@@ -56,7 +59,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   activeWorkspaceId: null,
 
   addWorkspace: () => {
-    const ws = createWorkspace(nextWorkspaceName(get().workspaces));
+    const ws = createWorkspace(nextWorkspaceName(get().workspaces), null);
+    set((s) => ({
+      workspaces: [...s.workspaces, ws],
+      activeWorkspaceId: ws.id,
+    }));
+    return ws.id;
+  },
+
+  addWorkspaceForWorktree: (worktreeId) => {
+    const allWs = get().workspaces;
+    const wtWorkspaces = allWs.filter((w) => w.worktreeId === worktreeId);
+    const ws = createWorkspace(nextWorkspaceName(wtWorkspaces), worktreeId);
     set((s) => ({
       workspaces: [...s.workspaces, ws],
       activeWorkspaceId: ws.id,
@@ -76,6 +90,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         const idx = s.workspaces.findIndex((w) => w.id === id);
         activeWorkspaceId =
           workspaces[Math.min(idx, workspaces.length - 1)]?.id ?? null;
+      }
+      return { workspaces, activeWorkspaceId };
+    });
+  },
+
+  closeWorktreeWorkspaces: (worktreeId) => {
+    const toClose = get().workspaces.filter((w) => w.worktreeId === worktreeId);
+    for (const ws of toClose) {
+      collectLeaves(ws.root).forEach((leaf) => destroyPty(leaf.id));
+    }
+    set((s) => {
+      const workspaces = s.workspaces.filter((w) => w.worktreeId !== worktreeId);
+      let activeWorkspaceId = s.activeWorkspaceId;
+      if (toClose.some((w) => w.id === activeWorkspaceId)) {
+        activeWorkspaceId = workspaces[0]?.id ?? null;
       }
       return { workspaces, activeWorkspaceId };
     });

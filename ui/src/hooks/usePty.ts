@@ -77,7 +77,8 @@ export function destroyPty(paneId: string) {
 
 export function usePty(
   paneId: string,
-  containerRef: React.RefObject<HTMLDivElement | null>
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  cwd?: string
 ) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -168,7 +169,7 @@ export function usePty(
 
     // Create PTY and wire everything up
     api
-      .createPty(term.cols, term.rows)
+      .createPty(term.cols, term.rows, cwd)
       .then(async (info) => {
         if (entry.disposed) {
           api.closePty(info.id);

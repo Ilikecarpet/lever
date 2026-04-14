@@ -20,4 +20,5 @@ export interface Workspace {
   label: string;
   root: PaneNode;
   activePaneId: string;
+  worktreeId: string | null;
 }

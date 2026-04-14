@@ -1,12 +1,7 @@
 import { useState } from "react";
 import { useGitStore } from "../../stores/gitStore";
-import { useConfigStore } from "../../stores/configStore";
 import type { GitFileStatus } from "../../types";
 import styles from "./GitPanel.module.css";
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function ChangesSection({ files }: { files: GitFileStatus[] }) {
   const [shown, setShown] = useState(10);
@@ -65,24 +60,15 @@ function ChangesSection({ files }: { files: GitFileStatus[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main GitPanel
-// ---------------------------------------------------------------------------
-
 export default function GitPanel() {
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const gitInfo = useGitStore((s) => s.gitInfo);
   const fetchGit = useGitStore((s) => s.fetch);
   const pull = useGitStore((s) => s.pull);
-  const groups = useConfigStore((s) => s.groups);
 
   if (!activeGitGroupId) return null;
 
-  const group = groups.find((g) => g.id === activeGitGroupId);
-  const repoPath = group?.repo_path ?? "";
-  const info = gitInfo[activeGitGroupId];
-
-  if (!info) {
+  if (!gitInfo) {
     return (
       <div className={styles.gitPanel}>
         <div className={styles.gitLoading}>Loading git info...</div>
@@ -95,8 +81,8 @@ export default function GitPanel() {
       <div className={styles.gitPanelHeader}>
         <h3>
           <span>&#9579;</span>
-          <span className={styles.branchMono}>{info.current_branch}</span>
-          {info.is_dirty ? (
+          <span className={styles.branchMono}>{gitInfo.current_branch}</span>
+          {gitInfo.is_dirty ? (
             <span className={styles.dirtyIndicator}>
               &#9679; modified
             </span>
@@ -107,20 +93,20 @@ export default function GitPanel() {
         <div className={styles.gitActions}>
           <button
             className={styles.actionBtn}
-            onClick={() => fetchGit(activeGitGroupId, repoPath)}
+            onClick={() => fetchGit()}
           >
             Fetch
           </button>
           <button
             className={styles.actionBtn}
-            onClick={() => pull(activeGitGroupId, repoPath)}
+            onClick={() => pull()}
           >
             Pull
           </button>
         </div>
       </div>
       <div className={styles.gitPanelBody}>
-        <ChangesSection files={info.changed_files} />
+        <ChangesSection files={gitInfo.changed_files} />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
@@ -21,8 +22,15 @@ export default function WorkspaceBar() {
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace);
   const moveWorkspace = useWorkspaceStore((s) => s.moveWorkspace);
 
+  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
+  const addWorkspaceForWorktree = useWorkspaceStore((s) => s.addWorkspaceForWorktree);
+
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
   const setActiveLog = useServiceStore((s) => s.setActiveLog);
+
+  const filteredWorkspaces = workspaces.filter(
+    (w) => w.worktreeId === activeWorktreeId
+  );
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,7 +71,11 @@ export default function WorkspaceBar() {
   };
 
   const handleNew = () => {
-    addWorkspace();
+    if (activeWorktreeId) {
+      addWorkspaceForWorktree(activeWorktreeId);
+    } else {
+      addWorkspace();
+    }
     setActiveGitGroup(null);
     setActiveLog(null);
   };
@@ -165,7 +177,7 @@ export default function WorkspaceBar() {
 
   return (
     <div className={styles.bar}>
-      {workspaces.map((ws, i) => (
+      {filteredWorkspaces.map((ws, i) => (
         <div
           key={ws.id}
           ref={(el) => { tabRefs.current[i] = el; }}

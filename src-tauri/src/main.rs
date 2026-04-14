@@ -45,19 +45,30 @@ struct ServiceGroup {
     label: String,
     #[serde(default)]
     services: Vec<ServiceDef>,
-    #[serde(default)]
-    repo_path: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct WorktreeDef {
+    id: String,
+    branch: String,
+    path: String,
+    groups: Vec<ServiceGroup>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AppConfig {
     #[serde(default)]
     groups: Vec<ServiceGroup>,
+    #[serde(default)]
+    worktrees: Vec<WorktreeDef>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        AppConfig { groups: vec![] }
+        AppConfig {
+            groups: vec![],
+            worktrees: vec![],
+        }
     }
 }
 
@@ -69,6 +80,8 @@ impl Default for AppConfig {
 struct ProjectMeta {
     id: String,
     name: String,
+    #[serde(default)]
+    repo_path: String,
     created_at: i64,
     last_opened: i64,
 }
@@ -165,11 +178,15 @@ fn is_pid_alive(pid: u32) -> bool {
 }
 
 fn find_service<'a>(config: &'a AppConfig, id: &str) -> Option<&'a ServiceDef> {
-    config.groups.iter().flat_map(|g| g.services.iter()).find(|s| s.id == id)
+    config.groups.iter().flat_map(|g| g.services.iter())
+        .chain(config.worktrees.iter().flat_map(|w| w.groups.iter().flat_map(|g| g.services.iter())))
+        .find(|s| s.id == id)
 }
 
 fn all_services(config: &AppConfig) -> Vec<&ServiceDef> {
-    config.groups.iter().flat_map(|g| g.services.iter()).collect()
+    config.groups.iter().flat_map(|g| g.services.iter())
+        .chain(config.worktrees.iter().flat_map(|w| w.groups.iter().flat_map(|g| g.services.iter())))
+        .collect()
 }
 
 // Updated tail_log_file: caller passes the log path directly
@@ -301,6 +318,34 @@ fn name_to_id(name: &str) -> String {
 // Migration
 // ---------------------------------------------------------------------------
 
+/// Migrate old configs: move repo_path from groups to project meta
+fn migrate_repo_path(projects_dir: &PathBuf, id: &str) -> Option<String> {
+    let config_path = project_dir(projects_dir, id).join("config.json");
+    let contents = fs::read_to_string(&config_path).ok()?;
+    let mut json: serde_json::Value = serde_json::from_str(&contents).ok()?;
+
+    let groups = json.get_mut("groups")?.as_array_mut()?;
+    let mut repo_path: Option<String> = None;
+
+    for group in groups.iter_mut() {
+        if let Some(rp) = group.get("repo_path").and_then(|v| v.as_str()) {
+            if !rp.is_empty() && repo_path.is_none() {
+                repo_path = Some(rp.to_string());
+            }
+        }
+        if let Some(obj) = group.as_object_mut() {
+            obj.remove("repo_path");
+        }
+    }
+
+    // Re-save cleaned config
+    if let Ok(json_str) = serde_json::to_string_pretty(&json) {
+        let _ = fs::write(&config_path, json_str);
+    }
+
+    repo_path
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands: project CRUD
 // ---------------------------------------------------------------------------
@@ -309,6 +354,7 @@ fn name_to_id(name: &str) -> String {
 struct ProjectListEntry {
     id: String,
     name: String,
+    repo_path: String,
     created_at: i64,
     last_opened: i64,
     group_count: usize,
@@ -336,6 +382,7 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
         entries.push(ProjectListEntry {
             id: meta.id,
             name: meta.name,
+            repo_path: meta.repo_path,
             created_at: meta.created_at,
             last_opened: meta.last_opened,
             group_count,
@@ -361,6 +408,7 @@ fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMet
     let meta = ProjectMeta {
         id: id.clone(),
         name,
+        repo_path: String::new(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -425,6 +473,25 @@ fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Resul
 }
 
 #[tauri::command]
+fn set_repo_path(id: String, repo_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut index = load_project_index(&state.projects_dir);
+    if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+        meta.repo_path = repo_path;
+    } else {
+        return Err("Project not found".to_string());
+    }
+    save_project_index(&state.projects_dir, &index)
+}
+
+#[tauri::command]
+fn get_repo_path(id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == id)
+        .ok_or("Project not found")?;
+    Ok(meta.repo_path.clone())
+}
+
+#[tauri::command]
 fn clone_project(source_id: String, name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
     let config = load_project_config(&state.projects_dir, &source_id)?;
     let new_id = name_to_id(&name);
@@ -436,9 +503,15 @@ fn clone_project(source_id: String, name: String, state: State<'_, AppState>) ->
         return Err(format!("Project '{}' already exists", name));
     }
     save_project_config(&state.projects_dir, &new_id, &config)?;
+    // Copy repo_path from source project
+    let source_repo_path = index.projects.iter()
+        .find(|p| p.id == source_id)
+        .map(|p| p.repo_path.clone())
+        .unwrap_or_default();
     let meta = ProjectMeta {
         id: new_id,
         name,
+        repo_path: source_repo_path,
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -463,6 +536,7 @@ fn import_project(name: String, config_json: String, state: State<'_, AppState>)
     let meta = ProjectMeta {
         id,
         name,
+        repo_path: String::new(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -501,6 +575,19 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     if let Some(window) = app.get_webview_window(&label) {
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
+    }
+
+    // Migrate repo_path from groups to project meta if needed
+    {
+        let mut index = load_project_index(&state.projects_dir);
+        if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
+            if meta.repo_path.is_empty() {
+                if let Some(rp) = migrate_repo_path(&state.projects_dir, &id) {
+                    meta.repo_path = rp;
+                    let _ = save_project_index(&state.projects_dir, &index);
+                }
+            }
+        }
     }
 
     let config = load_project_config(&state.projects_dir, &id)?;
@@ -758,7 +845,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn create_pty(project_id: String, cols: u16, rows: u16, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
+fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
@@ -769,6 +856,12 @@ fn create_pty(project_id: String, cols: u16, rows: u16, app: tauri::AppHandle, s
     cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+
+    if let Some(ref cwd_path) = cwd {
+        if !cwd_path.is_empty() {
+            cmd.cwd(cwd_path);
+        }
+    }
 
     pair.slave.spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn shell: {}", e))?;
@@ -963,6 +1056,166 @@ fn git_pull(path: String) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Tauri commands: Worktrees
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == project_id)
+        .ok_or("Project not found")?;
+    if meta.repo_path.is_empty() {
+        return Err("No repository path set for this project".to_string());
+    }
+    let repo = git2::Repository::open(&meta.repo_path)
+        .map_err(|e| format!("Not a git repo: {}", e))?;
+    let mut branches = Vec::new();
+    for branch_result in repo.branches(None).map_err(|e| e.to_string())? {
+        let (branch, _branch_type) = branch_result.map_err(|e| e.to_string())?;
+        if let Some(name) = branch.name().map_err(|e| e.to_string())? {
+            branches.push(name.to_string());
+        }
+    }
+    branches.sort();
+    branches.dedup();
+    Ok(branches)
+}
+
+fn sanitize_branch_for_path(branch: &str) -> String {
+    branch.replace('/', "-")
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+#[tauri::command]
+fn create_worktree(
+    project_id: String, branch: String, path: String, state: State<'_, AppState>,
+) -> Result<WorktreeDef, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == project_id)
+        .ok_or("Project not found")?;
+    if meta.repo_path.is_empty() {
+        return Err("No repository path set for this project".to_string());
+    }
+    let repo_path = &meta.repo_path;
+
+    // Check if branch exists locally
+    let repo = git2::Repository::open(repo_path)
+        .map_err(|e| format!("Not a git repo: {}", e))?;
+    let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
+
+    let shell_path = get_shell_path();
+    let args = if branch_exists {
+        vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
+    } else {
+        vec!["worktree".to_string(), "add".to_string(), "-b".to_string(), branch.clone(), path.clone()]
+    };
+
+    let output = Command::new("git").args(&args).current_dir(repo_path)
+        .env("PATH", &shell_path).output()
+        .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git worktree add failed: {}", stderr));
+    }
+
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+
+    let worktree_id = format!("wt-{}-{}", sanitize_branch_for_path(&branch),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default().as_millis() % 100000);
+
+    let cloned_groups: Vec<ServiceGroup> = ps.config.groups.iter().map(|g| {
+        let cloned_services: Vec<ServiceDef> = g.services.iter().map(|s| {
+            let new_cwd = if s.cwd.starts_with(repo_path.as_str()) {
+                s.cwd.replacen(repo_path.as_str(), &path, 1)
+            } else if s.cwd.is_empty() {
+                path.clone()
+            } else {
+                format!("{}/{}", path, s.cwd)
+            };
+            ServiceDef {
+                id: format!("{}-{}", s.id, worktree_id),
+                label: s.label.clone(),
+                description: s.description.clone(),
+                command: s.command.clone(),
+                args: s.args.clone(),
+                cwd: new_cwd,
+                service_type: s.service_type.clone(),
+                stop_command: s.stop_command.clone(),
+            }
+        }).collect();
+        ServiceGroup {
+            id: format!("{}-{}", g.id, worktree_id),
+            label: g.label.clone(),
+            services: cloned_services,
+        }
+    }).collect();
+
+    let worktree_def = WorktreeDef {
+        id: worktree_id, branch, path, groups: cloned_groups,
+    };
+
+    ps.config.worktrees.push(worktree_def.clone());
+    save_project_config(&state.projects_dir, &project_id, &ps.config)?;
+
+    Ok(worktree_def)
+}
+
+#[tauri::command]
+fn remove_worktree(
+    project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+
+    let worktree = ps.config.worktrees.iter().find(|w| w.id == worktree_id)
+        .cloned().ok_or("Worktree not found")?;
+
+    // Stop all running services in the worktree
+    let wt_service_ids: Vec<String> = worktree.groups.iter()
+        .flat_map(|g| g.services.iter().map(|s| s.id.clone())).collect();
+    for svc_id in &wt_service_ids {
+        if let Some(tracked) = ps.tracked.remove(svc_id) {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(tracked.pid as i32), libc::SIGTERM);
+                libc::kill(tracked.pid as i32, libc::SIGTERM);
+            }
+        }
+        ps.log_offsets.remove(svc_id);
+    }
+    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+
+    ps.config.worktrees.retain(|w| w.id != worktree_id);
+    save_project_config(&state.projects_dir, &project_id, &ps.config)?;
+
+    if cleanup {
+        let shell_path = get_shell_path();
+        let index = load_project_index(&state.projects_dir);
+        if let Some(meta) = index.projects.iter().find(|p| p.id == project_id) {
+            if !meta.repo_path.is_empty() {
+                let output = Command::new("git")
+                    .args(["worktree", "remove", "--force", &worktree.path])
+                    .current_dir(&meta.repo_path)
+                    .env("PATH", &shell_path).output();
+                if let Ok(output) = output {
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        return Err(format!("Worktree removed from config but git cleanup failed: {}", stderr));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -988,6 +1241,8 @@ fn main() {
             create_project,
             delete_project,
             rename_project,
+            set_repo_path,
+            get_repo_path,
             clone_project,
             import_project,
             show_start_page,
@@ -1004,6 +1259,9 @@ fn main() {
             git_info,
             git_fetch,
             git_pull,
+            list_branches,
+            create_worktree,
+            remove_worktree,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

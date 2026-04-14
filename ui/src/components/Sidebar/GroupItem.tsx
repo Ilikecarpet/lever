@@ -1,8 +1,6 @@
 import { useState } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
-import { useGitStore } from "../../stores/gitStore";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
 
@@ -16,13 +14,6 @@ export default function GroupItem({ group }: Props) {
   const statuses = useServiceStore((s) => s.statuses);
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
-  const setActiveLog = useServiceStore((s) => s.setActiveLog);
-
-  const gitInfo = useGitStore((s) => s.gitInfo[group.id]);
-  const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
-  const refreshGitInfo = useGitStore((s) => s.refreshGitInfo);
-
-  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
 
   const runningCount = group.services.filter(
     (svc) => (statuses[svc.id] ?? "stopped") === "running"
@@ -44,14 +35,6 @@ export default function GroupItem({ group }: Props) {
         await stopService(svc.id);
       }
     }
-  };
-
-  const handleOpenGitPanel = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveLog(null);
-    setActiveWorkspace(null);
-    setActiveGitGroup(group.id);
-    refreshGitInfo(group.id, group.repo_path);
   };
 
   return (
@@ -88,18 +71,6 @@ export default function GroupItem({ group }: Props) {
           </button>
         </div>
       </div>
-
-      {group.repo_path && (
-        <div className={styles.gitBranch} onClick={handleOpenGitPanel}>
-          <span className={styles.gitBranchIcon}>&#9579;</span>
-          <span className={styles.gitBranchName}>
-            {gitInfo?.current_branch ?? "..."}
-          </span>
-          {gitInfo?.is_dirty && (
-            <span className={styles.gitDirty}>&#9679;</span>
-          )}
-        </div>
-      )}
 
       <div
         className={`${styles.groupServices}${collapsed ? ` ${styles.groupServicesCollapsed}` : ""}`}

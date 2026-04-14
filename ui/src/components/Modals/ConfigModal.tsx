@@ -207,11 +207,6 @@ export default function ConfigModal({ open, onClose }: Props) {
     setRenamingGroupId(null);
   };
 
-  const handleRepoPathChange = (groupId: string, value: string) => {
-    updateGroup(groupId, { repo_path: value.trim() });
-    saveConfig();
-  };
-
   const handleGroupSelectChange = (value: string) => {
     if (value === "__new__") {
       // Prompt for new group name inline
@@ -226,7 +221,6 @@ export default function ConfigModal({ open, onClose }: Props) {
           id: gid,
           label: name,
           services: [],
-          repo_path: "",
         });
       }
       setForm((f) => ({ ...f, groupId: gid }));
@@ -306,19 +300,6 @@ export default function ConfigModal({ open, onClose }: Props) {
                         : "Delete"}
                     </button>
                   </div>
-                </div>
-
-                {/* Repo path */}
-                <div className={styles.repoPathRow}>
-                  <span className={styles.repoLabel}>Repo:</span>
-                  <input
-                    className={styles.repoInput}
-                    defaultValue={group.repo_path || ""}
-                    placeholder="/path/to/repo"
-                    onBlur={(e) =>
-                      handleRepoPathChange(group.id, e.target.value)
-                    }
-                  />
                 </div>
 
                 {/* Services */}
