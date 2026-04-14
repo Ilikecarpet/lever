@@ -51,6 +51,7 @@ export default function MainPanel() {
                 node={ws.root}
                 activePaneId={ws.activePaneId}
                 visible={ws.id === activeWorkspaceId}
+                worktreeId={ws.worktreeId}
               />
             </div>
           ))}
