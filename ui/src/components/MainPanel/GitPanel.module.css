@@ -9,7 +9,7 @@
 
 /* ---- Header ---- */
 .gitPanelHeader {
-  padding: 12px 16px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -27,16 +27,19 @@
   gap: 6px;
 }
 .actionBtn {
-  padding: 3px 8px;
+  padding: 4px 10px;
   font-size: 11px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  font-weight: 500;
+  transition: background 0.1s, border-color 0.15s;
 }
 .actionBtn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 
 /* ---- Body ---- */
@@ -58,12 +61,12 @@
   border-bottom: 1px solid var(--border);
 }
 .gitSectionHeader {
-  padding: 10px 16px;
+  padding: 10px 18px;
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -86,13 +89,14 @@
 
 /* ---- File item ---- */
 .gitFileItem {
-  padding: 4px 16px;
+  padding: 4px 18px;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   color: var(--text-dim);
+  transition: background 0.1s;
 }
 .gitFileItem:hover {
   background: var(--surface-hover);
@@ -100,21 +104,29 @@
 .gitFileBadge {
   font-size: 9px;
   font-weight: 700;
-  width: 14px;
-  text-align: center;
-  font-family: -apple-system, system-ui, sans-serif;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-family: var(--font-sans);
 }
 .badgeModified {
   color: var(--yellow);
+  background: var(--yellow-dim);
 }
 .badgeNew {
   color: var(--green);
+  background: var(--green-dim);
 }
 .badgeDeleted {
   color: var(--red);
+  background: var(--red-dim);
 }
 .badgeStaged {
   color: var(--blue);
+  background: var(--blue-dim);
 }
 .filePath {
   flex: 1;
@@ -124,19 +136,23 @@
 }
 .stagedLabel {
   font-size: 9px;
-  color: var(--blue);
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* ---- Utility ---- */
 .gitLoading {
-  padding: 20px 16px;
+  padding: 20px 18px;
   color: var(--text-muted);
   font-size: 12px;
 }
 .gitShowMore {
-  padding: 6px 16px;
+  padding: 6px 18px;
   font-size: 11px;
-  color: var(--blue);
+  color: var(--accent);
   cursor: pointer;
   background: none;
   border: none;
@@ -144,6 +160,7 @@
   font-weight: 600;
   width: 100%;
   text-align: left;
+  transition: background 0.1s;
 }
 .gitShowMore:hover {
   background: var(--surface-hover);
@@ -152,11 +169,13 @@
 .dirtyIndicator {
   color: var(--yellow);
   font-size: 10px;
+  font-weight: 500;
 }
 .cleanIndicator {
   color: var(--green);
   font-size: 10px;
+  font-weight: 500;
 }
 .branchMono {
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
 }

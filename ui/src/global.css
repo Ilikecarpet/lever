@@ -1,22 +1,50 @@
 :root {
-  --bg: #0c0e14;
-  --sidebar-bg: #111420;
-  --surface: #181c2a;
-  --surface-hover: #1e2336;
-  --border: #232839;
-  --text: #e2e5f0;
-  --text-dim: #6c7294;
-  --text-muted: #3d4463;
-  --green: #34d399;
-  --green-dim: rgba(52, 211, 153, 0.12);
-  --red: #f87171;
-  --red-dim: rgba(248, 113, 113, 0.12);
+  /* Background layers — warm charcoal, not cold navy */
+  --bg: #0c0c0e;
+  --sidebar-bg: #111113;
+  --surface: #18181b;
+  --surface-hover: #222225;
+  --surface-raised: #1e1e22;
+  --terminal-bg: #09090b;
+
+  /* Borders */
+  --border: #27272b;
+  --border-hover: #3f3f46;
+
+  /* Text */
+  --text: #e4e4e7;
+  --text-dim: #a1a1aa;
+  --text-muted: #52525b;
+
+  /* Accent — violet, distinct from all status colors */
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --accent-dim: rgba(167, 139, 250, 0.08);
+  --accent-subtle: rgba(167, 139, 250, 0.15);
+
+  /* Status */
+  --green: #4ade80;
+  --green-dim: rgba(74, 222, 128, 0.1);
+  --red: #fb7185;
+  --red-dim: rgba(251, 113, 133, 0.1);
   --yellow: #fbbf24;
+  --yellow-dim: rgba(251, 191, 36, 0.1);
   --blue: #60a5fa;
-  --blue-dim: rgba(96, 165, 250, 0.12);
-  --terminal-bg: #0a0c12;
-  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --blue-dim: rgba(96, 165, 250, 0.1);
+
+  /* Typography */
+  --font-sans: "Outfit", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.55);
 }
 
 *,
@@ -43,32 +71,29 @@ body {
   flex-direction: column;
 }
 
-/* Scrollbar styles */
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
 /* Selection */
 ::selection {
-  background: rgba(96, 165, 250, 0.3);
+  background: var(--accent-subtle);
   color: var(--text);
 }
 
-/* Remove default button styles */
+/* Reset */
 button {
   font-family: inherit;
   cursor: pointer;
@@ -77,7 +102,6 @@ button {
   color: inherit;
 }
 
-/* Remove default input styles */
 input,
 select,
 textarea {

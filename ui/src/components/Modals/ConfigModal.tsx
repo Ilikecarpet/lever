@@ -49,7 +49,6 @@ export default function ConfigModal({ open, onClose }: Props) {
   const removeService = useConfigStore((s) => s.removeService);
   const saveConfig = useConfigStore((s) => s.saveConfig);
 
-  // Which service is being edited: { groupId, serviceId } or null for "add new"
   const [editing, setEditing] = useState<{
     groupId: string;
     serviceId: string;
@@ -57,16 +56,10 @@ export default function ConfigModal({ open, onClose }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
 
-  // Rename state
-  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(
-    null
-  );
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
 
-  // Delete confirm state
-  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<
-    string | null
-  >(null);
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<string | null>(null);
 
   useEffect(() => {
     if (renamingGroupId && renameRef.current) {
@@ -74,7 +67,6 @@ export default function ConfigModal({ open, onClose }: Props) {
     }
   }, [renamingGroupId]);
 
-  // Clear confirm after timeout
   useEffect(() => {
     if (!confirmDeleteGroup) return;
     const timer = setTimeout(() => setConfirmDeleteGroup(null), 2000);
@@ -83,18 +75,11 @@ export default function ConfigModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  // ---- Handlers ----
-
-  const handleDone = () => {
-    onClose();
-  };
+  const handleDone = () => onClose();
 
   const openAddForm = () => {
     setEditing(null);
-    setForm({
-      ...emptyForm,
-      groupId: groups[0]?.id ?? "",
-    });
+    setForm({ ...emptyForm, groupId: groups[0]?.id ?? "" });
     setFormOpen(true);
   };
 
@@ -123,13 +108,8 @@ export default function ConfigModal({ open, onClose }: Props) {
     const command = form.command.trim();
     if (!label || !command) return;
 
-    let targetGroupId = form.groupId;
-
-    // Handle "New Group" option
-    if (targetGroupId === "__new__") {
-      // Shouldn't get here normally, but just in case, abort
-      return;
-    }
+    const targetGroupId = form.groupId;
+    if (targetGroupId === "__new__") return;
 
     const args = form.args.trim() ? form.args.trim().split(/\s+/) : [];
     const stopCommand = form.stopCommand.trim()
@@ -137,7 +117,6 @@ export default function ConfigModal({ open, onClose }: Props) {
       : [];
 
     if (editing) {
-      // Updating existing service
       const svc: Partial<ServiceDef> = {
         label,
         command,
@@ -151,12 +130,10 @@ export default function ConfigModal({ open, onClose }: Props) {
       if (editing.groupId === targetGroupId) {
         updateService(editing.groupId, editing.serviceId, svc);
       } else {
-        // Update in old group, then move
         updateService(editing.groupId, editing.serviceId, svc);
         moveService(editing.serviceId, editing.groupId, targetGroupId);
       }
     } else {
-      // Adding new service
       const allIds = groups.flatMap((g) => g.services.map((s) => s.id));
       let baseId = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       let id = baseId;
@@ -209,7 +186,6 @@ export default function ConfigModal({ open, onClose }: Props) {
 
   const handleGroupSelectChange = (value: string) => {
     if (value === "__new__") {
-      // Prompt for new group name inline
       const name = window.prompt("New group name:");
       if (!name) {
         setForm((f) => ({ ...f, groupId: groups[0]?.id ?? "" }));
@@ -217,11 +193,7 @@ export default function ConfigModal({ open, onClose }: Props) {
       }
       const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       if (!groups.find((g) => g.id === gid)) {
-        addGroup({
-          id: gid,
-          label: name,
-          services: [],
-        });
+        addGroup({ id: gid, label: name, services: [] });
       }
       setForm((f) => ({ ...f, groupId: gid }));
     } else {
@@ -231,7 +203,7 @@ export default function ConfigModal({ open, onClose }: Props) {
 
   return (
     <>
-      {/* Settings list modal */}
+      {/* ---- Service list modal ---- */}
       <div
         className={styles.overlay}
         onClick={(e) => {
@@ -246,7 +218,7 @@ export default function ConfigModal({ open, onClose }: Props) {
                 className={`${styles.mBtn} ${styles.mBtnPrimary}`}
                 onClick={openAddForm}
               >
-                + Add
+                + Add Service
               </button>
               <button className={styles.mBtn} onClick={handleDone}>
                 Done
@@ -255,8 +227,7 @@ export default function ConfigModal({ open, onClose }: Props) {
           </div>
           <div className={styles.modalBody}>
             {groups.map((group) => (
-              <div key={group.id}>
-                {/* Group header */}
+              <div key={group.id} className={styles.groupCard}>
                 <div className={styles.groupHeader}>
                   {renamingGroupId === group.id ? (
                     <input
@@ -265,24 +236,15 @@ export default function ConfigModal({ open, onClose }: Props) {
                       defaultValue={group.label}
                       onKeyDown={(e) => {
                         if (e.key === "Enter")
-                          handleRenameConfirm(
-                            group.id,
-                            e.currentTarget.value
-                          );
-                        if (e.key === "Escape")
-                          setRenamingGroupId(null);
+                          handleRenameConfirm(group.id, e.currentTarget.value);
+                        if (e.key === "Escape") setRenamingGroupId(null);
                       }}
                       onBlur={(e) =>
-                        handleRenameConfirm(
-                          group.id,
-                          e.currentTarget.value
-                        )
+                        handleRenameConfirm(group.id, e.currentTarget.value)
                       }
                     />
                   ) : (
-                    <span className={styles.groupLabel}>
-                      {group.label}
-                    </span>
+                    <span className={styles.groupLabel}>{group.label}</span>
                   )}
                   <div className={styles.groupHeaderActions}>
                     <button
@@ -295,50 +257,45 @@ export default function ConfigModal({ open, onClose }: Props) {
                       className={`${styles.mBtn} ${styles.mBtnSm} ${styles.mBtnDanger}`}
                       onClick={() => handleDeleteGroup(group.id)}
                     >
-                      {confirmDeleteGroup === group.id
-                        ? "Confirm?"
-                        : "Delete"}
+                      {confirmDeleteGroup === group.id ? "Confirm?" : "Delete"}
                     </button>
                   </div>
                 </div>
 
-                {/* Services */}
-                {group.services.map((svc) => (
-                  <div key={svc.id} className={styles.si}>
-                    <div className={styles.siInfo}>
-                      <div className={styles.siLabel}>
-                        {svc.label}{" "}
-                        <span className={styles.svcBadge}>
-                          {svc.service_type}
-                        </span>
+                {group.services.length === 0 ? (
+                  <div className={styles.emptyGroup}>No services yet</div>
+                ) : (
+                  group.services.map((svc) => (
+                    <div key={svc.id} className={styles.si}>
+                      <div className={styles.siInfo}>
+                        <div className={styles.siLabel}>
+                          {svc.label}
+                          <span className={styles.svcBadge}>
+                            {svc.service_type}
+                          </span>
+                        </div>
+                        <div className={styles.siMeta}>
+                          {svc.command} {svc.args.join(" ")}
+                        </div>
                       </div>
-                      <div className={styles.siMeta}>
-                        {svc.command} {svc.args.join(" ")}
+                      <div className={styles.siActions}>
+                        <button
+                          className={`${styles.mBtn} ${styles.mBtnSm}`}
+                          onClick={() => openEditForm(group.id, svc)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className={`${styles.mBtn} ${styles.mBtnSm} ${styles.mBtnDanger}`}
+                          onClick={() =>
+                            handleDeleteService(group.id, svc.id)
+                          }
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
-                    <div className={styles.siActions}>
-                      <button
-                        className={`${styles.mBtn} ${styles.mBtnSm}`}
-                        onClick={() => openEditForm(group.id, svc)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className={`${styles.mBtn} ${styles.mBtnSm} ${styles.mBtnDanger}`}
-                        onClick={() =>
-                          handleDeleteService(group.id, svc.id)
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {group.services.length === 0 && (
-                  <div className={styles.emptyGroup}>
-                    No services in this group
-                  </div>
+                  ))
                 )}
               </div>
             ))}
@@ -346,7 +303,7 @@ export default function ConfigModal({ open, onClose }: Props) {
         </div>
       </div>
 
-      {/* Service form modal (on top) */}
+      {/* ---- Service form modal ---- */}
       {formOpen && (
         <div
           className={styles.formOverlay}
@@ -355,116 +312,119 @@ export default function ConfigModal({ open, onClose }: Props) {
           }}
         >
           <div className={styles.formModal}>
-            <h2 className={styles.formTitle}>
-              {editing ? "Edit Service" : "Add Service"}
-            </h2>
-
-            <div className={styles.fg}>
-              <label>Group</label>
-              <select
-                value={form.groupId}
-                onChange={(e) =>
-                  handleGroupSelectChange(e.target.value)
-                }
-              >
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.label}
-                  </option>
-                ))}
-                <option value="__new__">+ New Group...</option>
-              </select>
+            <div className={styles.formTitle}>
+              {editing ? "Edit Service" : "New Service"}
             </div>
 
-            <div className={styles.fg}>
-              <label>Name</label>
-              <input
-                value={form.label}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, label: e.target.value }))
-                }
-                placeholder="e.g. Docker Compose"
-              />
-            </div>
-
-            <div className={styles.fg}>
-              <label>Command</label>
-              <input
-                value={form.command}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, command: e.target.value }))
-                }
-                placeholder="e.g. docker"
-              />
-            </div>
-
-            <div className={styles.fg}>
-              <label>Arguments</label>
-              <input
-                value={form.args}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, args: e.target.value }))
-                }
-                placeholder="e.g. compose up"
-              />
-            </div>
-
-            <div className={styles.fg}>
-              <label>Working Directory</label>
-              <input
-                value={form.cwd}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, cwd: e.target.value }))
-                }
-                placeholder="/path/to/project"
-              />
-            </div>
-
-            <div className={styles.fg}>
-              <label>Type</label>
-              <select
-                value={form.serviceType}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    serviceType: e.target.value,
-                  }))
-                }
-              >
-                <option value="service">Service</option>
-                <option value="task">Task</option>
-              </select>
-            </div>
-
-            <div className={styles.fg}>
-              <label>Stop Command</label>
-              <input
-                value={form.stopCommand}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    stopCommand: e.target.value,
-                  }))
-                }
-                placeholder="e.g. docker compose stop"
-              />
-              <div className={styles.hint}>
-                Optional -- runs before killing
+            <div className={styles.formModalScroll}>
+              <div className={styles.fgRow}>
+                <div className={styles.fg}>
+                  <label>Name</label>
+                  <input
+                    value={form.label}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, label: e.target.value }))
+                    }
+                    placeholder="e.g. Docker Compose"
+                    autoFocus
+                  />
+                </div>
+                <div className={styles.fg}>
+                  <label>Group</label>
+                  <select
+                    value={form.groupId}
+                    onChange={(e) =>
+                      handleGroupSelectChange(e.target.value)
+                    }
+                  >
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label}
+                      </option>
+                    ))}
+                    <option value="__new__">+ New Group...</option>
+                  </select>
+                </div>
               </div>
-            </div>
 
-            <div className={styles.fg}>
-              <label>Description</label>
-              <input
-                value={form.description}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    description: e.target.value,
-                  }))
-                }
-                placeholder="Optional"
-              />
+              <div className={styles.fgRow}>
+                <div className={styles.fg}>
+                  <label>Command</label>
+                  <input
+                    value={form.command}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, command: e.target.value }))
+                    }
+                    placeholder="e.g. docker"
+                  />
+                </div>
+                <div className={styles.fg}>
+                  <label>Arguments</label>
+                  <input
+                    value={form.args}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, args: e.target.value }))
+                    }
+                    placeholder="e.g. compose up"
+                  />
+                </div>
+              </div>
+
+              <div className={styles.fg}>
+                <label>Working Directory</label>
+                <input
+                  value={form.cwd}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, cwd: e.target.value }))
+                  }
+                  placeholder="/path/to/project"
+                />
+              </div>
+
+              <div className={styles.fgRow}>
+                <div className={styles.fg}>
+                  <label>Type</label>
+                  <select
+                    value={form.serviceType}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        serviceType: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="service">Service</option>
+                    <option value="task">Task</option>
+                  </select>
+                </div>
+                <div className={styles.fg}>
+                  <label>Stop Command</label>
+                  <input
+                    value={form.stopCommand}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        stopCommand: e.target.value,
+                      }))
+                    }
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
+              <div className={styles.fg}>
+                <label>Description</label>
+                <input
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="Optional"
+                />
+              </div>
             </div>
 
             <div className={styles.formActions}>
@@ -475,7 +435,7 @@ export default function ConfigModal({ open, onClose }: Props) {
                 className={`${styles.mBtn} ${styles.mBtnPrimary}`}
                 onClick={handleSave}
               >
-                Save
+                {editing ? "Save Changes" : "Add Service"}
               </button>
             </div>
           </div>

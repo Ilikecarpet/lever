@@ -22,19 +22,20 @@
   font-weight: 700;
   color: var(--text);
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   width: 100%;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
+  letter-spacing: 0.02em;
 }
 .titleBtn:hover {
   background: var(--surface-hover);
 }
 
 .chevron {
-  font-size: 10px;
   color: var(--text-muted);
+  display: inline-flex;
 }
 
 .menu {
@@ -44,14 +45,16 @@
   right: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 4px 0;
   z-index: 1000;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 
 .menuItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 7px 12px;
@@ -62,6 +65,80 @@
 }
 .menuItem:hover {
   background: var(--surface-hover);
+}
+
+.themeToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.themeToggle:hover {
+  background: var(--surface-hover);
+}
+
+.themeToggleLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.themeChevron {
+  color: var(--text-muted);
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+.themeChevronOpen {
+  transform: rotate(180deg);
+}
+
+.themeList {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.themeListOpen {
+  max-height: 400px;
+}
+
+.themeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: background 0.1s, color 0.1s;
+  cursor: pointer;
+}
+.themeOption:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.themeOptionActive {
+  color: var(--accent);
+}
+
+.themeSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.themeCheck {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent);
 }
 
 .menuDivider {
@@ -97,6 +174,7 @@
   text-align: left;
   font-weight: 600;
   letter-spacing: 0.04em;
+  transition: color 0.15s, background 0.1s;
 }
 .addGroupBtn:hover {
   color: var(--text-dim);
@@ -110,8 +188,8 @@
 .addGroupInput input {
   width: 100%;
   background: var(--terminal-bg);
-  border: 1px solid var(--blue);
-  border-radius: 4px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 12px;
   padding: 5px 8px;
@@ -123,12 +201,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 8px 14px;
   font-size: 11px;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   user-select: none;
+  transition: background 0.1s, color 0.15s;
 }
 .mainContext:hover {
   background: var(--surface-hover);
@@ -136,7 +215,11 @@
 }
 
 .mainContextActive {
-  color: var(--blue);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.mainContextActive:hover {
+  color: var(--accent-hover);
 }
 
 .mainContextDot {
@@ -144,7 +227,7 @@
 }
 
 .mainContextBranch {
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -154,10 +237,28 @@
   margin-left: 2px;
 }
 
+.mainContextGitBtn {
+  margin-left: auto;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.1s;
+}
+.mainContextGitBtn:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
 .bottomBar {
   display: flex;
   gap: 12px;
   padding: 8px 14px;
+  border-top: 1px solid var(--border);
 }
 
 .newWorktreeBtn {
@@ -165,13 +266,14 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--blue);
+  color: var(--accent);
   cursor: pointer;
   border: none;
   background: none;
   font-weight: 600;
   letter-spacing: 0.04em;
   padding: 0;
+  transition: opacity 0.15s;
 }
 .newWorktreeBtn:hover {
   opacity: 0.8;

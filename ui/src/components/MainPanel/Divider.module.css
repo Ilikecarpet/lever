@@ -1,24 +1,42 @@
-/* ui/src/components/MainPanel/Divider.module.css */
+/* Divider — wider hit area via padding, thin visual line */
 .divider {
   flex-shrink: 0;
-  background: var(--border);
   z-index: 1;
-  transition: background 0.15s;
+  position: relative;
 }
 
-.divider:hover,
-.dividerActive {
-  background: var(--blue);
+/* The visible line */
+.divider::after {
+  content: "";
+  position: absolute;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.divider:hover::after,
+.dividerActive::after {
+  background: var(--accent);
 }
 
 .vertical {
-  width: 4px;
+  width: 8px;
   cursor: col-resize;
+}
+.vertical::after {
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
 }
 
 .horizontal {
-  height: 4px;
+  height: 8px;
   cursor: row-resize;
+}
+.horizontal::after {
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 2px;
 }
 
 .dragOverlay {

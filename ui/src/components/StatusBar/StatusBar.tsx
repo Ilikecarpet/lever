@@ -2,6 +2,7 @@ import { useConfigStore } from "../../stores/configStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { IconSplitV, IconSplitH, IconClose } from "../Icons";
 import styles from "./StatusBar.module.css";
 
 export default function StatusBar() {
@@ -19,7 +20,8 @@ export default function StatusBar() {
 
   return (
     <div className={styles.statusbar}>
-      <span>
+      <span className={styles.serviceCount}>
+        <span className={`${styles.countDot}${running > 0 ? ` ${styles.countDotActive}` : ""}`} />
         {running}/{total} running
       </span>
       <span className={styles.info}>{statusMessage ?? ""}</span>
@@ -29,21 +31,21 @@ export default function StatusBar() {
           onClick={() => splitPane("vertical")}
           title="Split vertical (⌘D)"
         >
-          ⎸⎸
+          <IconSplitV size={13} />
         </button>
         <button
           className={styles.paneBtn}
           onClick={() => splitPane("horizontal")}
           title="Split horizontal (⌘⇧D)"
         >
-          ⎯⎯
+          <IconSplitH size={13} />
         </button>
         <button
           className={styles.paneBtn}
           onClick={closePane}
           title="Close pane (⌘W)"
         >
-          ×
+          <IconClose size={11} />
         </button>
       </div>
     </div>

@@ -1,11 +1,13 @@
 import { useRef, useEffect } from "react";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
+import { IconClose } from "../Icons";
 import styles from "./LogOverlay.module.css";
 
-export default function LogOverlay() {
+export default function LogPanel() {
   const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
   const logs = useServiceStore((s) => s.logs);
+  const statuses = useServiceStore((s) => s.statuses);
   const clearLog = useServiceStore((s) => s.clearLog);
   const setActiveLog = useServiceStore((s) => s.setActiveLog);
   const groups = useConfigStore((s) => s.groups);
@@ -25,6 +27,7 @@ export default function LogOverlay() {
   }
 
   const lines = activeLogSvcId ? logs[activeLogSvcId] ?? [] : [];
+  const isRunning = activeLogSvcId ? statuses[activeLogSvcId] === "running" : false;
 
   // Auto-scroll to bottom on new logs
   useEffect(() => {
@@ -37,9 +40,12 @@ export default function LogOverlay() {
   if (!activeLogSvcId) return null;
 
   return (
-    <div className={styles.logOverlay}>
+    <div className={styles.logPanel}>
       <div className={styles.logHeader}>
-        <span>{serviceLabel} output</span>
+        <span className={styles.logLabel}>
+          {isRunning && <span className={styles.logDot} />}
+          {serviceLabel}
+        </span>
         <div className={styles.logHeaderActions}>
           <button
             className={styles.clearBtn}
@@ -50,8 +56,9 @@ export default function LogOverlay() {
           <button
             className={styles.logClose}
             onClick={() => setActiveLog(null)}
+            title="Close logs"
           >
-            &times;
+            <IconClose size={12} />
           </button>
         </div>
       </div>

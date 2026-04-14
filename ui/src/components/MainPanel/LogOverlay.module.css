@@ -1,36 +1,54 @@
-@keyframes logSlideIn {
+@keyframes logSlideUp {
   from {
+    max-height: 0;
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
+    max-height: 50vh;
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
-.logOverlay {
-  position: absolute;
-  inset: 0;
+.logPanel {
+  height: 40%;
+  min-height: 120px;
+  max-height: 60%;
   display: flex;
   flex-direction: column;
-  background: rgba(10, 12, 18, 0.95);
-  backdrop-filter: blur(4px);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
   z-index: 10;
-  animation: logSlideIn 0.15s ease;
+  animation: logSlideUp 0.15s ease;
+  flex-shrink: 0;
 }
 
 .logHeader {
-  padding: 8px 16px;
+  padding: 6px 14px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+}
+
+.logLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(74, 222, 128, 0.3);
 }
 
 .logHeaderActions {
@@ -44,10 +62,12 @@
   border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 16px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
   line-height: 1;
+  display: flex;
+  align-items: center;
+  transition: background 0.1s, color 0.1s;
 }
 .logClose:hover {
   background: var(--surface-hover);
@@ -55,24 +75,27 @@
 }
 
 .clearBtn {
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 2px 8px;
+  font-size: 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  font-weight: 500;
+  transition: background 0.1s, border-color 0.15s;
 }
 .clearBtn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 
 .logOutput {
   flex: 1;
-  padding: 12px 16px;
-  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
-  font-size: 12px;
-  line-height: 1.7;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.65;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;

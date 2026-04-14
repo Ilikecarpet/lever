@@ -5,6 +5,7 @@ import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
 import type { PaneLeaf } from "../../types/pane";
+import { IconClose, IconPlus } from "../Icons";
 import styles from "./WorkspaceBar.module.css";
 
 interface ContextMenu {
@@ -209,8 +210,9 @@ export default function WorkspaceBar() {
           <button
             className={styles.close}
             onClick={(e) => handleClose(e, ws.id)}
+            title="Close workspace"
           >
-            &times;
+            <IconClose size={10} />
           </button>
         </div>
       ))}
@@ -219,7 +221,7 @@ export default function WorkspaceBar() {
         onClick={handleNew}
         title="New workspace (⌘T)"
       >
-        +
+        <IconPlus size={14} />
       </button>
 
       {contextMenu && (

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useGitStore } from "../../stores/gitStore";
 import type { GitFileStatus } from "../../types";
+import { IconBranch } from "../Icons";
 import styles from "./GitPanel.module.css";
 
 function ChangesSection({ files }: { files: GitFileStatus[] }) {
@@ -80,7 +81,7 @@ export default function GitPanel() {
     <div className={styles.gitPanel}>
       <div className={styles.gitPanelHeader}>
         <h3>
-          <span>&#9579;</span>
+          <IconBranch size={14} />
           <span className={styles.branchMono}>{gitInfo.current_branch}</span>
           {gitInfo.is_dirty ? (
             <span className={styles.dirtyIndicator}>

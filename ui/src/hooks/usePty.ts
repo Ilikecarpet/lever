@@ -4,30 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useThemeStore, onTerminalThemeChange } from "../stores/themeStore";
 import type { PtyDataEvent } from "../types";
-
-const THEME = {
-  background: "#0a0c12",
-  foreground: "#e2e5f0",
-  cursor: "#60a5fa",
-  selectionBackground: "rgba(96,165,250,0.3)",
-  black: "#1a1d27",
-  red: "#f87171",
-  green: "#34d399",
-  yellow: "#fbbf24",
-  blue: "#60a5fa",
-  magenta: "#a78bfa",
-  cyan: "#22d3ee",
-  white: "#e2e5f0",
-  brightBlack: "#6c7294",
-  brightRed: "#fca5a5",
-  brightGreen: "#6ee7b7",
-  brightYellow: "#fde68a",
-  brightBlue: "#93c5fd",
-  brightMagenta: "#c4b5fd",
-  brightCyan: "#67e8f9",
-  brightWhite: "#f8fafc",
-};
 
 // ---------------------------------------------------------------------------
 // Module-level terminal store — survives React remounts
@@ -44,6 +22,15 @@ interface PtyEntry {
 }
 
 const ptyStore = new Map<string, PtyEntry>();
+
+// Update all terminals when the theme changes
+onTerminalThemeChange((termTheme) => {
+  for (const [, entry] of ptyStore) {
+    if (!entry.disposed) {
+      entry.term.options.theme = termTheme;
+    }
+  }
+});
 
 /** Focus a terminal by pane ID. */
 export function focusPty(paneId: string) {
@@ -138,7 +125,7 @@ export function usePty(
     container.appendChild(termDiv);
 
     const term = new Terminal({
-      theme: THEME,
+      theme: useThemeStore.getState().getTerminalTheme(),
       fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
       fontSize: 13,
       lineHeight: 1.4,

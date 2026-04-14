@@ -4,6 +4,8 @@ import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
+import { useThemeStore, themes } from "../../stores/themeStore";
+import { IconChevron, IconFolder, IconExport, IconGear, IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -29,9 +31,13 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
 
+  const activeThemeId = useThemeStore((s) => s.activeThemeId);
+  const setTheme = useThemeStore((s) => s.setTheme);
+
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [themeExpanded, setThemeExpanded] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -136,21 +142,47 @@ export default function Sidebar({ onOpenSettings }: Props) {
           onClick={() => setMenuOpen((o) => !o)}
         >
           Lever
-          <span className={styles.chevron}>{menuOpen ? "▴" : "▾"}</span>
+          <span className={styles.chevron}><IconChevron size={10} /></span>
         </button>
 
         {menuOpen && (
           <div className={styles.menu}>
             <button className={styles.menuItem} onClick={handleHome}>
-              Projects
+              <IconFolder size={13} /> Projects
             </button>
             <button className={styles.menuItem} onClick={handleExport}>
-              Export Config
+              <IconExport size={13} /> Export Config
             </button>
             <div className={styles.menuDivider} />
             <button className={styles.menuItem} onClick={handleSettings}>
-              Settings
+              <IconGear size={13} /> Settings
             </button>
+            <div className={styles.menuDivider} />
+            <button
+              className={styles.themeToggle}
+              onClick={(e) => { e.stopPropagation(); setThemeExpanded((v) => !v); }}
+            >
+              <span className={styles.themeToggleLeft}>
+                <span className={styles.themeSwatch} style={{ background: themes.find((t) => t.id === activeThemeId)?.swatch }} />
+                Theme
+              </span>
+              <span className={`${styles.themeChevron}${themeExpanded ? ` ${styles.themeChevronOpen}` : ""}`}>
+                <IconChevron size={10} />
+              </span>
+            </button>
+            <div className={`${styles.themeList}${themeExpanded ? ` ${styles.themeListOpen}` : ""}`}>
+              {themes.map((t) => (
+                <button
+                  key={t.id}
+                  className={`${styles.themeOption}${activeThemeId === t.id ? ` ${styles.themeOptionActive}` : ""}`}
+                  onClick={() => setTheme(t.id)}
+                >
+                  <span className={styles.themeSwatch} style={{ background: t.swatch }} />
+                  {t.label}
+                  {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -160,7 +192,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
           className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
           onClick={handleMainContextClick}
         >
-          <span className={styles.mainContextDot}>●</span>
+          <IconBranch size={13} />
           <span className={styles.mainContextBranch}>
             {gitInfo?.current_branch ?? "..."}
           </span>
@@ -168,11 +200,11 @@ export default function Sidebar({ onOpenSettings }: Props) {
             <span className={styles.mainContextDirty}>●</span>
           )}
           <span
-            style={{ marginLeft: "auto", cursor: "pointer" }}
+            className={styles.mainContextGitBtn}
             onClick={handleOpenGitPanel}
             title="Git panel"
           >
-            &#9579;
+            <IconBranch size={12} />
           </span>
         </div>
       )}
