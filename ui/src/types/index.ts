@@ -58,6 +58,10 @@ export interface PtyDataEvent {
   data: string;
 }
 
+export interface PtyExitEvent {
+  id: string;
+}
+
 // ---------------------------------------------------------------------------
 // Git types
 // ---------------------------------------------------------------------------

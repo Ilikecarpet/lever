@@ -120,6 +120,11 @@ struct PtyDataEvent {
     data: String,
 }
 
+#[derive(Clone, Serialize)]
+struct PtyExitEvent {
+    id: String,
+}
+
 struct ProjectState {
     config: AppConfig,
     tracked: HashMap<String, TrackedService>,
@@ -920,6 +925,9 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
                 Err(_) => break,
             }
         }
+        let _ = app_handle.emit("pty-exit", PtyExitEvent {
+            id: pty_id_clone,
+        });
     });
 
     Ok(PtyInfo { id: pty_id })
