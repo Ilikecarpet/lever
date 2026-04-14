@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
+import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
 import styles from "./WorktreeSection.module.css";
 
 interface Props {
@@ -26,8 +27,22 @@ export default function WorktreeSection({ worktree }: Props) {
     (s) => s.addWorkspaceForWorktree
   );
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isActive = activeWorktreeId === worktree.id;
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = (e: MouseEvent) => {
+      const menu = document.querySelector(`[data-ctx-wt="${worktree.id}"]`);
+      if (menu && menu.contains(e.target as Node)) return;
+      setContextMenu(null);
+      setConfirmDelete(null);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [contextMenu, worktree.id]);
 
   const handleClick = () => {
     if (isActive) return;
@@ -48,11 +63,18 @@ export default function WorktreeSection({ worktree }: Props) {
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    setConfirmDelete(null);
     setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleManageServices = () => {
+    setContextMenu(null);
+    setSettingsOpen(true);
   };
 
   const handleRemove = async (cleanup: boolean) => {
     setContextMenu(null);
+    setConfirmDelete(null);
     closeWorktreeWorkspaces(worktree.id);
     try {
       await deleteWorktree(worktree.id, cleanup);
@@ -77,35 +99,74 @@ export default function WorktreeSection({ worktree }: Props) {
 
       {worktree.groups.map((group) => (
         <div key={group.id} className={styles.worktreeGroup}>
-          <GroupItem group={group} />
+          <GroupItem
+            group={group}
+            onOpenSettings={() => setSettingsOpen(true)}
+            worktreeId={worktree.id}
+          />
         </div>
       ))}
 
       {contextMenu && (
-        <>
-          <div
-            style={{ position: "fixed", inset: 0, zIndex: 999 }}
-            onClick={() => setContextMenu(null)}
-          />
-          <div
-            className={styles.contextMenu}
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+        <div
+          className={styles.contextMenu}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          data-ctx-wt={worktree.id}
+        >
+          <button
+            className={styles.contextMenuItem}
+            onClick={handleManageServices}
           >
-            <button
-              className={styles.contextMenuItem}
-              onClick={() => handleRemove(false)}
-            >
-              Remove from sidebar
-            </button>
-            <button
-              className={`${styles.contextMenuItem} ${styles.contextMenuDanger}`}
-              onClick={() => handleRemove(true)}
-            >
-              Remove + delete from disk
-            </button>
+            Manage Services
+          </button>
+          <div className={styles.contextMenuDivider} />
+          <button
+            className={styles.contextMenuItem}
+            onClick={() => setConfirmDelete((v) => v === "remove" ? null : "remove")}
+          >
+            Remove from sidebar
+          </button>
+          <div className={`${styles.confirmAccordion}${confirmDelete === "remove" ? ` ${styles.confirmOpen}` : ""}`}>
+            <div className={styles.confirmWarning}>
+              This will remove the worktree from the sidebar only.
+            </div>
+            <div className={styles.confirmActions}>
+              <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </button>
+              <button className={styles.confirmYes} onClick={() => handleRemove(false)}>
+                Yes, remove
+              </button>
+            </div>
           </div>
-        </>
+
+          <button
+            className={`${styles.contextMenuItem} ${styles.contextMenuDanger}`}
+            onClick={() => setConfirmDelete((v) => v === "disk" ? null : "disk")}
+          >
+            Remove + delete from disk
+          </button>
+          <div className={`${styles.confirmAccordion}${confirmDelete === "disk" ? ` ${styles.confirmOpen}` : ""}`}>
+            <div className={styles.confirmWarning}>
+              This will permanently delete the worktree files from disk.
+            </div>
+            <div className={styles.confirmActions}>
+              <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </button>
+              <button className={styles.confirmYesDanger} onClick={() => handleRemove(true)}>
+                Yes, delete from disk
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      <WorktreeConfigModal
+        open={settingsOpen}
+        worktreeId={worktree.id}
+        onClose={() => setSettingsOpen(false)}
+      />
     </>
   );
 }

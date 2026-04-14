@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
 import styles from "./StartPage.module.css";
@@ -204,18 +205,47 @@ function CreateModal({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
+  const [folderPath, setFolderPath] = useState("");
   const [name, setName] = useState("");
+  const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
   const [error, setError] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const mouseDownOnOverlay = useRef(false);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  const handlePickFolder = async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected) return;
+    const path = selected as string;
+    setFolderPath(path);
+    setError("");
+
+    // Auto-suggest name from folder name
+    const folderName = path.split(/[/\\]/).filter(Boolean).pop() || "";
+    if (!name) setName(folderName);
+
+    // Check if it's a git repo
+    try {
+      const git = await api.checkIsGitRepo(path);
+      setIsGitRepo(git);
+    } catch {
+      setIsGitRepo(false);
+    }
+
+    // Focus the name input so user can adjust
+    setTimeout(() => nameRef.current?.focus(), 50);
+  };
 
   const handleSubmit = async () => {
-    if (!name.trim()) return;
+    if (!folderPath) {
+      setError("Please select a folder");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Please enter a project name");
+      return;
+    }
     try {
-      const meta = await api.createProject(name.trim());
+      const meta = await api.createProject(name.trim(), folderPath);
       onCreated(meta.id);
     } catch (e) {
       setError(String(e));
@@ -223,11 +253,37 @@ function CreateModal({
   };
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div
+      className={styles.modalOverlay}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.modal}>
         <div className={styles.modalTitle}>New Project</div>
+
+        <label className={styles.fieldLabel}>Folder</label>
+        <button
+          className={styles.folderPicker}
+          onClick={handlePickFolder}
+          type="button"
+        >
+          {folderPath ? (
+            <span className={styles.folderPath}>{folderPath}</span>
+          ) : (
+            <span className={styles.folderPlaceholder}>Choose a folder...</span>
+          )}
+          <span className={styles.folderBtn}>Browse</span>
+        </button>
+
+        {isGitRepo !== null && (
+          <div className={isGitRepo ? styles.gitBadge : styles.gitBadgeNone}>
+            {isGitRepo ? "Git repository detected" : "Not a git repository"}
+          </div>
+        )}
+
+        <label className={styles.fieldLabel}>Project Name</label>
         <input
-          ref={inputRef}
+          ref={nameRef}
           className={styles.modalInput}
           placeholder="Project name"
           value={name}
@@ -261,6 +317,7 @@ function ImportModal({
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mouseDownOnOverlay = useRef(false);
 
   const handleFileSelect = async () => {
     const file = fileInputRef.current?.files?.[0];
@@ -279,8 +336,12 @@ function ImportModal({
   };
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div
+      className={styles.modalOverlay}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.modal}>
         <div className={styles.modalTitle}>Import Config</div>
         <input
           className={styles.modalInput}

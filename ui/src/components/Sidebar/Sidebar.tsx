@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { useConfigStore } from "../../stores/configStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
@@ -38,6 +39,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeExpanded, setThemeExpanded] = useState(false);
+  const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,17 @@ export default function Sidebar({ onOpenSettings }: Props) {
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!mainCtxMenu) return;
+    const handler = (e: MouseEvent) => {
+      const menu = document.querySelector("[data-ctx-main-repo]");
+      if (menu && menu.contains(e.target as Node)) return;
+      setMainCtxMenu(null);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [mainCtxMenu]);
 
   const handleAddConfirm = (value: string) => {
     setAdding(false);
@@ -91,16 +104,16 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const handleExport = async () => {
     setMenuOpen(false);
+    const projectId = api.getProjectId() ?? "project";
+    const filePath = await save({
+      title: "Export Config",
+      defaultPath: `${projectId}-config.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!filePath) return;
     const config = await api.getConfig();
     const json = JSON.stringify(config, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const projectId = api.getProjectId() ?? "project";
-    a.download = `${projectId}-config.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await api.writeTextFile(filePath, json);
   };
 
   const handleSettings = () => {
@@ -188,30 +201,53 @@ export default function Sidebar({ onOpenSettings }: Props) {
       </div>
 
       {repoPath && (
-        <div
-          className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
-          onClick={handleMainContextClick}
-        >
-          <IconBranch size={13} />
-          <span className={styles.mainContextBranch}>
-            {gitInfo?.current_branch ?? "..."}
-          </span>
-          {gitInfo?.is_dirty && (
-            <span className={styles.mainContextDirty}>●</span>
-          )}
-          <span
-            className={styles.mainContextGitBtn}
-            onClick={handleOpenGitPanel}
-            title="Git panel"
+        <>
+          <div
+            className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
+            onClick={handleMainContextClick}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMainCtxMenu({ x: e.clientX, y: e.clientY });
+            }}
           >
-            <IconBranch size={12} />
-          </span>
-        </div>
+            <IconBranch size={13} />
+            <span className={styles.mainContextBranch}>
+              {gitInfo?.current_branch ?? "..."}
+            </span>
+            {gitInfo?.is_dirty && (
+              <span className={styles.mainContextDirty}>●</span>
+            )}
+            <span
+              className={styles.mainContextGitBtn}
+              onClick={handleOpenGitPanel}
+              title="Git panel"
+            >
+              <IconBranch size={12} />
+            </span>
+          </div>
+          {mainCtxMenu && (
+            <div
+              className={styles.mainCtxMenu}
+              style={{ left: mainCtxMenu.x, top: mainCtxMenu.y }}
+              data-ctx-main-repo
+            >
+              <button
+                className={styles.mainCtxItem}
+                onClick={() => {
+                  setMainCtxMenu(null);
+                  onOpenSettings();
+                }}
+              >
+                Manage Services
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <div className={styles.sidebarScroll} ref={scrollRef}>
         {groups.map((group) => (
-          <GroupItem key={group.id} group={group} />
+          <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
         ))}
 
         {worktrees.map((wt) => (

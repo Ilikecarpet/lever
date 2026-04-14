@@ -5,7 +5,7 @@ import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useThemeStore, onTerminalThemeChange } from "../stores/themeStore";
-import type { PtyDataEvent } from "../types";
+import type { PtyDataEvent, PtyExitEvent } from "../types";
 
 // ---------------------------------------------------------------------------
 // Module-level terminal store — survives React remounts
@@ -18,6 +18,8 @@ interface PtyEntry {
   /** The div that xterm.js was opened into — we move this between mount points */
   termDiv: HTMLDivElement;
   unlisten: (() => void) | null;
+  unlistenExit: (() => void) | null;
+  cwd: string | undefined;
   disposed: boolean;
 }
 
@@ -52,10 +54,69 @@ export function destroyPty(paneId: string) {
   if (!entry) return;
   entry.disposed = true;
   entry.unlisten?.();
+  entry.unlistenExit?.();
   if (entry.ptyId) api.closePty(entry.ptyId);
   entry.term.dispose();
   entry.termDiv.remove();
   ptyStore.delete(paneId);
+}
+
+/** Spawn (or respawn) a PTY backend for an existing terminal entry. */
+async function spawnPty(paneId: string, entry: PtyEntry) {
+  const { term, cwd } = entry;
+  const setPtyId = useWorkspaceStore.getState().setPtyId;
+
+  // Clean up previous listeners if respawning
+  entry.unlisten?.();
+  entry.unlistenExit?.();
+  entry.unlisten = null;
+  entry.unlistenExit = null;
+
+  try {
+    const info = await api.createPty(term.cols, term.rows, cwd);
+    if (entry.disposed) {
+      api.closePty(info.id);
+      return;
+    }
+
+    entry.ptyId = info.id;
+    setPtyId(paneId, entry.ptyId);
+
+    // PTY output -> terminal
+    const unlisten = await tauriListen<PtyDataEvent>(
+      "pty-data",
+      (payload) => {
+        if (payload.id === entry.ptyId) {
+          term.write(payload.data);
+        }
+      }
+    );
+    entry.unlisten = unlisten;
+
+    // PTY exit -> respawn
+    const unlistenExit = await tauriListen<PtyExitEvent>(
+      "pty-exit",
+      (payload) => {
+        if (payload.id !== entry.ptyId || entry.disposed) return;
+        entry.unlisten?.();
+        entry.unlisten = null;
+        entry.unlistenExit?.();
+        entry.unlistenExit = null;
+        entry.ptyId = null;
+        spawnPty(paneId, entry);
+      }
+    );
+    entry.unlistenExit = unlistenExit;
+
+    if (entry.disposed) {
+      unlisten();
+      unlistenExit();
+      api.closePty(info.id);
+    }
+  } catch (err) {
+    console.error("Failed to create PTY:", err);
+    term.write(`\r\nFailed to create PTY: ${err}\r\n`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,46 +209,14 @@ export function usePty(
       ptyId: null,
       termDiv,
       unlisten: null,
+      unlistenExit: null,
+      cwd,
       disposed: false,
     };
     ptyStore.set(paneId, entry);
 
-    const setPtyId = useWorkspaceStore.getState().setPtyId;
-
     // Create PTY and wire everything up
-    api
-      .createPty(term.cols, term.rows, cwd)
-      .then(async (info) => {
-        if (entry.disposed) {
-          api.closePty(info.id);
-          return;
-        }
-
-        entry.ptyId = info.id;
-        setPtyId(paneId, entry.ptyId);
-
-        // PTY output -> terminal
-        const unlisten = await tauriListen<PtyDataEvent>(
-          "pty-data",
-          (payload) => {
-            if (payload.id === entry.ptyId) {
-              term.write(payload.data);
-            }
-          }
-        );
-
-        entry.unlisten = unlisten;
-
-        if (entry.disposed) {
-          unlisten();
-          api.closePty(info.id);
-          return;
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to create PTY:", err);
-        term.write(`\r\nFailed to create PTY: ${err}\r\n`);
-      });
+    spawnPty(paneId, entry);
 
     // Terminal title change -> store
     const onTitleDisposable = term.onTitleChange((title) => {

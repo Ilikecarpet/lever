@@ -258,3 +258,72 @@
   font-size: 12px;
   margin-bottom: 8px;
 }
+
+.fieldLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.folderPicker {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  margin-bottom: 12px;
+  text-align: left;
+}
+
+.folderPicker:hover {
+  border-color: var(--accent);
+}
+
+.folderPath {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.folderPlaceholder {
+  flex: 1;
+  color: var(--text-muted);
+}
+
+.folderBtn {
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.gitBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--green, #22c55e);
+  margin-bottom: 12px;
+}
+
+.gitBadgeNone {
+  composes: gitBadge;
+  color: var(--text-muted);
+}

@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { IconTerminal } from "../Icons";
@@ -11,11 +12,13 @@ import styles from "./MainPanel.module.css";
 export default function MainPanel() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
 
+  const contextWorkspaces = workspaces.filter((w) => w.worktreeId === activeWorktreeId);
   const showEmpty =
-    workspaces.length === 0 && !activeGitGroupId && !activeLogSvcId;
+    contextWorkspaces.length === 0 && !activeGitGroupId && !activeLogSvcId;
   const showGitPanel = activeGitGroupId && !activeWorkspaceId;
 
   return (
@@ -51,6 +54,7 @@ export default function MainPanel() {
                 node={ws.root}
                 activePaneId={ws.activePaneId}
                 visible={ws.id === activeWorkspaceId}
+                worktreeId={ws.worktreeId}
               />
             </div>
           ))}

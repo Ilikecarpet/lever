@@ -72,8 +72,10 @@ export default function WorkspaceBar() {
   };
 
   const handleNew = () => {
-    if (activeWorktreeId) {
-      addWorkspaceForWorktree(activeWorktreeId);
+    const currentWs = workspaces.find((w) => w.id === activeWorkspaceId);
+    const wtId = currentWs?.worktreeId ?? activeWorktreeId;
+    if (wtId) {
+      addWorkspaceForWorktree(wtId);
     } else {
       addWorkspace();
     }

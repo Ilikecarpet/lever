@@ -120,6 +120,11 @@ struct PtyDataEvent {
     data: String,
 }
 
+#[derive(Clone, Serialize)]
+struct PtyExitEvent {
+    id: String,
+}
+
 struct ProjectState {
     config: AppConfig,
     tracked: HashMap<String, TrackedService>,
@@ -394,7 +399,7 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
 }
 
 #[tauri::command]
-fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
     let mut index = load_project_index(&state.projects_dir);
     let id = name_to_id(&name);
     if id.is_empty() {
@@ -408,7 +413,7 @@ fn create_project(name: String, state: State<'_, AppState>) -> Result<ProjectMet
     let meta = ProjectMeta {
         id: id.clone(),
         name,
-        repo_path: String::new(),
+        repo_path: repo_path.unwrap_or_default(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
@@ -920,6 +925,9 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
                 Err(_) => break,
             }
         }
+        let _ = app_handle.emit("pty-exit", PtyExitEvent {
+            id: pty_id_clone,
+        });
     });
 
     Ok(PtyInfo { id: pty_id })
@@ -985,6 +993,16 @@ fn is_staged(s: git2::Status) -> bool {
             | git2::Status::INDEX_RENAMED
             | git2::Status::INDEX_TYPECHANGE,
     )
+}
+
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    fs::write(&path, &contents).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[tauri::command]
+fn check_is_git_repo(path: String) -> bool {
+    git2::Repository::open(&path).is_ok()
 }
 
 #[tauri::command]
@@ -1221,6 +1239,7 @@ fn remove_worktree(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let _ = fs::create_dir_all(&data_dir);
@@ -1256,6 +1275,8 @@ fn main() {
             write_pty,
             resize_pty,
             close_pty,
+            write_text_file,
+            check_is_git_repo,
             git_info,
             git_fetch,
             git_pull,

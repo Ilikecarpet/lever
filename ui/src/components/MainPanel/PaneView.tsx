@@ -2,17 +2,18 @@ import { useRef, useEffect, useCallback } from "react";
 import type { PaneNode } from "../../types/pane";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { useGitStore } from "../../stores/gitStore";
 import { usePty, focusPty } from "../../hooks/usePty";
 import Divider from "./Divider";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./PaneView.module.css";
 
-function LeafPane({ id, isActive, visible }: { id: string; isActive: boolean; visible: boolean }) {
+function LeafPane({ id, isActive, visible, worktreeId }: { id: string; isActive: boolean; visible: boolean; worktreeId: string | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
   const worktrees = useWorktreeStore((s) => s.worktrees);
-  const activeWorktree = worktrees.find((w) => w.id === activeWorktreeId);
-  const cwd = activeWorktree?.path;
+  const repoPath = useGitStore((s) => s.repoPath);
+  const worktree = worktreeId ? worktrees.find((w) => w.id === worktreeId) : null;
+  const cwd = worktree?.path || repoPath || undefined;
   const { fit } = usePty(id, containerRef, cwd);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
 
@@ -43,11 +44,12 @@ interface PaneViewProps {
   node: PaneNode;
   activePaneId: string;
   visible?: boolean;
+  worktreeId?: string | null;
 }
 
-export default function PaneView({ node, activePaneId, visible = true }: PaneViewProps) {
+export default function PaneView({ node, activePaneId, visible = true, worktreeId = null }: PaneViewProps) {
   if (node.type === "leaf") {
-    return <LeafPane id={node.id} isActive={node.id === activePaneId} visible={visible} />;
+    return <LeafPane id={node.id} isActive={node.id === activePaneId} visible={visible} worktreeId={worktreeId} />;
   }
 
   const { direction, ratio, children } = node;
@@ -90,11 +92,11 @@ export default function PaneView({ node, activePaneId, visible = true }: PaneVie
       className={`${styles.splitContainer} ${direction === "vertical" ? styles.splitVertical : styles.splitHorizontal}`}
     >
       <div className={styles.paneChild} style={{ flexBasis: firstBasis, flexGrow: 0, flexShrink: 0 }}>
-        <PaneView node={children[0]} activePaneId={activePaneId} visible={visible} />
+        <PaneView node={children[0]} activePaneId={activePaneId} visible={visible} worktreeId={worktreeId} />
       </div>
       <Divider direction={direction} onResize={handleResize} />
       <div className={styles.paneChild} style={{ flex: 1 }}>
-        <PaneView node={children[1]} activePaneId={activePaneId} visible={visible} />
+        <PaneView node={children[1]} activePaneId={activePaneId} visible={visible} worktreeId={worktreeId} />
       </div>
     </div>
   );

@@ -87,9 +87,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const workspaces = s.workspaces.filter((w) => w.id !== id);
       let activeWorkspaceId = s.activeWorkspaceId;
       if (activeWorkspaceId === id) {
-        const idx = s.workspaces.findIndex((w) => w.id === id);
-        activeWorkspaceId =
-          workspaces[Math.min(idx, workspaces.length - 1)]?.id ?? null;
+        // Prefer another workspace in the same worktree context
+        const sameContext = workspaces.filter((w) => w.worktreeId === ws?.worktreeId);
+        activeWorkspaceId = sameContext[0]?.id ?? null;
       }
       return { workspaces, activeWorkspaceId };
     });

@@ -1,5 +1,20 @@
 import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
+import { useWorktreeStore } from "../stores/worktreeStore";
+
+/** Return the worktree context: current workspace's worktreeId, or the global activeWorktreeId. */
+function currentWorktreeId(): string | null {
+  const store = useWorkspaceStore.getState();
+  const currentWs = store.workspaces.find((w) => w.id === store.activeWorkspaceId);
+  return currentWs?.worktreeId ?? useWorktreeStore.getState().activeWorktreeId;
+}
+
+/** Return workspaces scoped to the current worktree context. */
+function contextWorkspaces() {
+  const store = useWorkspaceStore.getState();
+  const wtId = currentWorktreeId();
+  return store.workspaces.filter((w) => w.worktreeId === wtId);
+}
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -9,31 +24,45 @@ export function useKeyboardShortcuts() {
 
       const store = useWorkspaceStore.getState();
 
-      // Cmd+D — split vertical
+      // Cmd+D — split vertical (only if active workspace is in current context)
       if (e.key === "d" && !e.shiftKey) {
         e.preventDefault();
-        store.splitPane("vertical");
+        const scoped = contextWorkspaces();
+        if (scoped.some((w) => w.id === store.activeWorkspaceId)) {
+          store.splitPane("vertical");
+        }
         return;
       }
 
       // Cmd+Shift+D — split horizontal
       if (e.key === "D" || (e.key === "d" && e.shiftKey)) {
         e.preventDefault();
-        store.splitPane("horizontal");
+        const scoped = contextWorkspaces();
+        if (scoped.some((w) => w.id === store.activeWorkspaceId)) {
+          store.splitPane("horizontal");
+        }
         return;
       }
 
-      // Cmd+W — close pane
+      // Cmd+W — close pane (only if active workspace is in current context)
       if (e.key === "w" && !e.shiftKey) {
         e.preventDefault();
-        store.closePane();
+        const scoped = contextWorkspaces();
+        if (scoped.some((w) => w.id === store.activeWorkspaceId)) {
+          store.closePane();
+        }
         return;
       }
 
-      // Cmd+T — new workspace
+      // Cmd+T — new workspace in current worktree context
       if (e.key === "t" && !e.shiftKey) {
         e.preventDefault();
-        store.addWorkspace();
+        const wtId = currentWorktreeId();
+        if (wtId) {
+          store.addWorkspaceForWorktree(wtId);
+        } else {
+          store.addWorkspace();
+        }
         return;
       }
 
@@ -51,11 +80,12 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd+1..9 — switch to workspace by index
+      // Cmd+1..9 — switch to workspace by index (scoped to current context)
       const num = parseInt(e.key, 10);
       if (num >= 1 && num <= 9) {
         e.preventDefault();
-        const ws = store.workspaces[num - 1];
+        const scoped = contextWorkspaces();
+        const ws = scoped[num - 1];
         if (ws) store.setActiveWorkspace(ws.id);
         return;
       }
