@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            label: aarch64
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            label: x86_64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm install --prefix ui
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Lever ${{ github.ref_name }}"
+          releaseBody: |
+            See the [full changelog](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}).
+
+            ### Installation (macOS)
+            Download the `.dmg` for your architecture, open it, and drag Lever to Applications.
+
+            > **Note:** Since the app is not code-signed, macOS may flag it as damaged. Run this in Terminal to fix:
+            > ```
+            > xattr -cr /Applications/Lever.app
+            > ```
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}
