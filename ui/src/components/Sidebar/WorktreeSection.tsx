@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import styles from "./WorktreeSection.module.css";
 
@@ -65,14 +66,13 @@ export default function WorktreeSection({ worktree }: Props) {
   return (
     <>
       <div
-        className={styles.sectionDivider}
+        className={`${styles.sectionDivider}${isActive ? ` ${styles.sectionDividerActive}` : ` ${styles.sectionDividerInactive}`}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ opacity: isActive ? 1 : 0.7 }}
       >
-        <span className={styles.branchIcon}>&#9579;</span>
+        <span className={styles.branchIcon}><IconBranch size={13} /></span>
         <span className={styles.branchName}>{worktree.branch}</span>
-        <span className={styles.worktreePath}>{shortPath}</span>
+        <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
       </div>
 
       {worktree.groups.map((group) => (

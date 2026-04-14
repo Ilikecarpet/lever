@@ -11,18 +11,18 @@
 .modal {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 24px;
-  width: 420px;
+  width: 440px;
   max-width: 90vw;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
 }
 
 .title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .field {
@@ -31,11 +31,11 @@
 }
 
 .label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   margin-bottom: 6px;
 }
 
@@ -43,16 +43,17 @@
   width: 100%;
   background: var(--terminal-bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-size: 13px;
-  padding: 8px 10px;
+  padding: 9px 12px;
   outline: none;
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   box-sizing: border-box;
+  transition: border-color 0.15s;
 }
 .input:focus {
-  border-color: var(--blue);
+  border-color: var(--accent);
 }
 
 .suggestions {
@@ -60,21 +61,22 @@
   z-index: 10;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   max-height: 160px;
   overflow-y: auto;
   margin-top: 2px;
   left: 0;
   right: 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
 }
 
 .suggestion {
-  padding: 6px 10px;
+  padding: 7px 12px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
+  transition: background 0.1s;
 }
 .suggestion:hover {
   background: var(--surface-hover);
@@ -88,12 +90,12 @@
 }
 
 .btn {
-  padding: 7px 16px;
-  border-radius: 6px;
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.1s, opacity 0.15s;
 }
 
 .btnCancel {
@@ -103,18 +105,19 @@
 }
 .btnCancel:hover {
   background: var(--border);
+  color: var(--text);
 }
 
 .btnCreate {
   color: #fff;
-  background: var(--blue);
-  border: 1px solid var(--blue);
+  background: var(--accent);
+  border: 1px solid var(--accent);
 }
 .btnCreate:hover {
   opacity: 0.9;
 }
 .btnCreate:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 

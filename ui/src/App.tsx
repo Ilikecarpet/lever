@@ -12,6 +12,7 @@ import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ConfigModal from "./components/Modals/ConfigModal";
 import StartPage from "./components/StartPage/StartPage";
+import "./stores/themeStore"; // initialize theme on load
 import styles from "./App.module.css";
 
 const projectId = initProjectId();

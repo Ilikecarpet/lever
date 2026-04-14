@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
+import { IconPlay, IconStop, IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
 
@@ -47,9 +48,9 @@ export default function GroupItem({ group }: Props) {
           <span
             className={`${styles.groupChevron}${collapsed ? ` ${styles.groupChevronCollapsed}` : ""}`}
           >
-            &#9660;
+            <IconChevron size={10} />
           </span>
-          {group.label}{" "}
+          {group.label}
           <span className={styles.groupCount}>
             {runningCount}/{group.services.length}
           </span>
@@ -60,14 +61,14 @@ export default function GroupItem({ group }: Props) {
             onClick={handleStartAll}
             title="Start all"
           >
-            &#9654;
+            <IconPlay size={12} />
           </button>
           <button
             className={`${styles.groupBtn} ${styles.groupBtnStop}`}
             onClick={handleStopAll}
             title="Stop all"
           >
-            &#9724;
+            <IconStop size={12} />
           </button>
         </div>
       </div>

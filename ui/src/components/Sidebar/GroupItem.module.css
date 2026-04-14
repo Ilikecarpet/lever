@@ -3,49 +3,57 @@
 }
 
 .groupHeader {
-  padding: 8px 14px 4px;
+  padding: 8px 12px 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
   user-select: none;
+  border-radius: var(--radius-sm);
+  margin: 0 6px;
+  transition: background 0.1s;
 }
 .groupHeader:hover {
   background: var(--surface-hover);
 }
 
 .groupChevron {
-  font-size: 9px;
   color: var(--text-muted);
-  transition: transform 0.15s;
-  display: inline-block;
-  margin-right: 4px;
+  transition: transform 0.2s ease;
+  display: inline-flex;
+  margin-right: 5px;
+  flex-shrink: 0;
 }
 .groupChevronCollapsed {
   transform: rotate(-90deg);
 }
 
 .groupLabel {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
 .groupCount {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   font-weight: 500;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 6px;
+  margin-left: 2px;
 }
 
+/* Always visible, subtle when idle */
 .groupActions {
   display: flex;
   gap: 2px;
-  opacity: 0;
+  opacity: 0.3;
   transition: opacity 0.15s;
 }
 .groupHeader:hover .groupActions {
@@ -56,10 +64,13 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 600;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
 }
 .groupBtnStart {
   color: var(--green);
@@ -77,11 +88,12 @@
 .groupServices {
   padding: 2px 0;
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
 }
 .groupServicesCollapsed {
   max-height: 0 !important;
   padding: 0;
+  opacity: 0;
 }
 
 /* Git branch indicator */
@@ -106,7 +118,7 @@
 }
 
 .gitBranchName {
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 

@@ -2,7 +2,7 @@
   display: flex;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
-  min-height: 32px;
+  min-height: 34px;
   overflow-x: auto;
   align-items: stretch;
 }
@@ -12,27 +12,27 @@
 
 .tab {
   padding: 0 14px;
-  height: 32px;
+  height: 34px;
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
   white-space: nowrap;
   flex-shrink: 0;
   font-weight: 500;
   user-select: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color 0.15s, background 0.15s;
 }
 .tab:hover {
-  color: var(--text);
+  color: var(--text-dim);
   background: rgba(255, 255, 255, 0.03);
 }
 .tabActive {
   color: var(--text);
-  border-bottom-color: var(--blue);
-  background: var(--bg);
+  background: var(--accent-dim);
 }
 .tabDragging {
   opacity: 0.4;
@@ -42,66 +42,74 @@
   font-weight: 400;
 }
 
+/* Always visible close — subtle when idle */
 .close {
-  font-size: 14px;
-  opacity: 0;
+  opacity: 0.3;
   color: var(--text-dim);
   padding: 0 2px;
   cursor: pointer;
   background: none;
   border: none;
   line-height: 1;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.1s, background 0.1s;
+  display: flex;
+  align-items: center;
 }
 .tab:hover .close {
-  opacity: 0.5;
+  opacity: 0.6;
 }
 .close:hover {
   opacity: 1 !important;
+  background: var(--red-dim);
+  color: var(--red);
 }
 
 .newBtn {
   padding: 0 10px;
-  height: 32px;
+  height: 34px;
   display: flex;
   align-items: center;
-  font-size: 16px;
   color: var(--text-muted);
   cursor: pointer;
   background: none;
   border: none;
+  transition: color 0.15s;
 }
 .newBtn:hover {
-  color: var(--text);
+  color: var(--accent);
 }
 
 .renameInput {
   background: var(--surface);
-  border: 1px solid var(--blue);
-  border-radius: 3px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 12px;
   font-family: inherit;
   font-weight: 500;
-  padding: 1px 4px;
+  padding: 2px 6px;
   outline: none;
-  width: 100px;
+  width: 110px;
 }
 
 .contextMenu {
   position: fixed;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 4px 0;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  min-width: 120px;
+  box-shadow: var(--shadow-lg);
+  min-width: 140px;
 }
 
 .contextMenuItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 6px 12px;
+  padding: 7px 12px;
   font-size: 12px;
   color: var(--text);
   background: none;
@@ -109,8 +117,16 @@
   cursor: pointer;
   text-align: left;
   font-family: inherit;
+  transition: background 0.1s;
 }
 
 .contextMenuItem:hover {
   background: var(--surface-hover);
+}
+
+.contextMenuDanger {
+  color: var(--red);
+}
+.contextMenuDanger:hover {
+  background: var(--red-dim);
 }

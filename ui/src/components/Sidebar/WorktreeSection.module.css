@@ -2,24 +2,39 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px 4px;
+  padding: 8px 12px 4px;
   font-size: 11px;
-  color: var(--blue);
+  color: var(--accent);
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
   user-select: none;
+  border-radius: var(--radius-sm);
+  margin: 4px 6px 0;
+  transition: background 0.1s, opacity 0.15s;
 }
 .sectionDivider:hover {
   background: var(--surface-hover);
 }
 
+.sectionDividerActive {
+  background: var(--accent-dim);
+}
+
+.sectionDividerInactive {
+  opacity: 0.55;
+}
+.sectionDividerInactive:hover {
+  opacity: 0.85;
+}
+
 .branchIcon {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
 }
 
 .branchName {
-  font-family: "SF Mono", "JetBrains Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
@@ -33,22 +48,25 @@
 }
 
 .worktreeGroup {
-  border-left: 3px solid var(--blue);
+  border-left: 3px solid var(--accent);
+  margin-left: 6px;
 }
 
 .contextMenu {
   position: fixed;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 4px 0;
   z-index: 1000;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  min-width: 160px;
+  box-shadow: var(--shadow-lg);
+  min-width: 180px;
 }
 
 .contextMenuItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 7px 12px;
@@ -57,6 +75,7 @@
   cursor: pointer;
   background: none;
   border: none;
+  transition: background 0.1s;
 }
 .contextMenuItem:hover {
   background: var(--surface-hover);
@@ -64,4 +83,7 @@
 
 .contextMenuDanger {
   color: var(--red);
+}
+.contextMenuDanger:hover {
+  background: var(--red-dim);
 }

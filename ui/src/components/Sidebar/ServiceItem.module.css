@@ -1,14 +1,22 @@
 .svcItem {
-  padding: 6px 14px 6px 22px;
+  padding: 5px 12px 5px 20px;
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--transition-fast, 0.1s);
   font-size: 12px;
+  border-radius: var(--radius-sm);
+  margin: 1px 6px;
 }
 .svcItem:hover {
   background: var(--surface-hover);
+}
+.svcItemActive {
+  background: var(--accent-dim);
+}
+.svcItemActive:hover {
+  background: var(--accent-subtle);
 }
 
 .svcDot {
@@ -17,10 +25,11 @@
   border-radius: 50%;
   background: var(--text-muted);
   flex-shrink: 0;
+  transition: all 0.2s ease;
 }
 .svcDotRunning {
   background: var(--green);
-  box-shadow: 0 0 5px rgba(52, 211, 153, 0.4);
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
 }
 
 .svcName {
@@ -33,21 +42,23 @@
 
 .svcBadge {
   font-size: 8px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
   text-transform: uppercase;
-  background: var(--blue-dim);
-  color: var(--blue);
+  letter-spacing: 0.04em;
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
-.svcHoverActions {
+/* Always visible controls — subtle when idle, bright on hover */
+.svcActions {
   display: flex;
-  gap: 1px;
-  opacity: 0;
-  transition: opacity 0.1s;
+  gap: 2px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
 }
-.svcItem:hover .svcHoverActions {
+.svcItem:hover .svcActions {
   opacity: 1;
 }
 
@@ -55,14 +66,13 @@
   background: none;
   border: none;
   cursor: pointer;
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  line-height: 1;
+  transition: background 0.1s;
 }
 .svcBtnPlay {
   color: var(--green);

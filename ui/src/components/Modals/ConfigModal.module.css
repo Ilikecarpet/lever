@@ -1,44 +1,56 @@
-/* ---- Settings overlay (z-index 100) ---- */
+/* ---- Overlays ---- */
 .overlay {
   display: flex;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.5);
   z-index: 100;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(4px);
 }
 
-/* ---- Form overlay (z-index 200) ---- */
 .formOverlay {
   display: flex;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  z-index: 200;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 101;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(4px);
 }
 
-/* ---- Modal ---- */
+/* ---- List Modal ---- */
 .modal {
-  background: var(--surface);
+  background: var(--sidebar-bg);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  width: 520px;
+  border-radius: var(--radius-lg);
+  width: 560px;
   max-height: 80vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: var(--shadow-lg);
 }
+
+/* ---- Form Modal ---- */
 .formModal {
-  background: var(--surface);
+  background: var(--sidebar-bg);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  width: 460px;
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  width: 500px;
   max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.formModalScroll {
+  padding: 20px 24px;
   overflow-y: auto;
+  flex: 1;
 }
 
 /* ---- Header ---- */
@@ -50,8 +62,8 @@
   border-bottom: 1px solid var(--border);
 }
 .modalHeader h2 {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
 }
 .headerActions {
   display: flex;
@@ -62,48 +74,94 @@
 .modalBody {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 8px;
 }
 
 /* ---- Buttons ---- */
 .mBtn {
-  padding: 5px 12px;
+  padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.1s, border-color 0.15s;
 }
 .mBtn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 .mBtnPrimary {
-  background: var(--blue-dim);
-  border-color: rgba(96, 165, 250, 0.3);
-  color: var(--blue);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.mBtnPrimary:hover {
+  opacity: 0.9;
+  background: var(--accent);
 }
 .mBtnDanger {
   color: var(--red);
+  border-color: transparent;
+  background: var(--red-dim);
+}
+.mBtnDanger:hover {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
 }
 .mBtnSm {
-  padding: 3px 8px;
+  padding: 4px 10px;
   font-size: 11px;
+}
+
+/* ---- Group card ---- */
+.groupCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.groupLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.groupHeaderActions {
+  display: flex;
+  gap: 4px;
 }
 
 /* ---- Service item in settings list ---- */
 .si {
-  padding: 8px 10px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: 6px;
+  transition: background 0.1s;
 }
 .si:hover {
   background: var(--surface-hover);
 }
+.si + .si {
+  border-top: 1px solid var(--border);
+}
 .siInfo {
   flex: 1;
+  min-width: 0;
 }
 .siLabel {
   font-size: 13px;
@@ -115,134 +173,111 @@
 .siMeta {
   font-size: 11px;
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .siActions {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
+  margin-left: 12px;
 }
 
 .svcBadge {
   font-size: 8px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
   text-transform: uppercase;
-  background: var(--blue-dim);
-  color: var(--blue);
-}
-
-/* ---- Group header in settings ---- */
-.groupHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 4px;
-}
-.groupLabel {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.groupHeaderActions {
-  display: flex;
-  gap: 4px;
-}
-
-/* ---- Repo path ---- */
-.repoPathRow {
-  padding: 2px 10px 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.repoLabel {
-  font-size: 10px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.repoInput {
-  flex: 1;
-  padding: 4px 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-size: 11px;
-  font-family: "SF Mono", "JetBrains Mono", monospace;
-  outline: none;
-}
-.repoInput:focus {
-  border-color: var(--blue);
+  letter-spacing: 0.04em;
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 /* ---- Rename input ---- */
 .renameInput {
-  width: 100%;
-  background: var(--terminal-bg);
-  border: 1px solid var(--blue);
-  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 12px;
-  padding: 5px 8px;
+  font-weight: 700;
+  padding: 4px 8px;
   outline: none;
   font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* ---- Empty group message ---- */
 .emptyGroup {
-  padding: 8px 10px;
-  font-size: 11px;
+  padding: 14px;
+  font-size: 12px;
   color: var(--text-muted);
-  font-style: italic;
+  text-align: center;
 }
 
 /* ---- Form fields ---- */
+.formTitle {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
 .fg {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .fg label {
   display: block;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-dim);
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  margin-bottom: 6px;
 }
 .fg input,
 .fg select {
   width: 100%;
-  padding: 7px 10px;
-  background: var(--bg);
+  padding: 9px 12px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
+  transition: border-color 0.15s, background 0.1s;
 }
 .fg input:focus,
 .fg select:focus {
-  border-color: var(--blue);
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.fg input::placeholder {
+  color: var(--text-muted);
 }
 .hint {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
-.formTitle {
-  font-size: 14px;
-  margin-bottom: 14px;
-  font-weight: 600;
+/* Two-column row for shorter fields */
+.fgRow {
+  display: flex;
+  gap: 12px;
+}
+.fgRow .fg {
+  flex: 1;
 }
 
 .formActions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  margin-top: 16px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
 }

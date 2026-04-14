@@ -1,9 +1,10 @@
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
+import { IconTerminal } from "../Icons";
 import WorkspaceBar from "./WorkspaceBar";
 import PaneView from "./PaneView";
-import LogOverlay from "./LogOverlay";
+import LogPanel from "./LogOverlay";
 import GitPanel from "./GitPanel";
 import styles from "./MainPanel.module.css";
 
@@ -21,33 +22,44 @@ export default function MainPanel() {
     <div className={styles.main}>
       <WorkspaceBar />
       <div className={styles.termArea}>
-        {showEmpty && (
-          <div className={styles.emptyState}>
-            Press + to open a workspace
-          </div>
-        )}
+        {/* Pane area — workspaces, git panel, or empty state */}
+        <div className={styles.paneArea}>
+          {showEmpty && (
+            <div className={styles.emptyState}>
+              <span className={styles.emptyIcon}>
+                <IconTerminal size={32} />
+              </span>
+              <span className={styles.emptyTitle}>No workspaces open</span>
+              <span className={styles.emptyHint}>
+                Press <kbd className={styles.emptyKbd}>⌘T</kbd> or click{" "}
+                <kbd className={styles.emptyKbd}>+</kbd> to open a terminal workspace
+              </span>
+            </div>
+          )}
 
-        {workspaces.map((ws) => (
-          <div
-            key={ws.id}
-            style={{
-              position: "absolute",
-              inset: 0,
-              visibility: ws.id === activeWorkspaceId ? "visible" : "hidden",
-              pointerEvents: ws.id === activeWorkspaceId ? "auto" : "none",
-            }}
-          >
-            <PaneView
-              node={ws.root}
-              activePaneId={ws.activePaneId}
-              visible={ws.id === activeWorkspaceId}
-            />
-          </div>
-        ))}
+          {workspaces.map((ws) => (
+            <div
+              key={ws.id}
+              style={{
+                position: "absolute",
+                inset: 0,
+                visibility: ws.id === activeWorkspaceId ? "visible" : "hidden",
+                pointerEvents: ws.id === activeWorkspaceId ? "auto" : "none",
+              }}
+            >
+              <PaneView
+                node={ws.root}
+                activePaneId={ws.activePaneId}
+                visible={ws.id === activeWorkspaceId}
+              />
+            </div>
+          ))}
 
-        {showGitPanel && <GitPanel />}
+          {showGitPanel && <GitPanel />}
+        </div>
 
-        {activeLogSvcId && <LogOverlay />}
+        {/* Log panel — bottom drawer, doesn't cover workspace */}
+        {activeLogSvcId && <LogPanel />}
       </div>
     </div>
   );
