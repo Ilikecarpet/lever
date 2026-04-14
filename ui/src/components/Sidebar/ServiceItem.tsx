@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { ServiceDef } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
 import { IconPlay, IconStop } from "../Icons";
 import styles from "./ServiceItem.module.css";
 
@@ -9,15 +10,17 @@ interface Props {
   service: ServiceDef;
   groupId: string;
   onOpenSettings?: () => void;
+  worktreeId?: string | null;
 }
 
-export default function ServiceItem({ service, groupId, onOpenSettings }: Props) {
+export default function ServiceItem({ service, groupId, onOpenSettings, worktreeId }: Props) {
   const status = useServiceStore((s) => s.statuses[service.id] ?? "stopped");
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
   const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
   const setActiveLog = useServiceStore((s) => s.setActiveLog);
   const removeService = useConfigStore((s) => s.removeService);
+  const removeWorktreeService = useWorktreeStore((s) => s.removeWorktreeService);
   const saveConfig = useConfigStore((s) => s.saveConfig);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -61,7 +64,11 @@ export default function ServiceItem({ service, groupId, onOpenSettings }: Props)
     if (isRunning) {
       stopService(service.id);
     }
-    removeService(groupId, service.id);
+    if (worktreeId) {
+      removeWorktreeService(worktreeId, groupId, service.id);
+    } else {
+      removeService(groupId, service.id);
+    }
     saveConfig();
   };
 

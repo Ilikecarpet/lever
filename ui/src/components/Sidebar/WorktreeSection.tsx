@@ -4,6 +4,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
+import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
 import styles from "./WorktreeSection.module.css";
 
 interface Props {
@@ -27,6 +28,7 @@ export default function WorktreeSection({ worktree }: Props) {
   );
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isActive = activeWorktreeId === worktree.id;
 
@@ -65,6 +67,11 @@ export default function WorktreeSection({ worktree }: Props) {
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
+  const handleManageServices = () => {
+    setContextMenu(null);
+    setSettingsOpen(true);
+  };
+
   const handleRemove = async (cleanup: boolean) => {
     setContextMenu(null);
     setConfirmDelete(null);
@@ -92,7 +99,11 @@ export default function WorktreeSection({ worktree }: Props) {
 
       {worktree.groups.map((group) => (
         <div key={group.id} className={styles.worktreeGroup}>
-          <GroupItem group={group} />
+          <GroupItem
+            group={group}
+            onOpenSettings={() => setSettingsOpen(true)}
+            worktreeId={worktree.id}
+          />
         </div>
       ))}
 
@@ -102,6 +113,13 @@ export default function WorktreeSection({ worktree }: Props) {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           data-ctx-wt={worktree.id}
         >
+          <button
+            className={styles.contextMenuItem}
+            onClick={handleManageServices}
+          >
+            Manage Services
+          </button>
+          <div className={styles.contextMenuDivider} />
           <button
             className={styles.contextMenuItem}
             onClick={() => setConfirmDelete((v) => v === "remove" ? null : "remove")}
@@ -143,6 +161,12 @@ export default function WorktreeSection({ worktree }: Props) {
           </div>
         </div>
       )}
+
+      <WorktreeConfigModal
+        open={settingsOpen}
+        worktreeId={worktree.id}
+        onClose={() => setSettingsOpen(false)}
+      />
     </>
   );
 }

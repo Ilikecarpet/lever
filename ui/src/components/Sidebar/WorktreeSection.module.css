@@ -88,6 +88,12 @@
   background: var(--red-dim);
 }
 
+.contextMenuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
 /* Delete confirmation accordion */
 .confirmAccordion {
   max-height: 0;

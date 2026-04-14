@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
+import { useWorktreeStore } from "../../stores/worktreeStore";
 import { IconPlay, IconStop, IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
@@ -9,9 +10,10 @@ import styles from "./GroupItem.module.css";
 interface Props {
   group: ServiceGroup;
   onOpenSettings?: () => void;
+  worktreeId?: string | null;
 }
 
-export default function GroupItem({ group, onOpenSettings }: Props) {
+export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -20,6 +22,7 @@ export default function GroupItem({ group, onOpenSettings }: Props) {
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
   const removeGroup = useConfigStore((s) => s.removeGroup);
+  const removeWorktreeGroup = useWorktreeStore((s) => s.removeWorktreeGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
 
   const runningCount = group.services.filter(
@@ -78,7 +81,11 @@ export default function GroupItem({ group, onOpenSettings }: Props) {
         stopService(svc.id);
       }
     }
-    removeGroup(group.id);
+    if (worktreeId) {
+      removeWorktreeGroup(worktreeId, group.id);
+    } else {
+      removeGroup(group.id);
+    }
     saveConfig();
   };
 
@@ -122,7 +129,7 @@ export default function GroupItem({ group, onOpenSettings }: Props) {
         className={`${styles.groupServices}${collapsed ? ` ${styles.groupServicesCollapsed}` : ""}`}
       >
         {group.services.map((svc) => (
-          <ServiceItem key={svc.id} service={svc} groupId={group.id} onOpenSettings={onOpenSettings} />
+          <ServiceItem key={svc.id} service={svc} groupId={group.id} onOpenSettings={onOpenSettings} worktreeId={worktreeId} />
         ))}
       </div>
 
