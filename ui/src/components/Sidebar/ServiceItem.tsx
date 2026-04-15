@@ -17,8 +17,8 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   const status = useServiceStore((s) => s.statuses[service.id] ?? "stopped");
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
-  const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
-  const setActiveLog = useServiceStore((s) => s.setActiveLog);
+  const activeServiceId = useServiceStore((s) => s.activeServiceId);
+  const setActiveService = useServiceStore((s) => s.setActiveService);
   const removeService = useConfigStore((s) => s.removeService);
   const removeWorktreeService = useWorktreeStore((s) => s.removeWorktreeService);
   const saveConfig = useConfigStore((s) => s.saveConfig);
@@ -27,7 +27,7 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isRunning = status === "running";
-  const isLogOpen = activeLogSvcId === service.id;
+  const isActive = activeServiceId === service.id;
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -42,7 +42,7 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   }, [contextMenu, service.id]);
 
   const handleClick = () => {
-    setActiveLog(isLogOpen ? null : service.id);
+    setActiveService(isActive ? null : service.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -75,10 +75,10 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   return (
     <>
       <div
-        className={`${styles.svcItem}${isLogOpen ? ` ${styles.svcItemActive}` : ""}`}
+        className={`${styles.svcItem}${isActive ? ` ${styles.svcItemActive}` : ""}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        title="Toggle logs"
+        title="Toggle terminal"
       >
         <div
           className={`${styles.svcDot}${isRunning ? ` ${styles.svcDotRunning}` : ""}`}

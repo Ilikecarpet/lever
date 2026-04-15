@@ -27,7 +27,7 @@ export default function WorkspaceBar() {
   const addWorkspaceForWorktree = useWorkspaceStore((s) => s.addWorkspaceForWorktree);
 
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
-  const setActiveLog = useServiceStore((s) => s.setActiveLog);
+  const setActiveService = useServiceStore((s) => s.setActiveService);
 
   const filteredWorkspaces = workspaces.filter(
     (w) => w.worktreeId === activeWorktreeId
@@ -68,7 +68,7 @@ export default function WorkspaceBar() {
     if (editingId) return;
     setActiveWorkspace(id);
     setActiveGitGroup(null);
-    setActiveLog(null);
+    setActiveService(null);
   };
 
   const handleNew = () => {
@@ -80,7 +80,7 @@ export default function WorkspaceBar() {
       addWorkspace();
     }
     setActiveGitGroup(null);
-    setActiveLog(null);
+    setActiveService(null);
   };
 
   const handleClose = (e: React.MouseEvent, id: string) => {

@@ -74,22 +74,6 @@
   color: var(--text);
 }
 
-.clearBtn {
-  padding: 2px 8px;
-  font-size: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.1s, border-color 0.15s;
-}
-.clearBtn:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-hover);
-}
-
 .logOutput {
   flex: 1;
   padding: 10px 14px;
@@ -111,6 +95,7 @@
   border-radius: 3px;
 }
 
-.stderr {
-  color: var(--yellow);
+.termContainer {
+  flex: 1;
+  overflow: hidden;
 }

@@ -5,7 +5,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { IconTerminal } from "../Icons";
 import WorkspaceBar from "./WorkspaceBar";
 import PaneView from "./PaneView";
-import LogPanel from "./LogOverlay";
+import ServiceTerminal from "./LogOverlay";
 import GitPanel from "./GitPanel";
 import styles from "./MainPanel.module.css";
 
@@ -14,18 +14,17 @@ export default function MainPanel() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
-  const activeLogSvcId = useServiceStore((s) => s.activeLogSvcId);
+  const activeServiceId = useServiceStore((s) => s.activeServiceId);
 
   const contextWorkspaces = workspaces.filter((w) => w.worktreeId === activeWorktreeId);
   const showEmpty =
-    contextWorkspaces.length === 0 && !activeGitGroupId && !activeLogSvcId;
+    contextWorkspaces.length === 0 && !activeGitGroupId && !activeServiceId;
   const showGitPanel = activeGitGroupId && !activeWorkspaceId;
 
   return (
     <div className={styles.main}>
       <WorkspaceBar />
       <div className={styles.termArea}>
-        {/* Pane area — workspaces, git panel, or empty state */}
         <div className={styles.paneArea}>
           {showEmpty && (
             <div className={styles.emptyState}>
@@ -62,8 +61,7 @@ export default function MainPanel() {
           {showGitPanel && <GitPanel />}
         </div>
 
-        {/* Log panel — bottom drawer, doesn't cover workspace */}
-        {activeLogSvcId && <LogPanel />}
+        {activeServiceId && <ServiceTerminal />}
       </div>
     </div>
   );
