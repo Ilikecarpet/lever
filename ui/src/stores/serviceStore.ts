@@ -26,15 +26,7 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     for (const s of result.statuses) {
       statuses[s.id] = s.status === "running" ? "running" : "stopped";
     }
-    set((state) => {
-      const ptyIds = { ...state.ptyIds };
-      for (const [svcId] of Object.entries(ptyIds)) {
-        if (statuses[svcId] !== "running") {
-          delete ptyIds[svcId];
-        }
-      }
-      return { statuses, ptyIds };
-    });
+    set({ statuses });
   },
 
   startService: async (id) => {
@@ -71,16 +63,18 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
   },
 
   initExitListener: async () => {
+    // svc-exit fires when a service PTY exits (task completed, process died).
+    // Mark as stopped immediately so the UI shows the play button.
+    // Keep ptyId so the terminal output stays visible until next run.
     const unlisten = await tauriListen<SvcExitEvent>("svc-exit", (payload) => {
       set((state) => {
-        const ptyIds = { ...state.ptyIds };
-        for (const [svcId, ptyId] of Object.entries(ptyIds)) {
+        // Find which service had this pty_id
+        for (const [svcId, ptyId] of Object.entries(state.ptyIds)) {
           if (ptyId === payload.pty_id) {
-            delete ptyIds[svcId];
-            break;
+            return { statuses: { ...state.statuses, [svcId]: "stopped" } };
           }
         }
-        return { ptyIds };
+        return {};
       });
     });
     return unlisten;
