@@ -10,7 +10,7 @@
 }
 
 .logPanel {
-  height: 40%;
+  flex: 0 1 40%;
   min-height: 120px;
   max-height: 60%;
   display: flex;
@@ -19,7 +19,7 @@
   border-top: 1px solid var(--border);
   z-index: 10;
   animation: logSlideUp 0.15s ease;
-  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .logHeader {
@@ -95,7 +95,14 @@
   border-radius: 3px;
 }
 
-.termContainer {
+.termWrapper {
   flex: 1;
+  min-height: 0;
+  position: relative;
   overflow: hidden;
+}
+
+.termContainer {
+  position: absolute;
+  inset: 0;
 }

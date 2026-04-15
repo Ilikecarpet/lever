@@ -152,7 +152,14 @@ export function usePty(
       existing.term.blur();
       termRef.current = existing.term;
       fitAddonRef.current = existing.fitAddon;
-      existing.fitAddon.fit();
+
+      // Defer fit until after the browser has laid out the new container.
+      requestAnimationFrame(() => {
+        if (!existing.disposed) {
+          existing.fitAddon.fit();
+          existing.term.scrollToBottom();
+        }
+      });
 
       // ResizeObserver with debounced fit
       let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -161,6 +168,7 @@ export function usePty(
         resizeTimeout = setTimeout(() => {
           if (!existing.disposed) {
             existing.fitAddon.fit();
+            existing.term.scrollToBottom();
           }
         }, 50);
       });
@@ -244,6 +252,7 @@ export function usePty(
       resizeTimeout = setTimeout(() => {
         if (!entry.disposed) {
           fitAddon.fit();
+          term.scrollToBottom();
         }
       }, 50);
     });

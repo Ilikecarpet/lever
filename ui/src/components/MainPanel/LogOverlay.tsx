@@ -67,12 +67,16 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
       existing.term.blur();
       fitAddonRef.current = existing.fitAddon;
       existing.fitAddon.fit();
+      existing.term.scrollToBottom();
 
       let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
       const observer = new ResizeObserver(() => {
         if (resizeTimeout) clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-          if (!existing.disposed) existing.fitAddon.fit();
+          if (!existing.disposed) {
+            existing.fitAddon.fit();
+            existing.term.scrollToBottom();
+          }
         }, 50);
       });
       observer.observe(container);
@@ -151,7 +155,10 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     const observer = new ResizeObserver(() => {
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        if (!entry.disposed) fitAddon.fit();
+        if (!entry.disposed) {
+          fitAddon.fit();
+          term.scrollToBottom();
+        }
       }, 50);
     });
     observer.observe(container);
@@ -170,7 +177,11 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     fit();
   }, [fit]);
 
-  return <div className={styles.termContainer} ref={containerRef} />;
+  return (
+    <div className={styles.termWrapper}>
+      <div className={styles.termContainer} ref={containerRef} />
+    </div>
+  );
 }
 
 export default function ServiceTerminal() {
