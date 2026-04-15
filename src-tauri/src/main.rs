@@ -181,7 +181,7 @@ fn shell_escape(s: &str) -> String {
 
 fn get_shell_path() -> String {
     if let Ok(output) = Command::new("/bin/zsh")
-        .args(["-l", "-c", "echo $PATH"])
+        .args(["-il", "-c", "echo $PATH"])
         .output()
     {
         if let Ok(path) = String::from_utf8(output.stdout) {
@@ -705,7 +705,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
     let mut cmd = CommandBuilder::new("/bin/zsh");
-    cmd.args(["-l", "-c", &shell_cmd]);
+    cmd.args(["-il", "-c", &shell_cmd]);
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
