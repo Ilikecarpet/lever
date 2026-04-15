@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/Ilikecarpet/lever?style=flat-square" alt="Release" />
+  <a href="https://github.com/Ilikecarpet/lever/releases/latest"><img src="https://img.shields.io/github/v/release/Ilikecarpet/lever?style=flat-square" alt="Release" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=flat-square" alt="Tauri 2" />
+  <a href="https://v2.tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=flat-square" alt="Tauri 2" /></a>
 </p>
 
 ---
