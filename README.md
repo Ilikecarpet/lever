@@ -9,9 +9,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/Ilikecarpet/lever?style=flat-square" alt="Release" />
+  <a href="https://github.com/Ilikecarpet/lever/releases/latest"><img src="https://img.shields.io/github/v/release/Ilikecarpet/lever?style=flat-square" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green?style=flat-square" alt="License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=flat-square" alt="Tauri 2" />
+  <a href="https://v2.tauri.app"><img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=flat-square" alt="Tauri 2" /></a>
 </p>
 
 ---
@@ -160,4 +161,4 @@ Each worktree can override these groups with its own service definitions, so fea
 
 ## License
 
-This project is not yet licensed. All rights reserved.
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
