@@ -52,6 +52,7 @@ function ProjectApp() {
     }
 
     const servicePollId = setInterval(poll, 300);
+    const unlistenSvcExit = useServiceStore.getState().initExitListener();
 
     const gitPollId = setInterval(() => {
       const repoPath = useGitStore.getState().repoPath;
@@ -67,6 +68,7 @@ function ProjectApp() {
     return () => {
       clearInterval(servicePollId);
       clearInterval(gitPollId);
+      unlistenSvcExit.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);

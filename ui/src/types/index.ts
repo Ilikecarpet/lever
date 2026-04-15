@@ -62,6 +62,15 @@ export interface PtyExitEvent {
   id: string;
 }
 
+export interface SvcExitEvent {
+  id: string;
+  pty_id: string;
+}
+
+export interface StartServiceResult {
+  pty_id: string;
+}
+
 // ---------------------------------------------------------------------------
 // Git types
 // ---------------------------------------------------------------------------

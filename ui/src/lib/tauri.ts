@@ -5,6 +5,7 @@ import type {
   AppConfig,
   PollResult,
   PtyInfo,
+  StartServiceResult,
   GitRepoInfo,
   ProjectMeta,
   WorktreeDef,
@@ -88,8 +89,8 @@ export function saveConfig(config: AppConfig): Promise<void> {
 // Service commands (project-scoped)
 // ---------------------------------------------------------------------------
 
-export function startService(id: string): Promise<void> {
-  return invoke<void>("start_service", { projectId: _projectId, id });
+export function startService(id: string): Promise<StartServiceResult> {
+  return invoke<StartServiceResult>("start_service", { projectId: _projectId, id });
 }
 
 export function stopService(id: string): Promise<void> {

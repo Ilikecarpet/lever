@@ -4,15 +4,13 @@
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read as IoRead, Seek, SeekFrom, Write as IoWrite};
+use std::fs;
+use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State};
 
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 
 // ---------------------------------------------------------------------------
 // Config: group-based
@@ -106,6 +104,7 @@ struct PersistentState {
 
 struct TrackedService {
     pid: u32,
+    pty_id: Option<String>,
 }
 
 struct PtySession {
@@ -125,10 +124,21 @@ struct PtyExitEvent {
     id: String,
 }
 
+#[derive(Clone, Serialize)]
+struct SvcExitEvent {
+    id: String,
+    pty_id: String,
+}
+
+#[derive(Serialize)]
+struct StartServiceResult {
+    pty_id: String,
+}
+
 struct ProjectState {
     config: AppConfig,
+    repo_path: String,
     tracked: HashMap<String, TrackedService>,
-    log_offsets: HashMap<String, u64>,
     pty_sessions: HashMap<String, PtySession>,
 }
 
@@ -159,6 +169,16 @@ struct PtyInfo {
 // Helpers: shell / process
 // ---------------------------------------------------------------------------
 
+fn shell_escape(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' || c == ':' || c == '=' || c == '@') {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 fn get_shell_path() -> String {
     if let Ok(output) = Command::new("/bin/zsh")
         .args(["-l", "-c", "echo $PATH"])
@@ -182,55 +202,27 @@ fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
-fn find_service<'a>(config: &'a AppConfig, id: &str) -> Option<&'a ServiceDef> {
-    config.groups.iter().flat_map(|g| g.services.iter())
-        .chain(config.worktrees.iter().flat_map(|w| w.groups.iter().flat_map(|g| g.services.iter())))
-        .find(|s| s.id == id)
+/// Find a service and return its worktree path (if it belongs to one).
+fn find_service_with_worktree_path<'a>(config: &'a AppConfig, id: &str) -> Option<(&'a ServiceDef, Option<&'a str>)> {
+    for g in &config.groups {
+        if let Some(s) = g.services.iter().find(|s| s.id == id) {
+            return Some((s, None));
+        }
+    }
+    for w in &config.worktrees {
+        for g in &w.groups {
+            if let Some(s) = g.services.iter().find(|s| s.id == id) {
+                return Some((s, Some(&w.path)));
+            }
+        }
+    }
+    None
 }
 
 fn all_services(config: &AppConfig) -> Vec<&ServiceDef> {
     config.groups.iter().flat_map(|g| g.services.iter())
         .chain(config.worktrees.iter().flat_map(|w| w.groups.iter().flat_map(|g| g.services.iter())))
         .collect()
-}
-
-// Updated tail_log_file: caller passes the log path directly
-fn tail_log_file(log_path: &PathBuf, id: &str, offsets: &mut HashMap<String, u64>) -> Vec<String> {
-    let mut lines = Vec::new();
-    let file = match File::open(log_path) {
-        Ok(f) => f,
-        Err(_) => return lines,
-    };
-    let file_size = match file.metadata() {
-        Ok(m) => m.len(),
-        Err(_) => return lines,
-    };
-    let current_offset = offsets.get(id).copied().unwrap_or_else(|| {
-        // First poll for this service: skip to end so we don't read the entire log history
-        offsets.insert(id.to_string(), file_size);
-        file_size
-    });
-    let offset = if current_offset > file_size { 0 } else { current_offset };
-    if offset >= file_size {
-        return lines;
-    }
-    let mut reader = BufReader::new(file);
-    if reader.seek(SeekFrom::Start(offset)).is_err() {
-        return lines;
-    }
-    let mut new_offset = offset;
-    let mut line_buf = String::new();
-    while let Ok(n) = reader.read_line(&mut line_buf) {
-        if n == 0 { break; }
-        new_offset += n as u64;
-        let trimmed = line_buf.trim_end_matches('\n').trim_end_matches('\r').to_string();
-        if !trimmed.is_empty() {
-            lines.push(trimmed);
-        }
-        line_buf.clear();
-    }
-    offsets.insert(id.to_string(), new_offset);
-    lines
 }
 
 // ---------------------------------------------------------------------------
@@ -275,12 +267,6 @@ fn save_project_config(projects_dir: &PathBuf, id: &str, config: &AppConfig) -> 
     let _ = fs::create_dir_all(&dir);
     let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     fs::write(dir.join("config.json"), json).map_err(|e| e.to_string())
-}
-
-fn project_log_file_path(projects_dir: &PathBuf, project_id: &str, service_id: &str) -> PathBuf {
-    let p = project_dir(projects_dir, project_id).join("logs");
-    let _ = fs::create_dir_all(&p);
-    p.join(format!("{}.log", service_id))
 }
 
 fn project_state_file_path(projects_dir: &PathBuf, project_id: &str) -> PathBuf {
@@ -481,9 +467,15 @@ fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Resul
 fn set_repo_path(id: String, repo_path: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut index = load_project_index(&state.projects_dir);
     if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
-        meta.repo_path = repo_path;
+        meta.repo_path = repo_path.clone();
     } else {
         return Err("Project not found".to_string());
+    }
+    // Also update in-memory project state if loaded
+    if let Ok(mut projects) = state.projects.lock() {
+        if let Some(ps) = projects.get_mut(&id) {
+            ps.repo_path = repo_path;
+        }
     }
     save_project_index(&state.projects_dir, &index)
 }
@@ -583,15 +575,23 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     }
 
     // Migrate repo_path from groups to project meta if needed
+    let repo_path;
     {
         let mut index = load_project_index(&state.projects_dir);
+        let mut needs_save = false;
         if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
             if meta.repo_path.is_empty() {
                 if let Some(rp) = migrate_repo_path(&state.projects_dir, &id) {
                     meta.repo_path = rp;
-                    let _ = save_project_index(&state.projects_dir, &index);
+                    needs_save = true;
                 }
             }
+            repo_path = meta.repo_path.clone();
+        } else {
+            repo_path = String::new();
+        }
+        if needs_save {
+            let _ = save_project_index(&state.projects_dir, &index);
         }
     }
 
@@ -599,41 +599,10 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
 
     let ps = load_project_persistent_state(&state.projects_dir, &id);
     let mut tracked = HashMap::new();
-    let mut log_offsets = HashMap::new();
 
     for (svc_id, pid) in &ps.running {
         if is_pid_alive(*pid) {
-            tracked.insert(svc_id.clone(), TrackedService { pid: *pid });
-            let log_path = project_log_file_path(&state.projects_dir, &id, svc_id);
-            if let Ok(meta) = fs::metadata(&log_path) {
-                log_offsets.insert(svc_id.clone(), meta.len());
-            }
-
-            let projects_dir = state.projects_dir.clone();
-            let project_id = id.clone();
-            let svc_id_clone = svc_id.clone();
-            let pid_val = *pid;
-            let log_path_clone = log_path.clone();
-            std::thread::spawn(move || {
-                loop {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    if !is_pid_alive(pid_val) {
-                        if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path_clone) {
-                            let _ = writeln!(f, "\n--- Process exited (PID {}) ---", pid_val);
-                        }
-                        let sp = project_state_file_path(&projects_dir, &project_id);
-                        if let Ok(s) = fs::read_to_string(&sp) {
-                            if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
-                                ps.running.remove(&svc_id_clone);
-                                if let Ok(json) = serde_json::to_string_pretty(&ps) {
-                                    let _ = fs::write(&sp, json);
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            });
+            tracked.insert(svc_id.clone(), TrackedService { pid: *pid, pty_id: None });
         }
     }
 
@@ -643,8 +612,8 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         let mut projects = state.projects.lock().unwrap();
         projects.insert(id.clone(), ProjectState {
             config,
+            repo_path: repo_path.clone(),
             tracked,
-            log_offsets,
             pty_sessions: HashMap::new(),
         });
     }
@@ -700,75 +669,128 @@ fn save_config(project_id: String, config: AppConfig, state: State<'_, AppState>
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn start_service(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
+fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<StartServiceResult, String> {
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    let def = find_service(&ps.config, &id).cloned()
+    let (def, worktree_path) = find_service_with_worktree_path(&ps.config, &id)
         .ok_or_else(|| format!("Unknown service: {}", id))?;
+    let def = def.clone();
+    let worktree_path = worktree_path.map(String::from);
 
     if ps.tracked.contains_key(&id) {
         return Err(format!("{} is already running", id));
     }
 
-    let shell_path = get_shell_path();
-    let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
-    let log_file = OpenOptions::new().create(true).write(true).truncate(true).open(&log_path)
-        .map_err(|e| format!("Failed to open log file: {}", e))?;
-    let log_file_err = log_file.try_clone().map_err(|e| format!("Clone: {}", e))?;
+    let cwd = if !def.cwd.is_empty() {
+        def.cwd.clone()
+    } else if let Some(ref wt_path) = worktree_path {
+        wt_path.clone()
+    } else if !ps.repo_path.is_empty() {
+        ps.repo_path.clone()
+    } else {
+        ".".to_string()
+    };
 
-    ps.log_offsets.insert(id.clone(), 0);
-
-    let cwd = if def.cwd.is_empty() { ".".to_string() } else { def.cwd.clone() };
-    let mut cmd = Command::new(&def.command);
-    cmd.args(&def.args)
-        .current_dir(&cwd)
-        .env("PATH", &shell_path)
-        .env("FORCE_COLOR", "0")
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(log_file_err));
-
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    let child = cmd.spawn().map_err(|e| format!("Failed to start {}: {}", def.label, e))?;
-    let pid = child.id();
-
-    ps.tracked.insert(id.clone(), TrackedService { pid });
-    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-
-    drop(projects);
-
-    if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path) {
-        let _ = writeln!(f, "Starting {} (PID {})...\n", def.label, pid);
+    // Build shell command string
+    let mut shell_cmd = shell_escape(&def.command);
+    for arg in &def.args {
+        shell_cmd.push(' ');
+        shell_cmd.push_str(&shell_escape(arg));
     }
+
+    let pty_system = NativePtySystem::default();
+    let pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let mut cmd = CommandBuilder::new("/bin/zsh");
+    cmd.args(["-l", "-c", &shell_cmd]);
+    cmd.cwd(&cwd);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+
+    let child = pair.slave.spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn {}: {}", def.label, e))?;
+
+    let pid = child.process_id().unwrap_or(0);
+
+    let mut reader = pair.master.try_clone_reader()
+        .map_err(|e| format!("Failed to clone reader: {}", e))?;
+    let writer = pair.master.take_writer()
+        .map_err(|e| format!("Failed to take writer: {}", e))?;
+
+    let mut counter = state.pty_counter.lock().unwrap();
+    *counter += 1;
+    let pty_id = format!("svc-pty-{}", *counter);
+    drop(counter);
+
+    let session = PtySession { writer, master: pair.master };
+    ps.pty_sessions.insert(pty_id.clone(), session);
+    ps.tracked.insert(id.clone(), TrackedService { pid, pty_id: Some(pty_id.clone()) });
+    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
 
     let projects_dir = state.projects_dir.clone();
     let proj_id = project_id.clone();
     let id_clone = id.clone();
-    let log_path_clone = log_path.clone();
+    let pty_id_clone = pty_id.clone();
+    let app_handle = app.clone();
+
+    drop(projects);
+
     std::thread::spawn(move || {
+        let mut buf = [0u8; 16384];
+        let mut leftover: Vec<u8> = Vec::new();
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            if !is_pid_alive(pid) {
-                if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path_clone) {
-                    let _ = writeln!(f, "\n--- Process exited (PID {}) ---", pid);
-                }
-                let sp = project_state_file_path(&projects_dir, &proj_id);
-                if let Ok(s) = fs::read_to_string(&sp) {
-                    if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
-                        ps.running.remove(&id_clone);
-                        if let Ok(json) = serde_json::to_string_pretty(&ps) {
-                            let _ = fs::write(&sp, json);
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let mut data = Vec::with_capacity(leftover.len() + n);
+                    data.extend_from_slice(&leftover);
+                    data.extend_from_slice(&buf[..n]);
+                    leftover.clear();
+                    match std::str::from_utf8(&data) {
+                        Ok(s) => {
+                            let _ = app_handle.emit("pty-data", PtyDataEvent {
+                                id: pty_id_clone.clone(),
+                                data: s.to_string(),
+                            });
+                        }
+                        Err(e) => {
+                            let valid_up_to = e.valid_up_to();
+                            if valid_up_to > 0 {
+                                let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
+                                let _ = app_handle.emit("pty-data", PtyDataEvent {
+                                    id: pty_id_clone.clone(),
+                                    data: s.to_string(),
+                                });
+                            }
+                            leftover.extend_from_slice(&data[valid_up_to..]);
                         }
                     }
                 }
-                break;
+                Err(_) => break,
+            }
+        }
+        // PTY exited — emit svc-exit event and clean up
+        let _ = app_handle.emit("svc-exit", SvcExitEvent {
+            id: id_clone.clone(),
+            pty_id: pty_id_clone.clone(),
+        });
+
+        // Clean up persistent state
+        let sp = project_state_file_path(&projects_dir, &proj_id);
+        if let Ok(s) = fs::read_to_string(&sp) {
+            if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
+                ps.running.remove(&id_clone);
+                if let Ok(json) = serde_json::to_string_pretty(&ps) {
+                    let _ = fs::write(&sp, json);
+                }
             }
         }
     });
 
-    Ok(())
+    Ok(StartServiceResult { pty_id })
 }
 
 #[tauri::command]
@@ -776,36 +798,51 @@ fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> R
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    let def = find_service(&ps.config, &id).cloned();
-    let pid = ps.tracked.get(&id).map(|t| t.pid);
+    let found = find_service_with_worktree_path(&ps.config, &id)
+        .map(|(def, wt)| (def.clone(), wt.map(String::from)));
+    let tracked = ps.tracked.remove(&id);
 
-    if let (Some(def), Some(_)) = (&def, pid) {
+    if let (Some((def, worktree_path)), Some(ref t)) = (&found, &tracked) {
         if !def.stop_command.is_empty() {
             let shell_path = get_shell_path();
             let (cmd, args) = def.stop_command.split_first().unwrap();
-            let cwd = if def.cwd.is_empty() { "." } else { &def.cwd };
+            let cwd = if !def.cwd.is_empty() {
+                def.cwd.as_str()
+            } else if let Some(wt_path) = worktree_path {
+                wt_path.as_str()
+            } else if !ps.repo_path.is_empty() {
+                ps.repo_path.as_str()
+            } else {
+                "."
+            };
             let _ = Command::new(cmd).args(args).current_dir(cwd).env("PATH", &shell_path).output();
         }
-    }
 
-    if let Some(pid) = pid {
+        // Remove the PTY session (closing master fd causes reader to exit)
+        if let Some(ref pty_id) = t.pty_id {
+            ps.pty_sessions.remove(pty_id);
+        }
+
+        // Kill process group as fallback
         #[cfg(unix)]
         unsafe {
-            libc::kill(-(pid as i32), libc::SIGTERM);
-            libc::kill(pid as i32, libc::SIGTERM);
+            libc::kill(-(t.pid as i32), libc::SIGTERM);
+            libc::kill(t.pid as i32, libc::SIGTERM);
         }
-        let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
-        if let Ok(mut f) = OpenOptions::new().append(true).open(&log_path) {
-            let _ = writeln!(f, "\n--- Stopped by user ---");
+    } else if let Some(ref t) = tracked {
+        // No service def found but we have a tracked service — still clean up
+        if let Some(ref pty_id) = t.pty_id {
+            ps.pty_sessions.remove(pty_id);
+        }
+
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(t.pid as i32), libc::SIGTERM);
+            libc::kill(t.pid as i32, libc::SIGTERM);
         }
     }
 
-    ps.tracked.remove(&id);
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-
-    let log_path = project_log_file_path(&state.projects_dir, &project_id, &id);
-    let _ = fs::remove_file(&log_path);
-    ps.log_offsets.remove(&id);
 
     Ok(())
 }
@@ -820,7 +857,13 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
         .map(|(k, _)| k.clone())
         .collect();
     if !dead.is_empty() {
-        for id in &dead { ps.tracked.remove(id); }
+        for id in &dead {
+            if let Some(t) = ps.tracked.remove(id) {
+                if let Some(ref pty_id) = t.pty_id {
+                    ps.pty_sessions.remove(pty_id);
+                }
+            }
+        }
         save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
     }
 
@@ -832,17 +875,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
         }
     }).collect();
 
-    let mut all_logs: HashMap<String, Vec<String>> = HashMap::new();
-    for svc in &svcs {
-        if !ps.tracked.contains_key(&svc.id) { continue; }
-        let log_path = project_log_file_path(&state.projects_dir, &project_id, &svc.id);
-        let lines = tail_log_file(&log_path, &svc.id, &mut ps.log_offsets);
-        if !lines.is_empty() {
-            all_logs.insert(svc.id.clone(), lines);
-        }
-    }
-
-    Ok(PollResult { statuses, logs: all_logs })
+    Ok(PollResult { statuses, logs: HashMap::new() })
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,13 +1232,15 @@ fn remove_worktree(
         .flat_map(|g| g.services.iter().map(|s| s.id.clone())).collect();
     for svc_id in &wt_service_ids {
         if let Some(tracked) = ps.tracked.remove(svc_id) {
+            if let Some(ref pty_id) = tracked.pty_id {
+                ps.pty_sessions.remove(pty_id);
+            }
             #[cfg(unix)]
             unsafe {
                 libc::kill(-(tracked.pid as i32), libc::SIGTERM);
                 libc::kill(tracked.pid as i32, libc::SIGTERM);
             }
         }
-        ps.log_offsets.remove(svc_id);
     }
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
 
