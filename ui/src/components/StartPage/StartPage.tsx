@@ -107,6 +107,18 @@ export default function StartPage() {
     }
   };
 
+  const handleChangeRepoPath = async (project: ProjectMeta) => {
+    setContextMenu(null);
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: project.repo_path || undefined,
+    });
+    if (!selected) return;
+    await api.setRepoPath(project.id, selected as string);
+    refresh();
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -190,6 +202,9 @@ export default function StartPage() {
           </button>
           <button className={styles.contextMenuItem} onClick={() => handleClone(contextMenu.project)}>
             Clone
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => handleChangeRepoPath(contextMenu.project)}>
+            Change repo path…
           </button>
           <button className={styles.contextMenuDanger} onClick={() => handleDelete(contextMenu.project)}>
             Delete
