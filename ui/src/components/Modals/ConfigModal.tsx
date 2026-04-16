@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import * as api from "../../lib/tauri";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
@@ -104,6 +106,31 @@ export default function ConfigModal({ open, onClose }: Props) {
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<string | null>(null);
   const mouseDownOnOverlay = useRef(false);
   const mouseDownOnFormOverlay = useRef(false);
+
+  const [repoPath, setRepoPathState] = useState<string>("");
+
+  useEffect(() => {
+    if (!open) return;
+    const projectId = api.getProjectId();
+    if (!projectId) return;
+    api.getRepoPath(projectId)
+      .then((p) => setRepoPathState(p))
+      .catch(() => setRepoPathState(""));
+  }, [open]);
+
+  const handleChangeRepoPath = async () => {
+    const projectId = api.getProjectId();
+    if (!projectId) return;
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: repoPath || undefined,
+    });
+    if (!selected) return;
+    const next = selected as string;
+    await api.setRepoPath(projectId, next);
+    setRepoPathState(next);
+  };
 
   useEffect(() => {
     if (renamingGroupKey && renameRef.current) {
@@ -386,6 +413,18 @@ export default function ConfigModal({ open, onClose }: Props) {
             </div>
           </div>
           <div className={styles.modalBody}>
+            <div className={styles.repoPathRow}>
+              <div className={styles.repoPathLabel}>Repository path</div>
+              <div className={styles.repoPathValue}>
+                {repoPath || <span className={styles.repoPathEmpty}>Not set</span>}
+              </div>
+              <button
+                className={`${styles.mBtn} ${styles.mBtnSm}`}
+                onClick={handleChangeRepoPath}
+              >
+                Change…
+              </button>
+            </div>
             {sections.map((sec) => (
               <div key={sec.worktreeId ?? "main"}>
                 <div className={styles.sectionHeader}>

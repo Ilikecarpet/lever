@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { ProjectMeta } from "../../types";
+import type { AppConfig, ProjectExport, ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
 import styles from "./StartPage.module.css";
 
@@ -12,6 +12,29 @@ function timeAgo(unix: number): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
   return new Date(unix * 1000).toLocaleDateString();
+}
+
+function parseImportFile(text: string): {
+  configJson: string;
+  suggestedName?: string;
+  suggestedRepoPath?: string;
+  isNewFormat: boolean;
+} {
+  const parsed = JSON.parse(text);
+  if (parsed && typeof parsed === "object" && "version" in parsed && "config" in parsed) {
+    const wrapper = parsed as ProjectExport;
+    if (wrapper.version !== 1) {
+      throw new Error(`Unsupported export version ${wrapper.version}. Please update Lever.`);
+    }
+    return {
+      configJson: JSON.stringify(wrapper.config),
+      suggestedName: typeof wrapper.name === "string" ? wrapper.name : undefined,
+      suggestedRepoPath: typeof wrapper.repo_path === "string" ? wrapper.repo_path : undefined,
+      isNewFormat: true,
+    };
+  }
+  const legacy = parsed as AppConfig;
+  return { configJson: JSON.stringify(legacy), isNewFormat: false };
 }
 
 export default function StartPage() {
@@ -82,6 +105,18 @@ export default function StartPage() {
       await api.cloneProject(project.id, name);
       refresh();
     }
+  };
+
+  const handleChangeRepoPath = async (project: ProjectMeta) => {
+    setContextMenu(null);
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: project.repo_path || undefined,
+    });
+    if (!selected) return;
+    await api.setRepoPath(project.id, selected as string);
+    refresh();
   };
 
   return (
@@ -167,6 +202,9 @@ export default function StartPage() {
           </button>
           <button className={styles.contextMenuItem} onClick={() => handleClone(contextMenu.project)}>
             Clone
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => handleChangeRepoPath(contextMenu.project)}>
+            Change repo path…
           </button>
           <button className={styles.contextMenuDanger} onClick={() => handleDelete(contextMenu.project)}>
             Delete
@@ -315,20 +353,56 @@ function ImportModal({
   onImported: () => void;
 }) {
   const [name, setName] = useState("");
+  const [repoPath, setRepoPath] = useState("");
+  const [parsedConfigJson, setParsedConfigJson] = useState<string | null>(null);
+  const [isNewFormat, setIsNewFormat] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mouseDownOnOverlay = useRef(false);
 
-  const handleFileSelect = async () => {
+  const handleFileChange = async () => {
+    setError("");
     const file = fileInputRef.current?.files?.[0];
-    if (!file || !name.trim()) {
-      setError("Please enter a name and select a file");
+    if (!file) {
+      setParsedConfigJson(null);
+      setIsNewFormat(false);
       return;
     }
     try {
       const text = await file.text();
-      JSON.parse(text);
-      await api.importProject(name.trim(), text);
+      const result = parseImportFile(text);
+      setParsedConfigJson(result.configJson);
+      setIsNewFormat(result.isNewFormat);
+      if (result.suggestedName) setName(result.suggestedName);
+      if (result.suggestedRepoPath !== undefined) setRepoPath(result.suggestedRepoPath);
+    } catch (e) {
+      setParsedConfigJson(null);
+      setIsNewFormat(false);
+      setError(String(e));
+    }
+  };
+
+  const handlePickRepoPath = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: repoPath || undefined,
+    });
+    if (selected) setRepoPath(selected as string);
+  };
+
+  const handleImport = async () => {
+    if (!parsedConfigJson) {
+      setError("Please select a valid config file");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Please enter a project name");
+      return;
+    }
+    try {
+      const repoArg = isNewFormat ? repoPath : undefined;
+      await api.importProject(name.trim(), parsedConfigJson, repoArg);
       onImported();
     } catch (e) {
       setError(String(e));
@@ -343,24 +417,48 @@ function ImportModal({
     >
       <div className={styles.modal}>
         <div className={styles.modalTitle}>Import Config</div>
+
+        <label className={styles.fieldLabel}>Config file</label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          style={{ marginBottom: 12 }}
+          onChange={handleFileChange}
+        />
+
+        <label className={styles.fieldLabel}>Project Name</label>
         <input
           className={styles.modalInput}
           placeholder="Project name"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json"
-          style={{ marginBottom: 12 }}
-        />
+
+        {isNewFormat && (
+          <>
+            <label className={styles.fieldLabel}>Repository path</label>
+            <button
+              className={styles.folderPicker}
+              onClick={handlePickRepoPath}
+              type="button"
+            >
+              {repoPath ? (
+                <span className={styles.folderPath}>{repoPath}</span>
+              ) : (
+                <span className={styles.folderPlaceholder}>Choose a folder...</span>
+              )}
+              <span className={styles.folderBtn}>Browse</span>
+            </button>
+          </>
+        )}
+
         {error && <div className={styles.modalError}>{error}</div>}
         <div className={styles.modalActions}>
           <button className={styles.btnSecondary} onClick={onClose}>
             Cancel
           </button>
-          <button className={styles.btnPrimary} onClick={handleFileSelect}>
+          <button className={styles.btnPrimary} onClick={handleImport}>
             Import
           </button>
         </div>

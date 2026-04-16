@@ -32,6 +32,17 @@ export interface AppConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Config export wrapper (on-disk format, versioned)
+// ---------------------------------------------------------------------------
+
+export interface ProjectExport {
+  version: 1;
+  name: string;
+  repo_path: string;
+  config: AppConfig;
+}
+
+// ---------------------------------------------------------------------------
 // Service runtime types
 // ---------------------------------------------------------------------------
 

@@ -518,7 +518,12 @@ fn clone_project(source_id: String, name: String, state: State<'_, AppState>) ->
 }
 
 #[tauri::command]
-fn import_project(name: String, config_json: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+fn import_project(
+    name: String,
+    config_json: String,
+    repo_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ProjectMeta, String> {
     let config: AppConfig = serde_json::from_str(&config_json)
         .map_err(|e| format!("Invalid config JSON: {}", e))?;
     let id = name_to_id(&name);
@@ -533,7 +538,7 @@ fn import_project(name: String, config_json: String, state: State<'_, AppState>)
     let meta = ProjectMeta {
         id,
         name,
-        repo_path: String::new(),
+        repo_path: repo_path.unwrap_or_default(),
         created_at: now_unix(),
         last_opened: now_unix(),
     };
