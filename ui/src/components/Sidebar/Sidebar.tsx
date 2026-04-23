@@ -6,6 +6,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
+import type { ProjectExport } from "../../types";
 import { IconChevron, IconFolder, IconExport, IconGear, IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
@@ -105,14 +106,26 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const handleExport = async () => {
     setMenuOpen(false);
     const projectId = api.getProjectId() ?? "project";
+    const projects = await api.listProjects();
+    const project = projects.find((p) => p.id === projectId);
+    const name = project?.name ?? projectId;
+    const repoPathForExport = project?.repo_path ?? "";
+
     const filePath = await save({
       title: "Export Config",
       defaultPath: `${projectId}-config.json`,
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (!filePath) return;
+
     const config = await api.getConfig();
-    const json = JSON.stringify(config, null, 2);
+    const exportDoc: ProjectExport = {
+      version: 1,
+      name,
+      repo_path: repoPathForExport,
+      config,
+    };
+    const json = JSON.stringify(exportDoc, null, 2);
     await api.writeTextFile(filePath, json);
   };
 

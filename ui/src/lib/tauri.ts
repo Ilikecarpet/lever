@@ -61,8 +61,16 @@ export function cloneProject(sourceId: string, name: string): Promise<ProjectMet
   return invoke<ProjectMeta>("clone_project", { sourceId, name });
 }
 
-export function importProject(name: string, configJson: string): Promise<ProjectMeta> {
-  return invoke<ProjectMeta>("import_project", { name, configJson });
+export function importProject(
+  name: string,
+  configJson: string,
+  repoPath?: string,
+): Promise<ProjectMeta> {
+  return invoke<ProjectMeta>("import_project", {
+    name,
+    configJson,
+    repoPath: repoPath ?? null,
+  });
 }
 
 export function openProject(id: string): Promise<void> {
