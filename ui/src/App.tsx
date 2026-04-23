@@ -38,18 +38,25 @@ function ProjectApp() {
     if (!loaded || initialized.current) return;
     initialized.current = true;
 
-    addWorkspace();
-
-    // Load project repo path and init git
+    // Load repo path BEFORE the first workspace mounts, so the initial
+    // terminal's PTY spawns with the project dir as its cwd. usePty only
+    // reads cwd once (on pane mount), so a late setRepoPath can't fix it.
     const pid = getProjectId();
-    if (pid) {
-      api.getRepoPath(pid).then((rp) => {
-        if (rp) {
-          setRepoPath(rp);
-          refreshGitInfo();
+    const bootstrap = async () => {
+      if (pid) {
+        try {
+          const rp = await api.getRepoPath(pid);
+          if (rp) {
+            setRepoPath(rp);
+            refreshGitInfo();
+          }
+        } catch (e) {
+          console.error("Failed to load repo path:", e);
         }
-      });
-    }
+      }
+      addWorkspace();
+    };
+    bootstrap();
 
     const servicePollId = setInterval(poll, 300);
     const unlistenSvcExit = useServiceStore.getState().initExitListener();
