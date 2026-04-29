@@ -29,6 +29,10 @@ export function getProjectId(): string | null {
   return _projectId;
 }
 
+export function isScratch(): boolean {
+  return !!_projectId && _projectId.startsWith("scratch-");
+}
+
 // ---------------------------------------------------------------------------
 // Project management commands (no projectId needed)
 // ---------------------------------------------------------------------------
@@ -75,6 +79,10 @@ export function importProject(
 
 export function openProject(id: string): Promise<void> {
   return invoke<void>("open_project", { id });
+}
+
+export function openScratchTerminal(): Promise<void> {
+  return invoke<void>("open_scratch_terminal");
 }
 
 export function showStartPage(): Promise<void> {

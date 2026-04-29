@@ -1,0 +1,13 @@
+.container {
+  flex: 1;
+  display: flex;
+  background: var(--terminal-bg);
+  min-height: 0;
+}
+
+.termContainer {
+  flex: 1;
+  padding: 8px 10px;
+  min-height: 0;
+  min-width: 0;
+}
