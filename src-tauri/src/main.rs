@@ -1006,6 +1006,7 @@ struct GitFileStatus {
     path: String,
     status: String, // "modified", "new", "deleted", "renamed", "typechange"
     staged: bool,
+    is_dir: bool,
 }
 
 #[derive(Serialize)]
@@ -1061,12 +1062,15 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
     )).map_err(|e| e.to_string())?;
     let is_dirty = !statuses.is_empty();
 
+    let repo_root = std::path::Path::new(&path);
     for entry in statuses.iter() {
         if let Some(p) = entry.path() {
+            let is_dir = repo_root.join(p).is_dir();
             changed_files.push(GitFileStatus {
                 path: p.to_string(),
                 status: git_status_str(entry.status()).to_string(),
                 staged: is_staged(entry.status()),
+                is_dir,
             });
         }
     }
@@ -1076,6 +1080,302 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
         is_dirty,
         changed_files,
     })
+}
+
+#[tauri::command]
+fn git_diff(path: String, file_path: String, staged: bool) -> Result<String, String> {
+    let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
+
+    // Untracked files/dirs won't show up in standard diffs — synthesize a full "added" patch.
+    if !staged {
+        let abs = std::path::Path::new(&path).join(&file_path);
+        let in_index = repo.index().ok().and_then(|idx| idx.get_path(std::path::Path::new(&file_path), 0)).is_some();
+        if !in_index && abs.exists() {
+            if abs.is_dir() {
+                return Ok(synth_added_dir_diff(&file_path, &abs));
+            }
+            return Ok(synth_added_diff(&file_path, &abs));
+        }
+    }
+
+    let mut opts = git2::DiffOptions::new();
+    opts.pathspec(&file_path);
+    opts.context_lines(3);
+    opts.include_untracked(true);
+    opts.recurse_untracked_dirs(true);
+
+    let diff = if staged {
+        let head_tree = repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_tree().ok());
+        repo.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))
+            .map_err(|e| format!("git diff failed: {}", e))?
+    } else {
+        repo.diff_index_to_workdir(None, Some(&mut opts))
+            .map_err(|e| format!("git diff failed: {}", e))?
+    };
+
+    let mut output = String::new();
+    diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
+        let origin = line.origin();
+        if matches!(origin, '+' | '-' | ' ') {
+            output.push(origin);
+        }
+        if let Ok(s) = std::str::from_utf8(line.content()) {
+            output.push_str(s);
+        }
+        true
+    }).map_err(|e| format!("git diff print failed: {}", e))?;
+
+    if output.is_empty() {
+        return Ok(String::from("(no changes)"));
+    }
+    Ok(output)
+}
+
+fn synth_added_dir_diff(rel_dir: &str, abs_dir: &std::path::Path) -> String {
+    let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
+    collect_files(rel_dir, abs_dir, &mut files);
+    if files.is_empty() {
+        return format!("(empty directory: {})\n", rel_dir);
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = String::new();
+    for (rel, abs) in files {
+        out.push_str(&synth_added_diff(&rel, &abs));
+    }
+    out
+}
+
+fn collect_files(rel_dir: &str, abs_dir: &std::path::Path, out: &mut Vec<(String, std::path::PathBuf)>) {
+    let entries = match fs::read_dir(abs_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let name = match entry.file_name().into_string() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let abs = entry.path();
+        let rel = if rel_dir.is_empty() || rel_dir.ends_with('/') {
+            format!("{}{}", rel_dir, name)
+        } else {
+            format!("{}/{}", rel_dir, name)
+        };
+        let ft = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if ft.is_dir() {
+            collect_files(&rel, &abs, out);
+        } else if ft.is_file() {
+            out.push((rel, abs));
+        }
+    }
+}
+
+fn synth_added_diff(rel_path: &str, abs_path: &std::path::Path) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("diff --git a/{p} b/{p}\n", p = rel_path));
+    out.push_str("new file\n");
+    out.push_str(&format!("--- /dev/null\n+++ b/{}\n", rel_path));
+    match fs::read(abs_path) {
+        Ok(bytes) => {
+            if std::str::from_utf8(&bytes).is_err() {
+                out.push_str("Binary file\n");
+                return out;
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            let lines: Vec<&str> = text.split_inclusive('\n').collect();
+            out.push_str(&format!("@@ -0,0 +1,{} @@\n", lines.len().max(1)));
+            for line in &lines {
+                out.push('+');
+                out.push_str(line);
+                if !line.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+        }
+        Err(e) => {
+            out.push_str(&format!("(failed to read file: {})\n", e));
+        }
+    }
+    out
+}
+
+#[tauri::command]
+fn git_stage(path: String, file_path: String) -> Result<(), String> {
+    let shell_path = get_shell_path();
+    let output = Command::new("git")
+        .args(["add", "--", &file_path])
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git add: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn git_stage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+    let shell_path = get_shell_path();
+    let mut args: Vec<&str> = vec!["add", "--"];
+    for p in &file_paths {
+        args.push(p);
+    }
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git add: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn git_stage_all(path: String) -> Result<(), String> {
+    let shell_path = get_shell_path();
+    let output = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git add -A: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git add -A failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn git_unstage(path: String, file_path: String) -> Result<(), String> {
+    git_unstage_paths(&path, &[file_path])
+}
+
+#[tauri::command]
+fn git_unstage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
+    if file_paths.is_empty() {
+        return Ok(());
+    }
+    git_unstage_paths(&path, &file_paths)
+}
+
+#[tauri::command]
+fn git_unstage_all(path: String) -> Result<(), String> {
+    let shell_path = get_shell_path();
+    // Prefer `git restore --staged .`; fall back to `git reset HEAD`.
+    let restore = Command::new("git")
+        .args(["restore", "--staged", "."])
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git restore: {}", e))?;
+    if restore.status.success() {
+        return Ok(());
+    }
+    let reset = Command::new("git")
+        .args(["reset", "HEAD"])
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git reset: {}", e))?;
+    if !reset.status.success() {
+        return Err(format!(
+            "git unstage all failed: {}",
+            String::from_utf8_lossy(&reset.stderr)
+        ));
+    }
+    Ok(())
+}
+
+fn git_unstage_paths(path: &str, file_paths: &[String]) -> Result<(), String> {
+    let shell_path = get_shell_path();
+    let mut args: Vec<&str> = vec!["restore", "--staged", "--"];
+    for p in file_paths {
+        args.push(p);
+    }
+    let restore = Command::new("git")
+        .args(&args)
+        .current_dir(path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git restore: {}", e))?;
+    if restore.status.success() {
+        return Ok(());
+    }
+    // Fallback: git reset HEAD -- <files>
+    let mut reset_args: Vec<&str> = vec!["reset", "HEAD", "--"];
+    for p in file_paths {
+        reset_args.push(p);
+    }
+    let reset = Command::new("git")
+        .args(&reset_args)
+        .current_dir(path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git reset: {}", e))?;
+    if !reset.status.success() {
+        return Err(format!(
+            "git unstage failed: {}",
+            String::from_utf8_lossy(&reset.stderr)
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn git_discard(path: String, file_path: String) -> Result<(), String> {
+    let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
+    let abs = std::path::Path::new(&path).join(&file_path);
+    let rel = std::path::Path::new(&file_path);
+
+    let in_index = repo
+        .index()
+        .ok()
+        .and_then(|idx| idx.get_path(rel, 0))
+        .is_some();
+    let in_head = repo
+        .head()
+        .ok()
+        .and_then(|h| h.peel_to_tree().ok())
+        .and_then(|t| t.get_path(rel).ok())
+        .is_some();
+
+    // Untracked file or directory — remove from disk.
+    if !in_index && !in_head {
+        if abs.is_dir() {
+            fs::remove_dir_all(&abs).map_err(|e| format!("Failed to remove dir: {}", e))?;
+        } else if abs.exists() {
+            fs::remove_file(&abs).map_err(|e| format!("Failed to remove file: {}", e))?;
+        }
+        return Ok(());
+    }
+
+    // Tracked — revert working-tree to index version.
+    let shell_path = get_shell_path();
+    let output = Command::new("git")
+        .args(["checkout", "--", &file_path])
+        .current_dir(&path)
+        .env("PATH", &shell_path)
+        .output()
+        .map_err(|e| format!("Failed to run git checkout: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git checkout failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1318,6 +1618,14 @@ fn main() {
             write_text_file,
             check_is_git_repo,
             git_info,
+            git_diff,
+            git_stage,
+            git_stage_many,
+            git_stage_all,
+            git_unstage,
+            git_unstage_many,
+            git_unstage_all,
+            git_discard,
             git_fetch,
             git_pull,
             list_branches,

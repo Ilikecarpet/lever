@@ -90,6 +90,7 @@ export interface GitFileStatus {
   path: string;
   status: "modified" | "new" | "deleted" | "renamed" | "typechange";
   staged: boolean;
+  is_dir: boolean;
 }
 
 export interface GitRepoInfo {
