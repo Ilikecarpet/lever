@@ -61,7 +61,7 @@
   border-bottom: 1px solid var(--border);
 }
 .gitSectionHeader {
-  padding: 10px 18px;
+  padding: 8px 14px 8px 18px;
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
@@ -70,11 +70,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  cursor: pointer;
+  gap: 8px;
   user-select: none;
 }
-.gitSectionHeader:hover {
-  background: var(--surface-hover);
+.gitSectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .gitSectionCount {
   font-size: 10px;
@@ -83,8 +85,45 @@
   padding: 1px 6px;
   border-radius: 8px;
 }
+.gitSectionActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gitSectionAction {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.gitSectionAction:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+.gitSectionActionStage:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.gitSectionActionUnstage:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
 .gitSectionBody {
   padding: 0 0 6px;
+}
+.gitSectionEmpty {
+  padding: 4px 18px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* ---- File item ---- */
@@ -97,6 +136,7 @@
   font-family: var(--font-mono);
   color: var(--text-dim);
   transition: background 0.1s;
+  user-select: none;
 }
 .gitFileItem:hover {
   background: var(--surface-hover);
@@ -124,23 +164,11 @@
   color: var(--red);
   background: var(--red-dim);
 }
-.badgeStaged {
-  color: var(--blue);
-  background: var(--blue-dim);
-}
 .filePath {
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.stagedLabel {
-  font-size: 9px;
-  color: var(--accent);
-  font-family: var(--font-sans);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* ---- Utility ---- */
@@ -178,4 +206,255 @@
 }
 .branchMono {
   font-family: var(--font-mono);
+}
+
+/* ---- File item click affordance ---- */
+.gitFileItemClickable {
+  cursor: pointer;
+}
+.gitFileItemExpanded {
+  background: var(--surface-hover);
+}
+.gitFileChevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  width: 10px;
+  display: inline-flex;
+  justify-content: center;
+  font-family: var(--font-sans);
+}
+.gitFileFolderIcon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  margin-right: -2px;
+}
+
+.gitFileAction {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+.gitFileAction:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--surface);
+}
+.gitFileAction:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.gitFileActionStage:hover:not(:disabled) {
+  color: var(--green);
+  border-color: var(--green);
+}
+.gitFileActionUnstage:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+}
+.gitFileActionDiscard {
+  font-size: 12px;
+}
+.gitFileActionDiscard:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.gitFileItemSelected {
+  background: var(--blue-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.gitFileItemSelected:hover {
+  background: var(--blue-dim);
+}
+
+.gitFileActionDiscardActive {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-dim);
+}
+
+.discardMenu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: 280px;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+.discardMenuWarning {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.discardMenuActions {
+  display: flex;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+.discardMenuCancel,
+.discardMenuYes {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.discardMenuCancel:disabled,
+.discardMenuYes:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.discardMenuCancel {
+  font-weight: 500;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+}
+.discardMenuCancel:hover:not(:disabled) {
+  background: var(--border);
+}
+.discardMenuYes {
+  font-weight: 600;
+  background: var(--red-dim);
+  color: var(--red);
+}
+.discardMenuYes:hover:not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+
+/* ---- Diff view ---- */
+.diffContainer {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.diffStatus {
+  padding: 8px 18px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.diffError {
+  padding: 8px 18px;
+  font-size: 11px;
+  color: var(--red);
+  white-space: pre-wrap;
+}
+.diffView {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-x: auto;
+  padding: 4px 0;
+}
+.diffView::-webkit-scrollbar {
+  height: 6px;
+}
+.diffView::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.diffFileHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 0;
+  font-size: 11px;
+}
+.diffFileHeader:first-child {
+  margin-top: 0;
+  border-top: none;
+}
+.diffFilePath {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-weight: 600;
+}
+.diffFileTag {
+  font-size: 9px;
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.diffHunk {
+  padding: 4px 18px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: var(--bg);
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  margin: 4px 0;
+  user-select: none;
+}
+
+.diffInfo {
+  padding: 4px 18px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.diffAdd,
+.diffDel,
+.diffContext {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 18px;
+  white-space: pre;
+}
+.diffAdd {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.diffDel {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.diffContext {
+  color: var(--text-dim);
+}
+.diffSign {
+  width: 10px;
+  flex-shrink: 0;
+  text-align: center;
+  opacity: 0.7;
+  user-select: none;
+}
+.diffLineText {
+  flex: 1;
+  white-space: pre;
 }

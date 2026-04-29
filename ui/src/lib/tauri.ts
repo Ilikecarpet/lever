@@ -173,6 +173,38 @@ export function gitFetch(path: string): Promise<void> {
   return invoke<void>("git_fetch", { path });
 }
 
+export function gitDiff(path: string, filePath: string, staged: boolean): Promise<string> {
+  return invoke<string>("git_diff", { path, filePath, staged });
+}
+
+export function gitStage(path: string, filePath: string): Promise<void> {
+  return invoke<void>("git_stage", { path, filePath });
+}
+
+export function gitStageMany(path: string, filePaths: string[]): Promise<void> {
+  return invoke<void>("git_stage_many", { path, filePaths });
+}
+
+export function gitStageAll(path: string): Promise<void> {
+  return invoke<void>("git_stage_all", { path });
+}
+
+export function gitUnstage(path: string, filePath: string): Promise<void> {
+  return invoke<void>("git_unstage", { path, filePath });
+}
+
+export function gitUnstageMany(path: string, filePaths: string[]): Promise<void> {
+  return invoke<void>("git_unstage_many", { path, filePaths });
+}
+
+export function gitUnstageAll(path: string): Promise<void> {
+  return invoke<void>("git_unstage_all", { path });
+}
+
+export function gitDiscard(path: string, filePath: string): Promise<void> {
+  return invoke<void>("git_discard", { path, filePath });
+}
+
 export function gitPull(path: string): Promise<string> {
   return invoke<string>("git_pull", { path });
 }

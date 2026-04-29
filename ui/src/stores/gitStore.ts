@@ -14,6 +14,13 @@ interface GitState {
   refreshWorktreeGitInfo: (worktreeId: string, worktreePath: string) => Promise<void>;
   fetch: () => Promise<void>;
   pull: () => Promise<void>;
+  stage: (filePath: string) => Promise<void>;
+  unstage: (filePath: string) => Promise<void>;
+  stageMany: (filePaths: string[]) => Promise<void>;
+  unstageMany: (filePaths: string[]) => Promise<void>;
+  stageAll: () => Promise<void>;
+  unstageAll: () => Promise<void>;
+  discard: (filePath: string) => Promise<void>;
   setActiveGitGroup: (groupId: string | null) => void;
   setStatusMessage: (msg: string | null) => void;
 }
@@ -85,6 +92,97 @@ export const useGitStore = create<GitState>((set, get) => ({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Pull failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  stage: async (filePath) => {
+    const { repoPath } = get();
+    if (!repoPath) return;
+    try {
+      await api.gitStage(repoPath, filePath);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Stage failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  unstage: async (filePath) => {
+    const { repoPath } = get();
+    if (!repoPath) return;
+    try {
+      await api.gitUnstage(repoPath, filePath);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Unstage failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  stageMany: async (filePaths) => {
+    const { repoPath } = get();
+    if (!repoPath || filePaths.length === 0) return;
+    try {
+      await api.gitStageMany(repoPath, filePaths);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Stage failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  unstageMany: async (filePaths) => {
+    const { repoPath } = get();
+    if (!repoPath || filePaths.length === 0) return;
+    try {
+      await api.gitUnstageMany(repoPath, filePaths);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Unstage failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  stageAll: async () => {
+    const { repoPath } = get();
+    if (!repoPath) return;
+    try {
+      await api.gitStageAll(repoPath);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Stage all failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  unstageAll: async () => {
+    const { repoPath } = get();
+    if (!repoPath) return;
+    try {
+      await api.gitUnstageAll(repoPath);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Unstage all failed: ${msg}` });
+      autoClearStatus(set);
+    }
+  },
+
+  discard: async (filePath) => {
+    const { repoPath } = get();
+    if (!repoPath) return;
+    try {
+      await api.gitDiscard(repoPath, filePath);
+      await get().refreshGitInfo();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ statusMessage: `Discard failed: ${msg}` });
       autoClearStatus(set);
     }
   },
