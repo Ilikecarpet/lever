@@ -112,3 +112,23 @@ export function IconExport({ size = 14, className }: P) {
     </svg>
   );
 }
+
+export function IconSidebarCollapse({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <line x1="6.5" y1="3" x2="6.5" y2="13" />
+      <path d="M11 6.5L9.5 8L11 9.5" />
+    </svg>
+  );
+}
+
+export function IconSidebarExpand({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <line x1="6.5" y1="3" x2="6.5" y2="13" />
+      <path d="M9.5 6.5L11 8L9.5 9.5" />
+    </svg>
+  );
+}

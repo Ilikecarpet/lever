@@ -7,7 +7,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
 import type { ProjectExport } from "../../types";
-import { IconChevron, IconFolder, IconExport, IconGear, IconBranch } from "../Icons";
+import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -15,6 +15,16 @@ import styles from "./Sidebar.module.css";
 
 interface Props {
   onOpenSettings: () => void;
+}
+
+const COLLAPSED_KEY = "lever-sidebar-collapsed";
+
+function getInitialCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export default function Sidebar({ onOpenSettings }: Props) {
@@ -41,6 +51,19 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [collapsed, setCollapsed] = useState<boolean>(getInitialCollapsed);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0"); } catch {}
+      if (next) {
+        setMenuOpen(false);
+        setMainCtxMenu(null);
+      }
+      return next;
+    });
+  };
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,7 +184,19 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const isMainActive = activeWorktreeId === null;
 
   return (
-    <div className={styles.sidebar}>
+    <div className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}`}>
+      <button
+        className={styles.toggleBtn}
+        onClick={toggleCollapsed}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {collapsed ? <IconSidebarExpand size={14} /> : <IconSidebarCollapse size={14} />}
+      </button>
+      <div
+        className={`${styles.sidebarInner}${collapsed ? ` ${styles.sidebarInnerCollapsed}` : ""}`}
+        aria-hidden={collapsed}
+      >
       <div className={styles.sidebarTop} ref={menuRef}>
         <button
           className={styles.titleBtn}
@@ -294,6 +329,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
             )}
           </div>
         )}
+      </div>
       </div>
 
       <NewWorktreeModal
