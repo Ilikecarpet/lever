@@ -13,6 +13,7 @@ import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ConfigModal from "./components/Modals/ConfigModal";
 import StartPage from "./components/StartPage/StartPage";
+import ScratchApp from "./components/ScratchApp/ScratchApp";
 import "./stores/themeStore"; // initialize theme on load
 import styles from "./App.module.css";
 
@@ -101,6 +102,7 @@ function ProjectApp() {
 export default function App() {
   useDisableTextAssist();
   if (projectId) {
+    if (api.isScratch()) return <ScratchApp />;
     return <ProjectApp />;
   }
   return <StartPage />;

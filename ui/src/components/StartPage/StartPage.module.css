@@ -159,6 +159,20 @@
   font-size: 12px;
 }
 
+.kbd {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
 .contextMenu {
   position: fixed;
   background: var(--surface);

@@ -571,6 +571,35 @@ fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let scratch_id = format!("scratch-{}", now_unix());
+    let label = format!("project-{}", scratch_id);
+
+    {
+        let mut projects = state.projects.lock().unwrap();
+        projects.insert(scratch_id.clone(), ProjectState {
+            config: AppConfig::default(),
+            repo_path: String::new(),
+            tracked: HashMap::new(),
+            pty_sessions: HashMap::new(),
+        });
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Lever — Terminal")
+    .inner_size(900.0, 600.0)
+    .min_inner_size(500.0, 300.0)
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let label = format!("project-{}", id);
 
@@ -1606,6 +1635,7 @@ fn main() {
             import_project,
             show_start_page,
             open_project,
+            open_scratch_terminal,
             get_config,
             save_config,
             start_service,
@@ -1640,7 +1670,9 @@ fn main() {
                     let state = window.state::<AppState>();
                     let mut projects = state.projects.lock().unwrap();
                     if let Some(ps) = projects.get_mut(&project_id) {
-                        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+                        if !project_id.starts_with("scratch-") {
+                            save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+                        }
                         ps.pty_sessions.clear();
                     }
                     projects.remove(&project_id);

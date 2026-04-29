@@ -71,6 +71,25 @@ export default function StartPage() {
     await getCurrentWindow().close();
   };
 
+  const handleOpenTerminal = useCallback(async () => {
+    await api.openScratchTerminal();
+    await getCurrentWindow().close();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== " " && e.code !== "Space") return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
+      if (showCreateModal || showImportModal || renamingId) return;
+      e.preventDefault();
+      handleOpenTerminal();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleOpenTerminal, showCreateModal, showImportModal, renamingId]);
+
   const handleContextMenu = (e: React.MouseEvent, project: ProjectMeta) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, project });
@@ -133,6 +152,13 @@ export default function StartPage() {
         <button className={styles.btnSecondary} onClick={() => setShowImportModal(true)}>
           Import Config
         </button>
+        <button
+          className={styles.btnSecondary}
+          onClick={handleOpenTerminal}
+          title="Open a standalone terminal (Space)"
+        >
+          Open Terminal <span className={styles.kbd}>Space</span>
+        </button>
       </div>
 
       <div className={styles.grid}>
@@ -190,7 +216,9 @@ export default function StartPage() {
         </div>
       </div>
 
-      <div className={styles.hint}>Right-click a project for options</div>
+      <div className={styles.hint}>
+        Right-click a project for options · Press <span className={styles.kbd}>Space</span> for a quick terminal
+      </div>
 
       {contextMenu && (
         <div
