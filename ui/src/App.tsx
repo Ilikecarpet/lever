@@ -7,6 +7,7 @@ import { useGitStore } from "./stores/gitStore";
 import { useWorktreeStore } from "./stores/worktreeStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useDisableTextAssist } from "./hooks/useDisableTextAssist";
 import Sidebar from "./components/Sidebar/Sidebar";
 import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
@@ -98,6 +99,7 @@ function ProjectApp() {
 }
 
 export default function App() {
+  useDisableTextAssist();
   if (projectId) {
     return <ProjectApp />;
   }
