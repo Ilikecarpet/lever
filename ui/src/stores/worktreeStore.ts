@@ -45,7 +45,9 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
     const projectId = api.getProjectId();
     if (!projectId) throw new Error("No project ID");
     const worktree = await api.createWorktree(projectId, branch, path);
-    get().addWorktree(worktree);
+    if (!get().worktrees.some((w) => w.id === worktree.id)) {
+      get().addWorktree(worktree);
+    }
     return worktree;
   },
 
