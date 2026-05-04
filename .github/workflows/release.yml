@@ -26,7 +26,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -43,8 +43,8 @@ jobs:
           releaseBody: |
             See the [full changelog](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}).
 
-            ### Installation (macOS)
-            Download the `.dmg` (universal — runs natively on Intel and Apple Silicon), open it, and drag Lever to Applications.
+            ### Installation (macOS, Apple Silicon)
+            Download the `.dmg`, open it, and drag Lever to Applications.
 
             > **Note:** Since the app is not code-signed, macOS may flag it as damaged. Run this in Terminal to fix:
             > ```
@@ -52,4 +52,4 @@ jobs:
             > ```
           releaseDraft: false
           prerelease: false
-          args: --target universal-apple-darwin
+          args: --target aarch64-apple-darwin
