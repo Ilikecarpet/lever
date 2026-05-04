@@ -1444,6 +1444,27 @@ fn git_pull(path: String) -> Result<String, String> {
 // Tauri commands: Worktrees
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Serialize)]
+struct ExistingWorktree {
+    path: String,
+    branch: Option<String>,
+}
+
+#[tauri::command]
+fn list_existing_worktrees(project_id: String, state: State<'_, AppState>) -> Result<Vec<ExistingWorktree>, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == project_id)
+        .ok_or("Project not found")?;
+    if meta.repo_path.is_empty() {
+        return Ok(vec![]);
+    }
+    let repo_path = &meta.repo_path;
+    Ok(list_git_worktrees(repo_path).into_iter()
+        .filter(|(p, _)| p != repo_path)
+        .map(|(path, branch)| ExistingWorktree { path, branch })
+        .collect())
+}
+
 #[tauri::command]
 fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let index = load_project_index(&state.projects_dir);
@@ -1475,6 +1496,38 @@ fn sanitize_branch_for_path(branch: &str) -> String {
         .to_string()
 }
 
+fn list_git_worktrees(repo_path: &str) -> Vec<(String, Option<String>)> {
+    let shell_path = get_shell_path();
+    let output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(repo_path)
+        .env("PATH", &shell_path)
+        .output();
+    let Ok(output) = output else { return vec![]; };
+    if !output.status.success() { return vec![]; }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut result = vec![];
+    let mut current_path: Option<String> = None;
+    let mut current_branch: Option<String> = None;
+
+    for line in stdout.lines() {
+        if line.is_empty() {
+            if let Some(p) = current_path.take() {
+                result.push((p, current_branch.take()));
+            }
+        } else if let Some(p) = line.strip_prefix("worktree ") {
+            current_path = Some(p.to_string());
+        } else if let Some(b) = line.strip_prefix("branch ") {
+            current_branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+        }
+    }
+    if let Some(p) = current_path.take() {
+        result.push((p, current_branch.take()));
+    }
+    result
+}
+
 #[tauri::command]
 fn create_worktree(
     project_id: String, branch: String, path: String, state: State<'_, AppState>,
@@ -1487,28 +1540,53 @@ fn create_worktree(
     }
     let repo_path = &meta.repo_path;
 
-    // Check if branch exists locally
-    let repo = git2::Repository::open(repo_path)
-        .map_err(|e| format!("Not a git repo: {}", e))?;
-    let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
+    // If the branch is already checked out in a worktree (other than the main repo),
+    // adopt that existing worktree instead of erroring.
+    let existing_worktrees = list_git_worktrees(repo_path);
+    let adopted_path: Option<String> = existing_worktrees.iter()
+        .find(|(p, b)| p != repo_path && b.as_deref() == Some(branch.as_str()))
+        .map(|(p, _)| p.clone());
 
-    let shell_path = get_shell_path();
-    let args = if branch_exists {
-        vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
+    let final_path = if let Some(p) = adopted_path {
+        p
     } else {
-        vec!["worktree".to_string(), "add".to_string(), "-b".to_string(), branch.clone(), path.clone()]
-    };
+        // Check if requested path already has a worktree on a different branch
+        if let Some((_, other_branch)) = existing_worktrees.iter().find(|(p, _)| p == &path) {
+            return Err(format!(
+                "Path '{}' already has a worktree on branch '{}'",
+                path,
+                other_branch.as_deref().unwrap_or("(detached)")
+            ));
+        }
 
-    let output = Command::new("git").args(&args).current_dir(repo_path)
-        .env("PATH", &shell_path).output()
-        .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git worktree add failed: {}", stderr));
-    }
+        let repo = git2::Repository::open(repo_path)
+            .map_err(|e| format!("Not a git repo: {}", e))?;
+        let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
+
+        let shell_path = get_shell_path();
+        let args = if branch_exists {
+            vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
+        } else {
+            vec!["worktree".to_string(), "add".to_string(), "-b".to_string(), branch.clone(), path.clone()]
+        };
+
+        let output = Command::new("git").args(&args).current_dir(repo_path)
+            .env("PATH", &shell_path).output()
+            .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git worktree add failed: {}", stderr));
+        }
+        path.clone()
+    };
 
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+
+    // If lever already tracks this worktree path, return the existing entry.
+    if let Some(existing) = ps.config.worktrees.iter().find(|w| w.path == final_path) {
+        return Ok(existing.clone());
+    }
 
     let worktree_id = format!("wt-{}-{}", sanitize_branch_for_path(&branch),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
@@ -1517,11 +1595,11 @@ fn create_worktree(
     let cloned_groups: Vec<ServiceGroup> = ps.config.groups.iter().map(|g| {
         let cloned_services: Vec<ServiceDef> = g.services.iter().map(|s| {
             let new_cwd = if s.cwd.starts_with(repo_path.as_str()) {
-                s.cwd.replacen(repo_path.as_str(), &path, 1)
+                s.cwd.replacen(repo_path.as_str(), &final_path, 1)
             } else if s.cwd.is_empty() {
-                path.clone()
+                final_path.clone()
             } else {
-                format!("{}/{}", path, s.cwd)
+                format!("{}/{}", final_path, s.cwd)
             };
             ServiceDef {
                 id: format!("{}-{}", s.id, worktree_id),
@@ -1542,7 +1620,7 @@ fn create_worktree(
     }).collect();
 
     let worktree_def = WorktreeDef {
-        id: worktree_id, branch, path, groups: cloned_groups,
+        id: worktree_id, branch, path: final_path, groups: cloned_groups,
     };
 
     ps.config.worktrees.push(worktree_def.clone());
@@ -1659,6 +1737,7 @@ fn main() {
             git_fetch,
             git_pull,
             list_branches,
+            list_existing_worktrees,
             create_worktree,
             remove_worktree,
         ])

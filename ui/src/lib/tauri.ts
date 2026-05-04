@@ -169,6 +169,15 @@ export function listBranches(projectId: string): Promise<string[]> {
   return invoke<string[]>("list_branches", { projectId });
 }
 
+export interface ExistingWorktree {
+  path: string;
+  branch: string | null;
+}
+
+export function listExistingWorktrees(projectId: string): Promise<ExistingWorktree[]> {
+  return invoke<ExistingWorktree[]>("list_existing_worktrees", { projectId });
+}
+
 // ---------------------------------------------------------------------------
 // Git commands (unchanged — path-based, not project-scoped)
 // ---------------------------------------------------------------------------
