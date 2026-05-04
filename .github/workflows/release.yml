@@ -58,6 +58,30 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Generate release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          NOTES=$(gh api -X POST "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="v$VERSION" \
+            -f target_commitish="${{ github.sha }}" \
+            --jq .body)
+          {
+            echo "body<<NOTES_EOF"
+            echo "$NOTES"
+            echo ""
+            echo "### Installation (macOS, Apple Silicon)"
+            echo "Download the \`.dmg\`, open it, and drag Lever to Applications."
+            echo ""
+            echo "> **Note:** Since the app is not code-signed, macOS may flag it as damaged. Run this in Terminal to fix:"
+            echo "> \`\`\`"
+            echo "> xattr -cr /Applications/Lever.app"
+            echo "> \`\`\`"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -65,16 +89,7 @@ jobs:
         with:
           tagName: v${{ needs.check-version.outputs.version }}
           releaseName: "Lever v${{ needs.check-version.outputs.version }}"
-          releaseBody: |
-            See the [full changelog](https://github.com/${{ github.repository }}/commits/v${{ needs.check-version.outputs.version }}).
-
-            ### Installation (macOS, Apple Silicon)
-            Download the `.dmg`, open it, and drag Lever to Applications.
-
-            > **Note:** Since the app is not code-signed, macOS may flag it as damaged. Run this in Terminal to fix:
-            > ```
-            > xattr -cr /Applications/Lever.app
-            > ```
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin
