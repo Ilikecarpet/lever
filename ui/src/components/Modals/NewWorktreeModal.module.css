@@ -114,7 +114,7 @@
 }
 
 .btnCreate {
-  color: #fff;
+  color: var(--accent-fg);
   background: var(--accent);
   border: 1px solid var(--accent);
 }

@@ -96,7 +96,7 @@
 .mBtnPrimary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .mBtnPrimary:hover {
   opacity: 0.9;

@@ -21,6 +21,8 @@ export interface ThemeDef {
   accentHover: string;
   accentDim: string;
   accentSubtle: string;
+  /** Foreground color paired with `accent` backgrounds (primary buttons, etc.) */
+  accentForeground: string;
   green: string;
   greenDim: string;
   red: string;
@@ -73,6 +75,7 @@ const obsidian: ThemeDef = {
   accentHover: "#c4b5fd",
   accentDim: "rgba(167, 139, 250, 0.08)",
   accentSubtle: "rgba(167, 139, 250, 0.15)",
+  accentForeground: "#ffffff",
   green: "#4ade80",
   greenDim: "rgba(74, 222, 128, 0.1)",
   red: "#fb7185",
@@ -124,6 +127,7 @@ const tokyoNight: ThemeDef = {
   accentHover: "#89b4fa",
   accentDim: "rgba(122, 162, 247, 0.08)",
   accentSubtle: "rgba(122, 162, 247, 0.15)",
+  accentForeground: "#ffffff",
   green: "#9ece6a",
   greenDim: "rgba(158, 206, 106, 0.1)",
   red: "#f7768e",
@@ -175,6 +179,7 @@ const rosePine: ThemeDef = {
   accentHover: "#f0869d",
   accentDim: "rgba(235, 111, 146, 0.08)",
   accentSubtle: "rgba(235, 111, 146, 0.15)",
+  accentForeground: "#ffffff",
   green: "#31748f",
   greenDim: "rgba(49, 116, 143, 0.12)",
   red: "#eb6f92",
@@ -226,6 +231,7 @@ const nord: ThemeDef = {
   accentHover: "#8fbcbb",
   accentDim: "rgba(136, 192, 208, 0.1)",
   accentSubtle: "rgba(136, 192, 208, 0.15)",
+  accentForeground: "#ffffff",
   green: "#a3be8c",
   greenDim: "rgba(163, 190, 140, 0.1)",
   red: "#bf616a",
@@ -277,6 +283,7 @@ const ember: ThemeDef = {
   accentHover: "#fbbf24",
   accentDim: "rgba(245, 158, 11, 0.08)",
   accentSubtle: "rgba(245, 158, 11, 0.15)",
+  accentForeground: "#ffffff",
   green: "#84cc16",
   greenDim: "rgba(132, 204, 22, 0.1)",
   red: "#ef4444",
@@ -328,6 +335,7 @@ const paper: ThemeDef = {
   accentHover: "#57534e",
   accentDim: "rgba(120, 113, 108, 0.08)",
   accentSubtle: "rgba(120, 113, 108, 0.14)",
+  accentForeground: "#ffffff",
   green: "#16a34a",
   greenDim: "rgba(22, 163, 74, 0.08)",
   red: "#dc2626",
@@ -379,6 +387,7 @@ const abyss: ThemeDef = {
   accentHover: "#ffffff",
   accentDim: "rgba(229, 229, 229, 0.06)",
   accentSubtle: "rgba(229, 229, 229, 0.1)",
+  accentForeground: "#0a0a0a",
   green: "#4ade80",
   greenDim: "rgba(74, 222, 128, 0.08)",
   red: "#f87171",
@@ -430,6 +439,7 @@ const dawn: ThemeDef = {
   accentHover: "#c4635f",
   accentDim: "rgba(215, 130, 126, 0.08)",
   accentSubtle: "rgba(215, 130, 126, 0.14)",
+  accentForeground: "#ffffff",
   green: "#286983",
   greenDim: "rgba(40, 105, 131, 0.08)",
   red: "#b4637a",
@@ -481,6 +491,7 @@ const graphite: ThemeDef = {
   accentHover: "#79b8ff",
   accentDim: "rgba(88, 157, 246, 0.1)",
   accentSubtle: "rgba(88, 157, 246, 0.16)",
+  accentForeground: "#ffffff",
   green: "#6a8759",
   greenDim: "rgba(106, 135, 89, 0.15)",
   red: "#cc7832",
@@ -544,6 +555,7 @@ function applyTheme(theme: ThemeDef) {
   root.style.setProperty("--accent-hover", theme.accentHover);
   root.style.setProperty("--accent-dim", theme.accentDim);
   root.style.setProperty("--accent-subtle", theme.accentSubtle);
+  root.style.setProperty("--accent-fg", theme.accentForeground);
   root.style.setProperty("--green", theme.green);
   root.style.setProperty("--green-dim", theme.greenDim);
   root.style.setProperty("--red", theme.red);
@@ -573,7 +585,7 @@ function getInitialThemeId(): string {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && themes.find((t) => t.id === stored)) return stored;
   } catch {}
-  return "obsidian";
+  return "paper";
 }
 
 function findTheme(id: string): ThemeDef {

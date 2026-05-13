@@ -33,7 +33,7 @@
 
 .btnPrimary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   padding: 9px 20px;
   border-radius: var(--radius-md);
   font-size: 13px;
