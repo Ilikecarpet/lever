@@ -157,8 +157,14 @@ export function getRepoPath(id: string): Promise<string> {
 // Worktree commands
 // ---------------------------------------------------------------------------
 
-export function createWorktree(projectId: string, branch: string, path: string): Promise<WorktreeDef> {
-  return invoke<WorktreeDef>("create_worktree", { projectId, branch, path });
+export function createWorktree(
+  projectId: string, branch: string, path: string, baseBranch?: string,
+): Promise<WorktreeDef> {
+  return invoke<WorktreeDef>("create_worktree", { projectId, branch, path, baseBranch });
+}
+
+export function getDefaultBranch(projectId: string): Promise<string | null> {
+  return invoke<string | null>("get_default_branch", { projectId });
 }
 
 export function removeWorktree(projectId: string, worktreeId: string, cleanup: boolean): Promise<void> {
