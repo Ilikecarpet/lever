@@ -6,7 +6,7 @@ import styles from "./NewWorktreeModal.module.css";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreate: (branch: string, path: string) => Promise<void>;
+  onCreate: (branch: string, path: string, baseBranch?: string) => Promise<void>;
 }
 
 function sanitizeBranchForPath(branch: string): string {
@@ -23,6 +23,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const [path, setPath] = useState("");
   const [pathEdited, setPathEdited] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
+  const [baseBranch, setBaseBranch] = useState("");
   const [existing, setExisting] = useState<api.ExistingWorktree[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [error, setError] = useState("");
@@ -35,6 +36,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     setBranch("");
     setPath("");
     setPathEdited(false);
+    setBaseBranch("");
     setError("");
     setCreating(false);
 
@@ -42,6 +44,9 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     if (pid) {
       api.listBranches(pid).then(setBranches).catch(() => setBranches([]));
       api.listExistingWorktrees(pid).then(setExisting).catch(() => setExisting([]));
+      api.getDefaultBranch(pid)
+        .then((d) => { if (d) setBaseBranch(d); })
+        .catch(() => {});
     }
 
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -51,6 +56,8 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const adoptable = trimmedBranch
     ? existing.find((w) => w.branch === trimmedBranch)
     : undefined;
+  const branchAlreadyExists = !!trimmedBranch && branches.includes(trimmedBranch);
+  const showBaseBranch = !adoptable && !branchAlreadyExists;
   const namespaceConflict = trimmedBranch && !adoptable
     ? branches.find(
         (b) =>
@@ -78,10 +85,11 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     const finalBranch = branch.trim();
     const finalPath = adoptable ? adoptable.path : path.trim();
     if (!finalBranch || !finalPath) return;
+    const finalBase = showBaseBranch ? baseBranch.trim() || undefined : undefined;
     setCreating(true);
     setError("");
     try {
-      await onCreate(finalBranch, finalPath);
+      await onCreate(finalBranch, finalPath, finalBase);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -152,6 +160,22 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             Can't create branch <span className={styles.warnName}>{trimmedBranch}</span> — it
             collides with existing branch <span className={styles.warnName}>{namespaceConflict}</span>.
             Pick a different name.
+          </div>
+        )}
+
+        {showBaseBranch && (
+          <div className={styles.field}>
+            <div className={styles.label}>Branch from</div>
+            <select
+              className={styles.input}
+              value={baseBranch}
+              onChange={(e) => setBaseBranch(e.target.value)}
+            >
+              <option value="">(current HEAD)</option>
+              {branches.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
           </div>
         )}
 

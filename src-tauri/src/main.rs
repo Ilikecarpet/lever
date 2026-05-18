@@ -1487,6 +1487,33 @@ fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<S
     Ok(branches)
 }
 
+#[tauri::command]
+fn get_default_branch(project_id: String, state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let index = load_project_index(&state.projects_dir);
+    let meta = index.projects.iter().find(|p| p.id == project_id)
+        .ok_or("Project not found")?;
+    if meta.repo_path.is_empty() {
+        return Ok(None);
+    }
+    let repo = git2::Repository::open(&meta.repo_path)
+        .map_err(|e| format!("Not a git repo: {}", e))?;
+
+    if let Ok(r) = repo.find_reference("refs/remotes/origin/HEAD") {
+        if let Some(target) = r.symbolic_target() {
+            if let Some(name) = target.strip_prefix("refs/remotes/origin/") {
+                return Ok(Some(name.to_string()));
+            }
+        }
+    }
+
+    for candidate in ["main", "master"] {
+        if repo.find_branch(candidate, git2::BranchType::Local).is_ok() {
+            return Ok(Some(candidate.to_string()));
+        }
+    }
+    Ok(None)
+}
+
 fn sanitize_branch_for_path(branch: &str) -> String {
     branch.replace('/', "-")
         .chars()
@@ -1530,7 +1557,8 @@ fn list_git_worktrees(repo_path: &str) -> Vec<(String, Option<String>)> {
 
 #[tauri::command]
 fn create_worktree(
-    project_id: String, branch: String, path: String, state: State<'_, AppState>,
+    project_id: String, branch: String, path: String, base_branch: Option<String>,
+    state: State<'_, AppState>,
 ) -> Result<WorktreeDef, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
@@ -1567,7 +1595,12 @@ fn create_worktree(
         let args = if branch_exists {
             vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
         } else {
-            vec!["worktree".to_string(), "add".to_string(), "-b".to_string(), branch.clone(), path.clone()]
+            let mut a = vec!["worktree".to_string(), "add".to_string(), "-b".to_string(),
+                branch.clone(), path.clone()];
+            if let Some(base) = base_branch.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                a.push(base.to_string());
+            }
+            a
         };
 
         let output = Command::new("git").args(&args).current_dir(repo_path)
@@ -1741,6 +1774,7 @@ fn main() {
             list_existing_worktrees,
             create_worktree,
             remove_worktree,
+            get_default_branch,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
