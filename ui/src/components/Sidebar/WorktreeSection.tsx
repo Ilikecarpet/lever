@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
@@ -26,6 +27,7 @@ export default function WorktreeSection({ worktree }: Props) {
   const addWorkspaceForWorktree = useWorkspaceStore(
     (s) => s.addWorkspaceForWorktree
   );
+  const agent = useWorktreeAgent(worktree.id);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -93,7 +95,10 @@ export default function WorktreeSection({ worktree }: Props) {
         onContextMenu={handleContextMenu}
       >
         <span className={styles.branchIcon}><IconBranch size={13} /></span>
-        <span className={styles.branchName}>{worktree.branch}</span>
+        <span
+          className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
+          title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
+        >{worktree.branch}</span>
         <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
       </div>
 

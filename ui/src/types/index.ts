@@ -51,9 +51,17 @@ export interface ServiceStatus {
   status: "running" | "stopped";
 }
 
+export interface AgentInfo {
+  name: string;
+  /** true while the agent is producing terminal output (inference/streaming) */
+  active: boolean;
+}
+
 export interface PollResult {
   statuses: ServiceStatus[];
   logs: Record<string, string[]>;
+  /** pty_id -> AI agent CLI detected in that terminal */
+  agents: Record<string, AgentInfo>;
 }
 
 // ---------------------------------------------------------------------------

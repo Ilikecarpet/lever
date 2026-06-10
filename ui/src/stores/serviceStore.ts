@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
-import type { SvcExitEvent } from "../types";
+import type { AgentInfo, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
   ptyIds: Record<string, string>;
+  /** pty_id -> AI agent CLI (e.g. "claude") detected in that terminal */
+  agents: Record<string, AgentInfo>;
   activeServiceId: string | null;
 
   poll: () => Promise<void>;
@@ -15,9 +17,18 @@ interface ServiceState {
   initExitListener: () => Promise<() => void>;
 }
 
+function agentsEqual(a: Record<string, AgentInfo>, b: Record<string, AgentInfo>): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(
+    (k) => b[k] !== undefined && a[k].name === b[k].name && a[k].active === b[k].active
+  );
+}
+
 export const useServiceStore = create<ServiceState>((set, get) => ({
   statuses: {},
   ptyIds: {},
+  agents: {},
   activeServiceId: null,
 
   poll: async () => {
@@ -26,7 +37,13 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     for (const s of result.statuses) {
       statuses[s.id] = s.status === "running" ? "running" : "stopped";
     }
-    set({ statuses });
+    set((state) => ({
+      statuses,
+      // Keep the same reference when nothing changed so subscribers don't churn
+      agents: agentsEqual(state.agents, result.agents ?? {})
+        ? state.agents
+        : result.agents ?? {},
+    }));
   },
 
   startService: async (id) => {
