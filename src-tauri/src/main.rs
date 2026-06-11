@@ -8,7 +8,8 @@ use std::fs;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager, State};
 
 
@@ -110,7 +111,15 @@ struct TrackedService {
 struct PtySession {
     writer: Box<dyn IoWrite + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
-    // reader is owned by the background streaming thread
+    child_pid: Option<u32>,
+    /// Epoch millis of the last output read from this PTY, written by the
+    /// background streaming thread. Used to tell "agent working" from "agent
+    /// idle at its prompt".
+    last_output: Arc<AtomicU64>,
+    /// Epoch millis of the last user input written to this PTY. Output that
+    /// immediately follows input is keystroke echo / TUI redraw and must not
+    /// count as agent activity.
+    last_input: Arc<AtomicU64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -146,6 +155,13 @@ struct AppState {
     projects: Mutex<HashMap<String, ProjectState>>,
     pty_counter: Mutex<u32>,
     projects_dir: PathBuf,
+    agent_cache: Mutex<AgentScanCache>,
+}
+
+#[derive(Default)]
+struct AgentScanCache {
+    last_scan: Option<std::time::Instant>,
+    agents: HashMap<String, String>, // pty_id -> agent CLI name
 }
 
 #[derive(Serialize)]
@@ -155,9 +171,16 @@ struct ServiceStatus {
 }
 
 #[derive(Serialize)]
+struct AgentInfo {
+    name: String,
+    active: bool,
+}
+
+#[derive(Serialize)]
 struct PollResult {
     statuses: Vec<ServiceStatus>,
     logs: HashMap<String, Vec<String>>,
+    agents: HashMap<String, AgentInfo>,
 }
 
 #[derive(Serialize)]
@@ -200,6 +223,98 @@ fn is_pid_alive(pid: u32) -> bool {
         }
         libc::kill(pid as i32, 0) == 0
     }
+}
+
+/// AI agent CLIs we recognize in terminal process trees. Matched by exact
+/// executable basename — substring matching would false-positive on things
+/// like macOS's CursorUIViewService.
+const AGENT_COMMANDS: &[&str] = &[
+    "claude", "codex", "gemini", "aider", "opencode", "amp", "goose", "cursor-agent", "copilot",
+];
+
+/// Interpreters whose first script argument is the real command (npm-installed
+/// CLIs show up as e.g. `node /path/node_modules/.bin/claude`).
+const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3"];
+
+fn path_basename(s: &str) -> &str {
+    s.rsplit('/').next().unwrap_or(s)
+}
+
+/// Output arriving within this window after user input is treated as
+/// keystroke echo / TUI redraw rather than agent activity.
+const ECHO_WINDOW_MS: u64 = 500;
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn agent_name_for_command(tokens: &[&str]) -> Option<String> {
+    let first = match tokens.first() {
+        Some(t) => path_basename(t),
+        None => return None,
+    };
+    if AGENT_COMMANDS.contains(&first) {
+        return Some(first.to_string());
+    }
+    if INTERPRETERS.contains(&first) {
+        if let Some(second) = tokens.get(1) {
+            let second = path_basename(second);
+            if AGENT_COMMANDS.contains(&second) {
+                return Some(second.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Scan the process table once and return, for each (pty_id, shell_pid) root,
+/// the name of an AI agent CLI running anywhere under that shell.
+fn detect_agents(roots: &[(String, u32)]) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    if roots.is_empty() {
+        return result;
+    }
+    let output = match Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output() {
+        Ok(o) => o,
+        Err(_) => return result,
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut agents_by_pid: HashMap<u32, String> = HashMap::new();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let pid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+            Some(p) => p,
+            None => continue,
+        };
+        let ppid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+            Some(p) => p,
+            None => continue,
+        };
+        let tokens: Vec<&str> = parts.collect();
+        children.entry(ppid).or_default().push(pid);
+        if let Some(name) = agent_name_for_command(&tokens) {
+            agents_by_pid.insert(pid, name);
+        }
+    }
+
+    for (pty_id, root) in roots {
+        let mut queue = vec![*root];
+        while let Some(pid) = queue.pop() {
+            if let Some(name) = agents_by_pid.get(&pid) {
+                result.insert(pty_id.clone(), name.clone());
+                break;
+            }
+            if let Some(kids) = children.get(&pid) {
+                queue.extend(kids);
+            }
+        }
+    }
+    result
 }
 
 /// Find a service and return its worktree path (if it belongs to one).
@@ -759,7 +874,11 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
     let pty_id = format!("svc-pty-{}", *counter);
     drop(counter);
 
-    let session = PtySession { writer, master: pair.master };
+    let last_output = Arc::new(AtomicU64::new(now_millis()));
+    let last_input = Arc::new(AtomicU64::new(0));
+    let svc_last_output = last_output.clone();
+    let svc_last_input = last_input.clone();
+    let session = PtySession { writer, master: pair.master, child_pid: Some(pid), last_output, last_input };
     ps.pty_sessions.insert(pty_id.clone(), session);
     ps.tracked.insert(id.clone(), TrackedService { pid, pty_id: Some(pty_id.clone()) });
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
@@ -779,6 +898,10 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    let now = now_millis();
+                    if now.saturating_sub(svc_last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
+                        svc_last_output.store(now, Ordering::Relaxed);
+                    }
                     let mut data = Vec::with_capacity(leftover.len() + n);
                     data.extend_from_slice(&leftover);
                     data.extend_from_slice(&buf[..n]);
@@ -909,7 +1032,38 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
         }
     }).collect();
 
-    Ok(PollResult { statuses, logs: HashMap::new() })
+    // AI agent indicator: rescan the process table at most every 2s; poll
+    // itself runs every 300ms from the frontend.
+    let roots: Vec<(String, u32)> = ps.pty_sessions.iter()
+        .filter_map(|(id, s)| s.child_pid.map(|p| (id.clone(), p)))
+        .collect();
+    let agent_names = {
+        let mut cache = state.agent_cache.lock().unwrap();
+        let stale = cache.last_scan
+            .map_or(true, |t| t.elapsed() >= std::time::Duration::from_secs(2));
+        if stale {
+            cache.agents = detect_agents(&roots);
+            cache.last_scan = Some(std::time::Instant::now());
+        }
+        cache.agents.clone()
+    };
+
+    // An agent is "active" (doing inference / streaming output) if its PTY
+    // produced output recently — agent TUIs redraw their spinner continuously
+    // while working and go quiet at the input prompt.
+    const ACTIVE_WINDOW_MS: u64 = 2000;
+    let now = now_millis();
+    let agents: HashMap<String, AgentInfo> = agent_names.into_iter()
+        .filter_map(|(pty_id, name)| {
+            ps.pty_sessions.get(&pty_id).map(|s| {
+                let last = s.last_output.load(Ordering::Relaxed);
+                let active = now.saturating_sub(last) <= ACTIVE_WINDOW_MS;
+                (pty_id, AgentInfo { name, active })
+            })
+        })
+        .collect();
+
+    Ok(PollResult { statuses, logs: HashMap::new(), agents })
 }
 
 // ---------------------------------------------------------------------------
@@ -935,8 +1089,9 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
         }
     }
 
-    pair.slave.spawn_command(cmd)
+    let child = pair.slave.spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+    let shell_pid = child.process_id();
 
     let mut reader = pair.master.try_clone_reader()
         .map_err(|e| format!("Failed to clone reader: {}", e))?;
@@ -948,7 +1103,11 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
     let pty_id = format!("pty-{}", *counter);
     drop(counter);
 
-    let session = PtySession { writer, master: pair.master };
+    let last_output = Arc::new(AtomicU64::new(now_millis()));
+    let last_input = Arc::new(AtomicU64::new(0));
+    let reader_last_output = last_output.clone();
+    let reader_last_input = last_input.clone();
+    let session = PtySession { writer, master: pair.master, child_pid: shell_pid, last_output, last_input };
 
     {
         let mut projects = state.projects.lock().unwrap();
@@ -965,6 +1124,10 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    let now = now_millis();
+                    if now.saturating_sub(reader_last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
+                        reader_last_output.store(now, Ordering::Relaxed);
+                    }
                     let mut data = Vec::with_capacity(leftover.len() + n);
                     data.extend_from_slice(&leftover);
                     data.extend_from_slice(&buf[..n]);
@@ -1005,6 +1168,7 @@ fn write_pty(project_id: String, id: String, data: String, state: State<'_, AppS
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
     let session = ps.pty_sessions.get_mut(&id).ok_or("PTY not found")?;
+    session.last_input.store(now_millis(), Ordering::Relaxed);
     session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -1732,6 +1896,7 @@ fn main() {
                 projects: Mutex::new(HashMap::new()),
                 pty_counter: Mutex::new(0),
                 projects_dir: proj_dir,
+                agent_cache: Mutex::new(AgentScanCache::default()),
             });
 
             Ok(())

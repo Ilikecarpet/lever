@@ -6,6 +6,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
+import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import type { ProjectExport } from "../../types";
 import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import GroupItem from "./GroupItem";
@@ -45,6 +46,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
+
+  const mainAgent = useWorktreeAgent(null);
 
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
@@ -259,7 +262,10 @@ export default function Sidebar({ onOpenSettings }: Props) {
             }}
           >
             <IconBranch size={13} />
-            <span className={styles.mainContextBranch}>
+            <span
+              className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
+              title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
+            >
               {gitInfo?.current_branch ?? "..."}
             </span>
             {gitInfo?.is_dirty && (
