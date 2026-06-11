@@ -1280,7 +1280,12 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
     let statuses = repo.statuses(Some(
         git2::StatusOptions::new()
             .include_untracked(true)
-            .exclude_submodules(true),
+            .exclude_submodules(true)
+            // Refresh the index stat-cache like `git status` does. After a
+            // checkout/switch every changed file's mtime is new and the scan
+            // re-hashes them; without this flag that cost is paid again on
+            // every poll instead of once.
+            .update_index(true),
     )).map_err(|e| e.to_string())?;
     let is_dirty = !statuses.is_empty();
 
