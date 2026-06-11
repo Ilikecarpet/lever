@@ -1751,6 +1751,18 @@ fn create_worktree(
             ));
         }
 
+        // A non-empty directory git doesn't register as a worktree is a leftover
+        // from a failed removal; git would refuse with a bare "already exists".
+        let target = std::path::Path::new(&path);
+        if target.exists()
+            && target.read_dir().map(|mut d| d.next().is_some()).unwrap_or(true)
+        {
+            return Err(format!(
+                "Directory '{}' already exists but is not a registered worktree (likely left over from a failed delete). Move or delete it, then try again.",
+                path
+            ));
+        }
+
         let repo = git2::Repository::open(repo_path)
             .map_err(|e| format!("Not a git repo: {}", e))?;
         let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
@@ -1826,54 +1838,120 @@ fn create_worktree(
     Ok(worktree_def)
 }
 
+#[cfg(unix)]
+fn signal_pids(pids: &[u32], sig: i32) {
+    for &pid in pids {
+        unsafe {
+            libc::kill(-(pid as i32), sig);
+            libc::kill(pid as i32, sig);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_exit(pids: &[u32], timeout_ms: u64) -> Vec<u32> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        let alive: Vec<u32> = pids.iter().copied()
+            .filter(|&pid| unsafe { libc::kill(pid as i32, 0) } == 0)
+            .collect();
+        if alive.is_empty() || std::time::Instant::now() >= deadline {
+            return alive;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
+    let shell_path = get_shell_path();
+    let run_git = |args: &[&str]| {
+        Command::new("git").args(args).current_dir(repo_path)
+            .env("PATH", &shell_path).output()
+    };
+
+    let stderr = match run_git(&["worktree", "remove", "--force", wt_path]) {
+        Ok(o) if o.status.success() => String::new(),
+        Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(),
+        Err(e) => format!("failed to run git: {}", e),
+    };
+
+    let path = std::path::Path::new(wt_path);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    // git aborted partway or the worktree was never registered: drop any dangling
+    // registration and delete what's left ourselves. Never touch the main repo or
+    // anything with a real .git directory (worktrees only have a .git file).
+    let _ = run_git(&["worktree", "prune"]);
+    if wt_path == repo_path || path.join(".git").is_dir() {
+        return Err(format!("git worktree remove failed: {}", stderr.trim()));
+    }
+    std::fs::remove_dir_all(path).map_err(|e| format!(
+        "git worktree remove failed ({}); deleting the directory also failed: {}",
+        stderr.trim(), e
+    ))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn remove_worktree(
     project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut projects = state.projects.lock().unwrap();
-    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+    let worktree;
+    let mut pids: Vec<u32> = vec![];
+    {
+        let mut projects = state.projects.lock().unwrap();
+        let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    let worktree = ps.config.worktrees.iter().find(|w| w.id == worktree_id)
-        .cloned().ok_or("Worktree not found")?;
+        worktree = ps.config.worktrees.iter().find(|w| w.id == worktree_id)
+            .cloned().ok_or("Worktree not found")?;
 
-    // Stop all running services in the worktree
-    let wt_service_ids: Vec<String> = worktree.groups.iter()
-        .flat_map(|g| g.services.iter().map(|s| s.id.clone())).collect();
-    for svc_id in &wt_service_ids {
-        if let Some(tracked) = ps.tracked.remove(svc_id) {
-            if let Some(ref pty_id) = tracked.pty_id {
-                ps.pty_sessions.remove(pty_id);
+        // Stop all running services in the worktree
+        let wt_service_ids: Vec<String> = worktree.groups.iter()
+            .flat_map(|g| g.services.iter().map(|s| s.id.clone())).collect();
+        for svc_id in &wt_service_ids {
+            if let Some(tracked) = ps.tracked.remove(svc_id) {
+                if let Some(ref pty_id) = tracked.pty_id {
+                    ps.pty_sessions.remove(pty_id);
+                }
+                pids.push(tracked.pid);
             }
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(-(tracked.pid as i32), libc::SIGTERM);
-                libc::kill(tracked.pid as i32, libc::SIGTERM);
+        }
+        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+    }
+
+    #[cfg(unix)]
+    {
+        signal_pids(&pids, libc::SIGTERM);
+        if cleanup {
+            // Anything still writing while git deletes the directory can abort the
+            // removal halfway and orphan it.
+            let alive = wait_for_exit(&pids, 3000);
+            if !alive.is_empty() {
+                signal_pids(&alive, libc::SIGKILL);
+                wait_for_exit(&alive, 1000);
             }
         }
     }
-    save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-
-    ps.config.worktrees.retain(|w| w.id != worktree_id);
-    save_project_config(&state.projects_dir, &project_id, &ps.config)?;
+    #[cfg(not(unix))]
+    let _ = &pids;
 
     if cleanup {
-        let shell_path = get_shell_path();
         let index = load_project_index(&state.projects_dir);
         if let Some(meta) = index.projects.iter().find(|p| p.id == project_id) {
             if !meta.repo_path.is_empty() {
-                let output = Command::new("git")
-                    .args(["worktree", "remove", "--force", &worktree.path])
-                    .current_dir(&meta.repo_path)
-                    .env("PATH", &shell_path).output();
-                if let Ok(output) = output {
-                    if !output.status.success() {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        return Err(format!("Worktree removed from config but git cleanup failed: {}", stderr));
-                    }
-                }
+                // Propagating the error keeps the worktree in config so the
+                // removal stays visible and retryable.
+                cleanup_worktree_dir(&meta.repo_path, &worktree.path)?;
             }
         }
     }
+
+    let mut projects = state.projects.lock().unwrap();
+    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+    ps.config.worktrees.retain(|w| w.id != worktree_id);
+    save_project_config(&state.projects_dir, &project_id, &ps.config)?;
     Ok(())
 }
 
