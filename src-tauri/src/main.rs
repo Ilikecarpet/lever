@@ -1722,7 +1722,7 @@ fn list_git_worktrees(repo_path: &str) -> Vec<(String, Option<String>)> {
 #[tauri::command]
 fn create_worktree(
     project_id: String, branch: String, path: String, base_branch: Option<String>,
-    state: State<'_, AppState>,
+    replace_stale: Option<bool>, state: State<'_, AppState>,
 ) -> Result<WorktreeDef, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
@@ -1753,14 +1753,25 @@ fn create_worktree(
 
         // A non-empty directory git doesn't register as a worktree is a leftover
         // from a failed removal; git would refuse with a bare "already exists".
+        // The STALE_DIR prefix lets the UI offer to delete it and retry.
         let target = std::path::Path::new(&path);
         if target.exists()
             && target.read_dir().map(|mut d| d.next().is_some()).unwrap_or(true)
         {
-            return Err(format!(
-                "Directory '{}' already exists but is not a registered worktree (likely left over from a failed delete). Move or delete it, then try again.",
-                path
-            ));
+            if !replace_stale.unwrap_or(false) {
+                return Err(format!(
+                    "STALE_DIR: Directory '{}' already exists but is not a registered worktree (likely left over from a failed delete).",
+                    path
+                ));
+            }
+            if path == *repo_path || target.join(".git").is_dir() {
+                return Err(format!(
+                    "Refusing to delete '{}': it looks like a full repository",
+                    path
+                ));
+            }
+            std::fs::remove_dir_all(target)
+                .map_err(|e| format!("Failed to delete stale directory '{}': {}", path, e))?;
         }
 
         let repo = git2::Repository::open(repo_path)
