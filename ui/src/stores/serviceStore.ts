@@ -25,6 +25,15 @@ function agentsEqual(a: Record<string, AgentInfo>, b: Record<string, AgentInfo>)
   );
 }
 
+function statusesEqual(
+  a: Record<string, "running" | "stopped">,
+  b: Record<string, "running" | "stopped">
+): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((k) => a[k] === b[k]);
+}
+
 export const useServiceStore = create<ServiceState>((set, get) => ({
   statuses: {},
   ptyIds: {},
@@ -37,9 +46,9 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     for (const s of result.statuses) {
       statuses[s.id] = s.status === "running" ? "running" : "stopped";
     }
+    // Keep the same references when nothing changed so subscribers don't churn
     set((state) => ({
-      statuses,
-      // Keep the same reference when nothing changed so subscribers don't churn
+      statuses: statusesEqual(state.statuses, statuses) ? state.statuses : statuses,
       agents: agentsEqual(state.agents, result.agents ?? {})
         ? state.agents
         : result.agents ?? {},
