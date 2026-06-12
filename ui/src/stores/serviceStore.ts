@@ -46,13 +46,25 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     for (const s of result.statuses) {
       statuses[s.id] = s.status === "running" ? "running" : "stopped";
     }
-    // Keep the same references when nothing changed so subscribers don't churn
-    set((state) => ({
-      statuses: statusesEqual(state.statuses, statuses) ? state.statuses : statuses,
-      agents: agentsEqual(state.agents, result.agents ?? {})
-        ? state.agents
-        : result.agents ?? {},
-    }));
+    set((state) => {
+      // Adopt pty ids the backend still tracks (e.g. after a webview reload)
+      // so terminals reattach to live sessions. Keep the same references when
+      // nothing changed so subscribers don't churn.
+      let ptyIds = state.ptyIds;
+      for (const s of result.statuses) {
+        if (s.status === "running" && s.pty_id && ptyIds[s.id] !== s.pty_id) {
+          if (ptyIds === state.ptyIds) ptyIds = { ...state.ptyIds };
+          ptyIds[s.id] = s.pty_id;
+        }
+      }
+      return {
+        statuses: statusesEqual(state.statuses, statuses) ? state.statuses : statuses,
+        ptyIds,
+        agents: agentsEqual(state.agents, result.agents ?? {})
+          ? state.agents
+          : result.agents ?? {},
+      };
+    });
   },
 
   startService: async (id) => {

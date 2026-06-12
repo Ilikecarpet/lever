@@ -177,8 +177,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
     setActiveGitGroup("project");
   };
 
-  const handleCreateWorktree = async (branch: string, path: string, baseBranch?: string) => {
-    const wt = await createWorktree(branch, path, baseBranch);
+  const handleCreateWorktree = async (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => {
+    const wt = await createWorktree(branch, path, baseBranch, replaceStale);
     await saveConfig();
     setActiveWorktree(wt.id);
     useWorkspaceStore.getState().addWorkspaceForWorktree(wt.id);

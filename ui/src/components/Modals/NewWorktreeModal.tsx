@@ -6,7 +6,7 @@ import styles from "./NewWorktreeModal.module.css";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreate: (branch: string, path: string, baseBranch?: string) => Promise<void>;
+  onCreate: (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => Promise<void>;
 }
 
 function sanitizeBranchForPath(branch: string): string {
@@ -27,6 +27,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const [existing, setExisting] = useState<api.ExistingWorktree[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [error, setError] = useState("");
+  const [staleDirPath, setStaleDirPath] = useState("");
   const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const mouseDownOnOverlay = useRef(false);
@@ -38,6 +39,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     setPathEdited(false);
     setBaseBranch("");
     setError("");
+    setStaleDirPath("");
     setCreating(false);
 
     const pid = api.getProjectId();
@@ -81,7 +83,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
       )
     : branches;
 
-  const handleCreate = async () => {
+  const handleCreate = async (replaceStale = false) => {
     const finalBranch = branch.trim();
     const finalPath = adoptable ? adoptable.path : path.trim();
     if (!finalBranch || !finalPath) return;
@@ -89,10 +91,16 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     setCreating(true);
     setError("");
     try {
-      await onCreate(finalBranch, finalPath, finalBase);
+      await onCreate(finalBranch, finalPath, finalBase, replaceStale);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("STALE_DIR:")) {
+        setStaleDirPath(finalPath);
+      } else {
+        setStaleDirPath("");
+        setError(msg);
+      }
       setCreating(false);
     }
   };
@@ -127,6 +135,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             onChange={(e) => {
               setBranch(e.target.value);
               setShowSuggestions(true);
+              setStaleDirPath("");
             }}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
@@ -188,10 +197,19 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             onChange={(e) => {
               setPath(e.target.value);
               setPathEdited(true);
+              setStaleDirPath("");
             }}
             disabled={!!adoptable}
           />
         </div>
+
+        {staleDirPath && (
+          <div className={styles.warnBadge}>
+            <span className={styles.warnName}>{staleDirPath}</span> already exists but isn't a
+            registered worktree — likely left over from an earlier delete. Delete the folder and
+            create the worktree there?
+          </div>
+        )}
 
         {error && <div className={styles.error}>{error}</div>}
 
@@ -204,12 +222,14 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
           </button>
           <button
             className={`${styles.btn} ${styles.btnCreate}`}
-            onClick={handleCreate}
+            onClick={() => handleCreate(!!staleDirPath)}
             disabled={!branch.trim() || (!adoptable && !path.trim()) || !!namespaceConflict || creating}
           >
             {creating
               ? (adoptable ? "Opening..." : "Creating...")
-              : (adoptable ? "Open Worktree" : "Create Worktree")}
+              : staleDirPath
+                ? "Delete Folder & Create"
+                : (adoptable ? "Open Worktree" : "Create Worktree")}
           </button>
         </div>
       </div>

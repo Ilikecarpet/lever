@@ -11,7 +11,7 @@ interface WorktreeState {
   addWorktree: (worktree: WorktreeDef) => void;
   removeWorktree: (id: string) => void;
 
-  createWorktree: (branch: string, path: string, baseBranch?: string) => Promise<WorktreeDef>;
+  createWorktree: (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => Promise<WorktreeDef>;
   deleteWorktree: (worktreeId: string, cleanup: boolean) => Promise<void>;
 
   // Group/service CRUD within a worktree
@@ -41,10 +41,10 @@ export const useWorktreeStore = create<WorktreeState>((set, get) => ({
       activeWorktreeId: s.activeWorktreeId === id ? null : s.activeWorktreeId,
     })),
 
-  createWorktree: async (branch, path, baseBranch) => {
+  createWorktree: async (branch, path, baseBranch, replaceStale) => {
     const projectId = api.getProjectId();
     if (!projectId) throw new Error("No project ID");
-    const worktree = await api.createWorktree(projectId, branch, path, baseBranch);
+    const worktree = await api.createWorktree(projectId, branch, path, baseBranch, replaceStale);
     if (!get().worktrees.some((w) => w.id === worktree.id)) {
       get().addWorktree(worktree);
     }
