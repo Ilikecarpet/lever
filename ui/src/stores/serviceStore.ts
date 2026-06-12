@@ -25,6 +25,15 @@ function agentsEqual(a: Record<string, AgentInfo>, b: Record<string, AgentInfo>)
   );
 }
 
+function statusesEqual(
+  a: Record<string, "running" | "stopped">,
+  b: Record<string, "running" | "stopped">
+): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((k) => a[k] === b[k]);
+}
+
 export const useServiceStore = create<ServiceState>((set, get) => ({
   statuses: {},
   ptyIds: {},
@@ -39,7 +48,7 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     }
     set((state) => {
       // Adopt pty ids the backend still tracks (e.g. after a webview reload)
-      // so terminals reattach to live sessions. Keep the same reference when
+      // so terminals reattach to live sessions. Keep the same references when
       // nothing changed so subscribers don't churn.
       let ptyIds = state.ptyIds;
       for (const s of result.statuses) {
@@ -49,7 +58,7 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         }
       }
       return {
-        statuses,
+        statuses: statusesEqual(state.statuses, statuses) ? state.statuses : statuses,
         ptyIds,
         agents: agentsEqual(state.agents, result.agents ?? {})
           ? state.agents

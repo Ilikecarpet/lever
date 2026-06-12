@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
@@ -26,6 +27,22 @@ interface PtyEntry {
 }
 
 const ptyStore = new Map<string, PtyEntry>();
+
+/**
+ * Use the GPU renderer when available — the DOM renderer is by far the
+ * slowest path and TUI agents redraw constantly. Browsers cap live WebGL
+ * contexts (~16); on context loss the addon is disposed and xterm falls
+ * back to the DOM renderer for that terminal.
+ */
+export function loadWebglRenderer(term: Terminal) {
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
+  } catch (e) {
+    console.warn("WebGL renderer unavailable, using DOM renderer:", e);
+  }
+}
 
 // Update all terminals when the theme changes
 onTerminalThemeChange((termTheme) => {
@@ -84,9 +101,10 @@ async function spawnPty(paneId: string, entry: PtyEntry) {
     entry.ptyId = info.id;
     setPtyId(paneId, entry.ptyId);
 
-    // PTY output -> terminal
+    // PTY output -> terminal. Events are per-session (pty-data-{id}) so this
+    // callback only fires for our own PTY's output.
     const unlisten = await tauriListen<PtyDataEvent>(
-      "pty-data",
+      `pty-data-${info.id}`,
       (payload) => {
         if (payload.id === entry.ptyId) {
           term.write(payload.data);
@@ -97,7 +115,7 @@ async function spawnPty(paneId: string, entry: PtyEntry) {
 
     // PTY exit -> respawn
     const unlistenExit = await tauriListen<PtyExitEvent>(
-      "pty-exit",
+      `pty-exit-${info.id}`,
       (payload) => {
         if (payload.id !== entry.ptyId || entry.disposed) return;
         entry.unlisten?.();
@@ -213,6 +231,7 @@ export function usePty(
       })
     );
     term.open(termDiv);
+    loadWebglRenderer(term);
     fitAddon.fit();
 
     termRef.current = term;

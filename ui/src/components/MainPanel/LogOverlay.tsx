@@ -5,6 +5,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useThemeStore, onTerminalThemeChange } from "../../stores/themeStore";
+import { loadWebglRenderer } from "../../hooks/usePty";
 import * as api from "../../lib/tauri";
 import { tauriListen } from "../../lib/tauri";
 import { IconClose } from "../Icons";
@@ -115,6 +116,7 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(termDiv);
+    loadWebglRenderer(term);
     fitAddon.fit();
     fitAddonRef.current = fitAddon;
 
@@ -129,8 +131,8 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     };
     svcTermStore.set(serviceId, entry);
 
-    // PTY output -> terminal
-    tauriListen<PtyDataEvent>("pty-data", (payload) => {
+    // PTY output -> terminal (per-session event)
+    tauriListen<PtyDataEvent>(`pty-data-${ptyId}`, (payload) => {
       if (payload.id === ptyId && !entry.disposed) {
         term.write(payload.data);
       }
