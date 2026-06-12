@@ -31,6 +31,23 @@ function autoClearStatus(set: (partial: Partial<GitState>) => void) {
   }, 3500);
 }
 
+// Keep the same reference when nothing changed so the 5s git poll doesn't
+// re-render subscribers needlessly.
+function gitInfoEqual(a: GitRepoInfo | null | undefined, b: GitRepoInfo): boolean {
+  if (!a) return false;
+  if (a.current_branch !== b.current_branch || a.is_dirty !== b.is_dirty) return false;
+  if (a.changed_files.length !== b.changed_files.length) return false;
+  return a.changed_files.every((f, i) => {
+    const g = b.changed_files[i];
+    return (
+      f.path === g.path &&
+      f.status === g.status &&
+      f.staged === g.staged &&
+      f.is_dir === g.is_dir
+    );
+  });
+}
+
 export const useGitStore = create<GitState>((set, get) => ({
   repoPath: "",
   gitInfo: null,
@@ -45,7 +62,9 @@ export const useGitStore = create<GitState>((set, get) => ({
     if (!repoPath) return;
     try {
       const info = await api.gitInfo(repoPath);
-      set({ gitInfo: info });
+      if (!gitInfoEqual(get().gitInfo, info)) {
+        set({ gitInfo: info });
+      }
     } catch (e) {
       console.error("Failed to get git info:", e);
     }
@@ -55,9 +74,11 @@ export const useGitStore = create<GitState>((set, get) => ({
     if (!worktreePath) return;
     try {
       const info = await api.gitInfo(worktreePath);
-      set((s) => ({
-        worktreeGitInfo: { ...s.worktreeGitInfo, [worktreeId]: info },
-      }));
+      if (!gitInfoEqual(get().worktreeGitInfo[worktreeId], info)) {
+        set((s) => ({
+          worktreeGitInfo: { ...s.worktreeGitInfo, [worktreeId]: info },
+        }));
+      }
     } catch (e) {
       console.error(`Failed to get worktree git info for ${worktreeId}:`, e);
     }

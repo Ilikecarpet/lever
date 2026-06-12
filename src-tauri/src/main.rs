@@ -9,7 +9,7 @@ use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Emitter, Manager, State};
 
 
@@ -203,15 +203,25 @@ fn shell_escape(s: &str) -> String {
 }
 
 fn get_shell_path() -> String {
-    if let Ok(output) = Command::new("/bin/zsh")
-        .args(["-il", "-c", "echo $PATH"])
-        .output()
-    {
-        if let Ok(path) = String::from_utf8(output.stdout) {
-            return path.trim().to_string();
-        }
-    }
-    std::env::var("PATH").unwrap_or_default()
+    // Spawning an interactive login zsh sources the user's full rc files and
+    // can take hundreds of ms — compute once and reuse.
+    static SHELL_PATH: OnceLock<String> = OnceLock::new();
+    SHELL_PATH
+        .get_or_init(|| {
+            if let Ok(output) = Command::new("/bin/zsh")
+                .args(["-il", "-c", "echo $PATH"])
+                .output()
+            {
+                if let Ok(path) = String::from_utf8(output.stdout) {
+                    let trimmed = path.trim();
+                    if !trimmed.is_empty() {
+                        return trimmed.to_string();
+                    }
+                }
+            }
+            std::env::var("PATH").unwrap_or_default()
+        })
+        .clone()
 }
 
 fn is_pid_alive(pid: u32) -> bool {
@@ -468,7 +478,7 @@ struct ProjectListEntry {
     service_names: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, String> {
     let index = load_project_index(&state.projects_dir);
     let mut entries = Vec::new();
@@ -803,7 +813,7 @@ fn get_config(project_id: String, state: State<'_, AppState>) -> Result<AppConfi
     Ok(ps.config.clone())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_config(project_id: String, config: AppConfig, state: State<'_, AppState>) -> Result<(), String> {
     save_project_config(&state.projects_dir, &project_id, &config)?;
     let mut projects = state.projects.lock().unwrap();
@@ -817,8 +827,8 @@ fn save_config(project_id: String, config: AppConfig, state: State<'_, AppState>
 // Tauri commands: services (project-scoped)
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<StartServiceResult, String> {
+#[tauri::command(async)]
+fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<StartServiceResult, String> {
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
@@ -888,10 +898,14 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
     let id_clone = id.clone();
     let pty_id_clone = pty_id.clone();
     let app_handle = app.clone();
+    let window_label = window.label().to_string();
 
     drop(projects);
 
     std::thread::spawn(move || {
+        // Per-session event name, delivered only to the owning window —
+        // avoids broadcasting every chunk to every window and listener.
+        let data_event = format!("pty-data-{}", pty_id_clone);
         let mut buf = [0u8; 16384];
         let mut leftover: Vec<u8> = Vec::new();
         loop {
@@ -908,7 +922,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
                     leftover.clear();
                     match std::str::from_utf8(&data) {
                         Ok(s) => {
-                            let _ = app_handle.emit("pty-data", PtyDataEvent {
+                            let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
                                 id: pty_id_clone.clone(),
                                 data: s.to_string(),
                             });
@@ -917,7 +931,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
                             let valid_up_to = e.valid_up_to();
                             if valid_up_to > 0 {
                                 let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                                let _ = app_handle.emit("pty-data", PtyDataEvent {
+                                let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
                                     id: pty_id_clone.clone(),
                                     data: s.to_string(),
                                 });
@@ -930,7 +944,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
             }
         }
         // PTY exited — emit svc-exit event and clean up
-        let _ = app_handle.emit("svc-exit", SvcExitEvent {
+        let _ = app_handle.emit_to(window_label.as_str(), "svc-exit", SvcExitEvent {
             id: id_clone.clone(),
             pty_id: pty_id_clone.clone(),
         });
@@ -950,7 +964,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
     Ok(StartServiceResult { pty_id })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
@@ -1004,39 +1018,50 @@ fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> R
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, String> {
-    let mut projects = state.projects.lock().unwrap();
-    let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
+    // Snapshot everything we need under the projects lock, then drop it
+    // before the (slow) process-table scan so write_pty — called on every
+    // keystroke — never waits behind `ps`.
+    let (statuses, roots, last_outputs) = {
+        let mut projects = state.projects.lock().unwrap();
+        let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
-    let dead: Vec<String> = ps.tracked.iter()
-        .filter(|(_, t)| !is_pid_alive(t.pid))
-        .map(|(k, _)| k.clone())
-        .collect();
-    if !dead.is_empty() {
-        for id in &dead {
-            if let Some(t) = ps.tracked.remove(id) {
-                if let Some(ref pty_id) = t.pty_id {
-                    ps.pty_sessions.remove(pty_id);
+        let dead: Vec<String> = ps.tracked.iter()
+            .filter(|(_, t)| !is_pid_alive(t.pid))
+            .map(|(k, _)| k.clone())
+            .collect();
+        if !dead.is_empty() {
+            for id in &dead {
+                if let Some(t) = ps.tracked.remove(id) {
+                    if let Some(ref pty_id) = t.pty_id {
+                        ps.pty_sessions.remove(pty_id);
+                    }
                 }
             }
+            save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
         }
-        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-    }
 
-    let svcs = all_services(&ps.config);
-    let statuses: Vec<ServiceStatus> = svcs.iter().map(|s| {
-        ServiceStatus {
-            id: s.id.clone(),
-            status: if ps.tracked.contains_key(&s.id) { "running" } else { "stopped" }.to_string(),
-        }
-    }).collect();
+        let svcs = all_services(&ps.config);
+        let statuses: Vec<ServiceStatus> = svcs.iter().map(|s| {
+            ServiceStatus {
+                id: s.id.clone(),
+                status: if ps.tracked.contains_key(&s.id) { "running" } else { "stopped" }.to_string(),
+            }
+        }).collect();
+
+        let roots: Vec<(String, u32)> = ps.pty_sessions.iter()
+            .filter_map(|(id, s)| s.child_pid.map(|p| (id.clone(), p)))
+            .collect();
+        let last_outputs: HashMap<String, u64> = ps.pty_sessions.iter()
+            .map(|(id, s)| (id.clone(), s.last_output.load(Ordering::Relaxed)))
+            .collect();
+
+        (statuses, roots, last_outputs)
+    };
 
     // AI agent indicator: rescan the process table at most every 2s; poll
     // itself runs every 300ms from the frontend.
-    let roots: Vec<(String, u32)> = ps.pty_sessions.iter()
-        .filter_map(|(id, s)| s.child_pid.map(|p| (id.clone(), p)))
-        .collect();
     let agent_names = {
         let mut cache = state.agent_cache.lock().unwrap();
         let stale = cache.last_scan
@@ -1055,9 +1080,8 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
     let now = now_millis();
     let agents: HashMap<String, AgentInfo> = agent_names.into_iter()
         .filter_map(|(pty_id, name)| {
-            ps.pty_sessions.get(&pty_id).map(|s| {
-                let last = s.last_output.load(Ordering::Relaxed);
-                let active = now.saturating_sub(last) <= ACTIVE_WINDOW_MS;
+            last_outputs.get(&pty_id).map(|last| {
+                let active = now.saturating_sub(*last) <= ACTIVE_WINDOW_MS;
                 (pty_id, AgentInfo { name, active })
             })
         })
@@ -1070,8 +1094,8 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
 // Tauri commands: PTY terminals (project-scoped)
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
+#[tauri::command(async)]
+fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, window: tauri::WebviewWindow, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<PtyInfo, String> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
@@ -1117,7 +1141,12 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
 
     let app_handle = app.clone();
     let pty_id_clone = pty_id.clone();
+    let window_label = window.label().to_string();
     std::thread::spawn(move || {
+        // Per-session event name, delivered only to the owning window —
+        // avoids broadcasting every chunk to every window and listener.
+        let data_event = format!("pty-data-{}", pty_id_clone);
+        let exit_event = format!("pty-exit-{}", pty_id_clone);
         let mut buf = [0u8; 16384];
         let mut leftover: Vec<u8> = Vec::new();
         loop {
@@ -1134,7 +1163,7 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
                     leftover.clear();
                     match std::str::from_utf8(&data) {
                         Ok(s) => {
-                            let _ = app_handle.emit("pty-data", PtyDataEvent {
+                            let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
                                 id: pty_id_clone.clone(),
                                 data: s.to_string(),
                             });
@@ -1143,7 +1172,7 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
                             let valid_up_to = e.valid_up_to();
                             if valid_up_to > 0 {
                                 let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                                let _ = app_handle.emit("pty-data", PtyDataEvent {
+                                let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
                                     id: pty_id_clone.clone(),
                                     data: s.to_string(),
                                 });
@@ -1155,7 +1184,7 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
                 Err(_) => break,
             }
         }
-        let _ = app_handle.emit("pty-exit", PtyExitEvent {
+        let _ = app_handle.emit_to(window_label.as_str(), &exit_event, PtyExitEvent {
             id: pty_id_clone,
         });
     });
@@ -1227,17 +1256,17 @@ fn is_staged(s: git2::Status) -> bool {
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn write_text_file(path: String, contents: String) -> Result<(), String> {
     fs::write(&path, &contents).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn check_is_git_repo(path: String) -> bool {
     git2::Repository::open(&path).is_ok()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_info(path: String) -> Result<GitRepoInfo, String> {
     let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
 
@@ -1251,7 +1280,12 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
     let statuses = repo.statuses(Some(
         git2::StatusOptions::new()
             .include_untracked(true)
-            .exclude_submodules(true),
+            .exclude_submodules(true)
+            // Refresh the index stat-cache like `git status` does. After a
+            // checkout/switch every changed file's mtime is new and the scan
+            // re-hashes them; without this flag that cost is paid again on
+            // every poll instead of once.
+            .update_index(true),
     )).map_err(|e| e.to_string())?;
     let is_dirty = !statuses.is_empty();
 
@@ -1275,7 +1309,7 @@ fn git_info(path: String) -> Result<GitRepoInfo, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_diff(path: String, file_path: String, staged: bool) -> Result<String, String> {
     let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
 
@@ -1398,7 +1432,7 @@ fn synth_added_diff(rel_path: &str, abs_path: &std::path::Path) -> String {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage(path: String, file_path: String) -> Result<(), String> {
     let shell_path = get_shell_path();
     let output = Command::new("git")
@@ -1413,7 +1447,7 @@ fn git_stage(path: String, file_path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
     if file_paths.is_empty() {
         return Ok(());
@@ -1435,7 +1469,7 @@ fn git_stage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_all(path: String) -> Result<(), String> {
     let shell_path = get_shell_path();
     let output = Command::new("git")
@@ -1450,12 +1484,12 @@ fn git_stage_all(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage(path: String, file_path: String) -> Result<(), String> {
     git_unstage_paths(&path, &[file_path])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
     if file_paths.is_empty() {
         return Ok(());
@@ -1463,7 +1497,7 @@ fn git_unstage_many(path: String, file_paths: Vec<String>) -> Result<(), String>
     git_unstage_paths(&path, &file_paths)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_all(path: String) -> Result<(), String> {
     let shell_path = get_shell_path();
     // Prefer `git restore --staged .`; fall back to `git reset HEAD`.
@@ -1526,7 +1560,7 @@ fn git_unstage_paths(path: &str, file_paths: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_discard(path: String, file_path: String) -> Result<(), String> {
     let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
     let abs = std::path::Path::new(&path).join(&file_path);
@@ -1571,7 +1605,7 @@ fn git_discard(path: String, file_path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_fetch(path: String) -> Result<(), String> {
     let shell_path = get_shell_path();
     let output = Command::new("git")
@@ -1587,7 +1621,7 @@ fn git_fetch(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_pull(path: String) -> Result<String, String> {
     let shell_path = get_shell_path();
     let output = Command::new("git")
@@ -1614,7 +1648,7 @@ struct ExistingWorktree {
     branch: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_existing_worktrees(project_id: String, state: State<'_, AppState>) -> Result<Vec<ExistingWorktree>, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
@@ -1629,7 +1663,7 @@ fn list_existing_worktrees(project_id: String, state: State<'_, AppState>) -> Re
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
@@ -1651,7 +1685,7 @@ fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<S
     Ok(branches)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_default_branch(project_id: String, state: State<'_, AppState>) -> Result<Option<String>, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
@@ -1719,7 +1753,7 @@ fn list_git_worktrees(repo_path: &str) -> Vec<(String, Option<String>)> {
     result
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_worktree(
     project_id: String, branch: String, path: String, base_branch: Option<String>,
     state: State<'_, AppState>,
@@ -1826,7 +1860,7 @@ fn create_worktree(
     Ok(worktree_def)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_worktree(
     project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
 ) -> Result<(), String> {
