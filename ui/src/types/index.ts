@@ -49,6 +49,7 @@ export interface ProjectExport {
 export interface ServiceStatus {
   id: string;
   status: "running" | "stopped";
+  pty_id: string | null;
 }
 
 export interface AgentInfo {

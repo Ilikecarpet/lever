@@ -168,6 +168,7 @@ struct AgentScanCache {
 struct ServiceStatus {
     id: String,
     status: String,
+    pty_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -249,6 +250,86 @@ fn now_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Coalesce PTY output into at most ~60 events/sec per terminal. Unthrottled
+/// per-read emits can flood the webview hard enough that macOS kills its
+/// WebContent process (black window until reload).
+const PTY_FLUSH_INTERVAL_MS: u64 = 16;
+const PTY_MAX_BATCH_BYTES: usize = 262_144;
+
+fn spawn_pty_pump(
+    app_handle: tauri::AppHandle,
+    pty_id: String,
+    mut reader: Box<dyn IoRead + Send>,
+    last_output: Arc<AtomicU64>,
+    last_input: Arc<AtomicU64>,
+    on_exit: Box<dyn FnOnce(&tauri::AppHandle) + Send>,
+) {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 16384];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let now = now_millis();
+                    if now.saturating_sub(last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
+                        last_output.store(now, Ordering::Relaxed);
+                    }
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    std::thread::spawn(move || {
+        let mut leftover: Vec<u8> = Vec::new();
+        loop {
+            let first = match rx.recv() {
+                Ok(d) => d,
+                Err(_) => break,
+            };
+            let mut data = std::mem::take(&mut leftover);
+            data.extend_from_slice(&first);
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_millis(PTY_FLUSH_INTERVAL_MS);
+            while data.len() < PTY_MAX_BATCH_BYTES {
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                match rx.recv_timeout(deadline - now) {
+                    Ok(more) => data.extend_from_slice(&more),
+                    Err(_) => break,
+                }
+            }
+            match std::str::from_utf8(&data) {
+                Ok(s) => {
+                    let _ = app_handle.emit("pty-data", PtyDataEvent {
+                        id: pty_id.clone(),
+                        data: s.to_string(),
+                    });
+                }
+                Err(e) => {
+                    let valid_up_to = e.valid_up_to();
+                    if valid_up_to > 0 {
+                        let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
+                        let _ = app_handle.emit("pty-data", PtyDataEvent {
+                            id: pty_id.clone(),
+                            data: s.to_string(),
+                        });
+                    }
+                    leftover = data[valid_up_to..].to_vec();
+                }
+            }
+        }
+        on_exit(&app_handle);
+    });
 }
 
 fn agent_name_for_command(tokens: &[&str]) -> Option<String> {
@@ -864,7 +945,7 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
 
     let pid = child.process_id().unwrap_or(0);
 
-    let mut reader = pair.master.try_clone_reader()
+    let reader = pair.master.try_clone_reader()
         .map_err(|e| format!("Failed to clone reader: {}", e))?;
     let writer = pair.master.take_writer()
         .map_err(|e| format!("Failed to take writer: {}", e))?;
@@ -891,61 +972,25 @@ fn start_service(project_id: String, id: String, app: tauri::AppHandle, state: S
 
     drop(projects);
 
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 16384];
-        let mut leftover: Vec<u8> = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let now = now_millis();
-                    if now.saturating_sub(svc_last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
-                        svc_last_output.store(now, Ordering::Relaxed);
-                    }
-                    let mut data = Vec::with_capacity(leftover.len() + n);
-                    data.extend_from_slice(&leftover);
-                    data.extend_from_slice(&buf[..n]);
-                    leftover.clear();
-                    match std::str::from_utf8(&data) {
-                        Ok(s) => {
-                            let _ = app_handle.emit("pty-data", PtyDataEvent {
-                                id: pty_id_clone.clone(),
-                                data: s.to_string(),
-                            });
-                        }
-                        Err(e) => {
-                            let valid_up_to = e.valid_up_to();
-                            if valid_up_to > 0 {
-                                let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                                let _ = app_handle.emit("pty-data", PtyDataEvent {
-                                    id: pty_id_clone.clone(),
-                                    data: s.to_string(),
-                                });
-                            }
-                            leftover.extend_from_slice(&data[valid_up_to..]);
-                        }
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        // PTY exited — emit svc-exit event and clean up
-        let _ = app_handle.emit("svc-exit", SvcExitEvent {
-            id: id_clone.clone(),
-            pty_id: pty_id_clone.clone(),
-        });
+    spawn_pty_pump(app_handle, pty_id_clone.clone(), reader, svc_last_output, svc_last_input,
+        Box::new(move |app| {
+            // PTY exited — emit svc-exit event and clean up
+            let _ = app.emit("svc-exit", SvcExitEvent {
+                id: id_clone.clone(),
+                pty_id: pty_id_clone,
+            });
 
-        // Clean up persistent state
-        let sp = project_state_file_path(&projects_dir, &proj_id);
-        if let Ok(s) = fs::read_to_string(&sp) {
-            if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
-                ps.running.remove(&id_clone);
-                if let Ok(json) = serde_json::to_string_pretty(&ps) {
-                    let _ = fs::write(&sp, json);
+            // Clean up persistent state
+            let sp = project_state_file_path(&projects_dir, &proj_id);
+            if let Ok(s) = fs::read_to_string(&sp) {
+                if let Ok(mut ps) = serde_json::from_str::<PersistentState>(&s) {
+                    ps.running.remove(&id_clone);
+                    if let Ok(json) = serde_json::to_string_pretty(&ps) {
+                        let _ = fs::write(&sp, json);
+                    }
                 }
             }
-        }
-    });
+        }));
 
     Ok(StartServiceResult { pty_id })
 }
@@ -1026,9 +1071,13 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
 
     let svcs = all_services(&ps.config);
     let statuses: Vec<ServiceStatus> = svcs.iter().map(|s| {
+        let tracked = ps.tracked.get(&s.id);
         ServiceStatus {
             id: s.id.clone(),
-            status: if ps.tracked.contains_key(&s.id) { "running" } else { "stopped" }.to_string(),
+            status: if tracked.is_some() { "running" } else { "stopped" }.to_string(),
+            // Lets the frontend reattach terminals to live PTYs after a
+            // webview reload.
+            pty_id: tracked.and_then(|t| t.pty_id.clone()),
         }
     }).collect();
 
@@ -1093,7 +1142,7 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
         .map_err(|e| format!("Failed to spawn shell: {}", e))?;
     let shell_pid = child.process_id();
 
-    let mut reader = pair.master.try_clone_reader()
+    let reader = pair.master.try_clone_reader()
         .map_err(|e| format!("Failed to clone reader: {}", e))?;
     let writer = pair.master.take_writer()
         .map_err(|e| format!("Failed to take writer: {}", e))?;
@@ -1117,48 +1166,13 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, app
 
     let app_handle = app.clone();
     let pty_id_clone = pty_id.clone();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 16384];
-        let mut leftover: Vec<u8> = Vec::new();
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let now = now_millis();
-                    if now.saturating_sub(reader_last_input.load(Ordering::Relaxed)) > ECHO_WINDOW_MS {
-                        reader_last_output.store(now, Ordering::Relaxed);
-                    }
-                    let mut data = Vec::with_capacity(leftover.len() + n);
-                    data.extend_from_slice(&leftover);
-                    data.extend_from_slice(&buf[..n]);
-                    leftover.clear();
-                    match std::str::from_utf8(&data) {
-                        Ok(s) => {
-                            let _ = app_handle.emit("pty-data", PtyDataEvent {
-                                id: pty_id_clone.clone(),
-                                data: s.to_string(),
-                            });
-                        }
-                        Err(e) => {
-                            let valid_up_to = e.valid_up_to();
-                            if valid_up_to > 0 {
-                                let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                                let _ = app_handle.emit("pty-data", PtyDataEvent {
-                                    id: pty_id_clone.clone(),
-                                    data: s.to_string(),
-                                });
-                            }
-                            leftover.extend_from_slice(&data[valid_up_to..]);
-                        }
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        let _ = app_handle.emit("pty-exit", PtyExitEvent {
-            id: pty_id_clone,
-        });
-    });
+    let pty_id_exit = pty_id.clone();
+    spawn_pty_pump(app_handle, pty_id_clone, reader, reader_last_output, reader_last_input,
+        Box::new(move |app| {
+            let _ = app.emit("pty-exit", PtyExitEvent {
+                id: pty_id_exit,
+            });
+        }));
 
     Ok(PtyInfo { id: pty_id })
 }
