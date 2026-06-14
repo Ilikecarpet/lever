@@ -17,6 +17,8 @@ import type { PtyDataEvent, PtyExitEvent } from "../types";
 interface PtyEntry {
   term: Terminal;
   fitAddon: FitAddon;
+  /** GPU renderer addon; disposed while detached to free the scarce WebGL context. */
+  webgl: WebglAddon | null;
   ptyId: string | null;
   /** The div that xterm.js was opened into — we move this between mount points */
   termDiv: HTMLDivElement;
@@ -34,13 +36,15 @@ const ptyStore = new Map<string, PtyEntry>();
  * contexts (~16); on context loss the addon is disposed and xterm falls
  * back to the DOM renderer for that terminal.
  */
-export function loadWebglRenderer(term: Terminal) {
+export function loadWebglRenderer(term: Terminal): WebglAddon | null {
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => webgl.dispose());
     term.loadAddon(webgl);
+    return webgl;
   } catch (e) {
     console.warn("WebGL renderer unavailable, using DOM renderer:", e);
+    return null;
   }
 }
 
@@ -173,6 +177,9 @@ export function usePty(
       termRef.current = existing.term;
       fitAddonRef.current = existing.fitAddon;
 
+      // Re-acquire a GPU context now that this terminal is visible again.
+      if (!existing.webgl) existing.webgl = loadWebglRenderer(existing.term);
+
       // Defer fit until after the browser has laid out the new container.
       requestAnimationFrame(() => {
         if (!existing.disposed) {
@@ -201,6 +208,10 @@ export function usePty(
         if (existing.termDiv.parentNode === container) {
           container.removeChild(existing.termDiv);
         }
+        // Free the WebGL context while detached so it doesn't count against
+        // the WebView's live-context cap. Recreated on reattach above.
+        existing.webgl?.dispose();
+        existing.webgl = null;
         termRef.current = null;
         fitAddonRef.current = null;
       };
@@ -231,7 +242,7 @@ export function usePty(
       })
     );
     term.open(termDiv);
-    loadWebglRenderer(term);
+    const webgl = loadWebglRenderer(term);
     fitAddon.fit();
 
     termRef.current = term;
@@ -240,6 +251,7 @@ export function usePty(
     const entry: PtyEntry = {
       term,
       fitAddon,
+      webgl,
       ptyId: null,
       termDiv,
       unlisten: null,
@@ -292,6 +304,9 @@ export function usePty(
       if (termDiv.parentNode === container) {
         container.removeChild(termDiv);
       }
+      // Free the WebGL context while detached; recreated on reattach.
+      entry.webgl?.dispose();
+      entry.webgl = null;
       termRef.current = null;
       fitAddonRef.current = null;
 

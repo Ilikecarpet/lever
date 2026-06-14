@@ -5,7 +5,6 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useThemeStore, onTerminalThemeChange } from "../../stores/themeStore";
-import { loadWebglRenderer } from "../../hooks/usePty";
 import * as api from "../../lib/tauri";
 import { tauriListen } from "../../lib/tauri";
 import { IconClose } from "../Icons";
@@ -67,8 +66,13 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
       existing.term.focus();
       existing.term.blur();
       fitAddonRef.current = existing.fitAddon;
-      existing.fitAddon.fit();
-      existing.term.scrollToBottom();
+      // Defer fit until the browser has laid out the new container.
+      requestAnimationFrame(() => {
+        if (!existing.disposed) {
+          existing.fitAddon.fit();
+          existing.term.scrollToBottom();
+        }
+      });
 
       let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
       const observer = new ResizeObserver(() => {
@@ -116,7 +120,9 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(termDiv);
-    loadWebglRenderer(term);
+    // Service logs use xterm's DOM renderer (no WebGL): a high-volume dev-server
+    // stream into a GPU terminal reliably crashes WKWebView's WebGL context,
+    // blanking the whole app. Log output doesn't need GPU acceleration.
     fitAddon.fit();
     fitAddonRef.current = fitAddon;
 
