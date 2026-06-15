@@ -72,6 +72,25 @@
   display: block;
 }
 
+.action {
+  color: var(--text);
+  font-weight: 700;
+  margin-top: 2px;
+}
+.tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+}
+
 .cmd {
   color: var(--text);
   font-weight: 600;

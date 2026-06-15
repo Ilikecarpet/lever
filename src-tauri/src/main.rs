@@ -139,15 +139,59 @@ struct SvcExitEvent {
     pty_id: String,
 }
 
-/// Debug trace emitted while removing a worktree, so the UI can show the exact
-/// git commands run and their output (a mini terminal) for troubleshooting.
+/// Debug trace emitted for backend actions (git commands, service/PTY/worktree
+/// operations) so the UI can show a live mini-terminal of what the app is doing.
+/// Gated behind a setting in the UI; the backend always emits (events are cheap
+/// and only fire on discrete actions, never per-keystroke PTY output).
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WorktreeDebugEvent {
-    worktree_id: String,
-    /// "cmd" | "stdout" | "stderr" | "info" | "error"
+struct DebugLogEvent {
+    /// Coarse grouping shown as a tag, e.g. "git", "service", "worktree", "pty".
+    category: String,
+    /// "action" | "cmd" | "stdout" | "stderr" | "info" | "error"
     kind: String,
     text: String,
+}
+
+/// Set once at setup; lets any helper emit debug events without threading an
+/// AppHandle through every command signature.
+static DEBUG_APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+fn debug_log(category: &str, kind: &str, text: &str) {
+    if let Some(app) = DEBUG_APP.get() {
+        let _ = app.emit("debug-log", DebugLogEvent {
+            category: category.to_string(),
+            kind: kind.to_string(),
+            text: text.to_string(),
+        });
+    }
+}
+
+/// Marks the start of a user-triggered action; the UI groups the lines that
+/// follow (commands, output) under it with a divider.
+fn debug_action(category: &str, summary: &str) {
+    debug_log(category, "action", summary);
+}
+
+/// Run a git command, tracing the invocation and its stdout/stderr/exit to the
+/// debug console. Returns the raw Output so callers keep their existing logic.
+fn run_git_logged(args: &[&str], cwd: &str) -> std::io::Result<std::process::Output> {
+    let shell_path = get_shell_path();
+    debug_log("git", "cmd", &format!("git {}  (in {})", args.join(" "), cwd));
+    let out = Command::new("git").args(args).current_dir(cwd)
+        .env("PATH", &shell_path).output();
+    match &out {
+        Ok(o) => {
+            let so = String::from_utf8_lossy(&o.stdout);
+            let se = String::from_utf8_lossy(&o.stderr);
+            if !so.trim().is_empty() { debug_log("git", "stdout", so.trim_end()); }
+            if !se.trim().is_empty() { debug_log("git", "stderr", se.trim_end()); }
+            debug_log("git", "info", &format!("exit {}", o.status.code()
+                .map(|c| c.to_string()).unwrap_or_else(|| "signal".into())));
+        }
+        Err(e) => debug_log("git", "error", &format!("failed to spawn git: {}", e)),
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -607,6 +651,8 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
 
 #[tauri::command]
 fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    debug_action("project", &format!("create project '{}'{}", name,
+        repo_path.as_deref().map(|p| format!(" (repo {})", p)).unwrap_or_default()));
     let mut index = load_project_index(&state.projects_dir);
     let id = name_to_id(&name);
     if id.is_empty() {
@@ -631,6 +677,7 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
 
 #[tauri::command]
 fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    debug_action("project", &format!("delete project '{}'", id));
     // Stop all running services for this project before deleting
     {
         let mut projects = state.projects.lock().unwrap();
@@ -675,6 +722,7 @@ fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>)
 
 #[tauri::command]
 fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Result<(), String> {
+    debug_action("project", &format!("rename project '{}' -> '{}'", id, name));
     let mut index = load_project_index(&state.projects_dir);
     if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
         meta.name = name;
@@ -686,6 +734,7 @@ fn rename_project(id: String, name: String, state: State<'_, AppState>) -> Resul
 
 #[tauri::command]
 fn set_repo_path(id: String, repo_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    debug_action("project", &format!("set repo path for '{}' -> {}", id, repo_path));
     let mut index = load_project_index(&state.projects_dir);
     if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
         meta.repo_path = repo_path.clone();
@@ -711,6 +760,7 @@ fn get_repo_path(id: String, state: State<'_, AppState>) -> Result<String, Strin
 
 #[tauri::command]
 fn clone_project(source_id: String, name: String, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    debug_action("project", &format!("clone project '{}' -> '{}'", source_id, name));
     let config = load_project_config(&state.projects_dir, &source_id)?;
     let new_id = name_to_id(&name);
     if new_id.is_empty() {
@@ -745,6 +795,7 @@ fn import_project(
     repo_path: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ProjectMeta, String> {
+    debug_action("project", &format!("import project '{}'", name));
     let config: AppConfig = serde_json::from_str(&config_json)
         .map_err(|e| format!("Invalid config JSON: {}", e))?;
     let id = name_to_id(&name);
@@ -965,10 +1016,16 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
+    debug_action("service", &format!("start '{}': {}  (in {})", def.label, shell_cmd, cwd));
+
     let child = pair.slave.spawn_command(cmd)
-        .map_err(|e| format!("Failed to spawn {}: {}", def.label, e))?;
+        .map_err(|e| {
+            debug_log("service", "error", &format!("failed to spawn {}: {}", def.label, e));
+            format!("Failed to spawn {}: {}", def.label, e)
+        })?;
 
     let pid = child.process_id().unwrap_or(0);
+    debug_log("service", "info", &format!("'{}' started, pid {}", def.label, pid));
 
     let reader = pair.master.try_clone_reader()
         .map_err(|e| format!("Failed to clone reader: {}", e))?;
@@ -1032,6 +1089,7 @@ fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> R
     let tracked = ps.tracked.remove(&id);
 
     if let (Some((def, worktree_path)), Some(ref t)) = (&found, &tracked) {
+        debug_action("service", &format!("stop '{}' (pid {})", def.label, t.pid));
         if !def.stop_command.is_empty() {
             let shell_path = get_shell_path();
             let (cmd, args) = def.stop_command.split_first().unwrap();
@@ -1044,6 +1102,7 @@ fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> R
             } else {
                 "."
             };
+            debug_log("service", "cmd", &format!("{} {}  (in {})", cmd, args.join(" "), cwd));
             let _ = Command::new(cmd).args(args).current_dir(cwd).env("PATH", &shell_path).output();
         }
 
@@ -1459,12 +1518,8 @@ fn synth_added_diff(rel_path: &str, abs_path: &std::path::Path) -> String {
 
 #[tauri::command(async)]
 fn git_stage(path: String, file_path: String) -> Result<(), String> {
-    let shell_path = get_shell_path();
-    let output = Command::new("git")
-        .args(["add", "--", &file_path])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    debug_action("git", &format!("stage {}", file_path));
+    let output = run_git_logged(&["add", "--", &file_path], &path)
         .map_err(|e| format!("Failed to run git add: {}", e))?;
     if !output.status.success() {
         return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -1477,16 +1532,12 @@ fn git_stage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
     if file_paths.is_empty() {
         return Ok(());
     }
-    let shell_path = get_shell_path();
+    debug_action("git", &format!("stage {} file(s)", file_paths.len()));
     let mut args: Vec<&str> = vec!["add", "--"];
     for p in &file_paths {
         args.push(p);
     }
-    let output = Command::new("git")
-        .args(&args)
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    let output = run_git_logged(&args, &path)
         .map_err(|e| format!("Failed to run git add: {}", e))?;
     if !output.status.success() {
         return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -1496,12 +1547,8 @@ fn git_stage_many(path: String, file_paths: Vec<String>) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn git_stage_all(path: String) -> Result<(), String> {
-    let shell_path = get_shell_path();
-    let output = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    debug_action("git", "stage all");
+    let output = run_git_logged(&["add", "-A"], &path)
         .map_err(|e| format!("Failed to run git add -A: {}", e))?;
     if !output.status.success() {
         return Err(format!("git add -A failed: {}", String::from_utf8_lossy(&output.stderr)));
@@ -1524,22 +1571,14 @@ fn git_unstage_many(path: String, file_paths: Vec<String>) -> Result<(), String>
 
 #[tauri::command(async)]
 fn git_unstage_all(path: String) -> Result<(), String> {
-    let shell_path = get_shell_path();
+    debug_action("git", "unstage all");
     // Prefer `git restore --staged .`; fall back to `git reset HEAD`.
-    let restore = Command::new("git")
-        .args(["restore", "--staged", "."])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    let restore = run_git_logged(&["restore", "--staged", "."], &path)
         .map_err(|e| format!("Failed to run git restore: {}", e))?;
     if restore.status.success() {
         return Ok(());
     }
-    let reset = Command::new("git")
-        .args(["reset", "HEAD"])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    let reset = run_git_logged(&["reset", "HEAD"], &path)
         .map_err(|e| format!("Failed to run git reset: {}", e))?;
     if !reset.status.success() {
         return Err(format!(
@@ -1551,16 +1590,12 @@ fn git_unstage_all(path: String) -> Result<(), String> {
 }
 
 fn git_unstage_paths(path: &str, file_paths: &[String]) -> Result<(), String> {
-    let shell_path = get_shell_path();
+    debug_action("git", &format!("unstage {} file(s)", file_paths.len()));
     let mut args: Vec<&str> = vec!["restore", "--staged", "--"];
     for p in file_paths {
         args.push(p);
     }
-    let restore = Command::new("git")
-        .args(&args)
-        .current_dir(path)
-        .env("PATH", &shell_path)
-        .output()
+    let restore = run_git_logged(&args, path)
         .map_err(|e| format!("Failed to run git restore: {}", e))?;
     if restore.status.success() {
         return Ok(());
@@ -1570,11 +1605,7 @@ fn git_unstage_paths(path: &str, file_paths: &[String]) -> Result<(), String> {
     for p in file_paths {
         reset_args.push(p);
     }
-    let reset = Command::new("git")
-        .args(&reset_args)
-        .current_dir(path)
-        .env("PATH", &shell_path)
-        .output()
+    let reset = run_git_logged(&reset_args, path)
         .map_err(|e| format!("Failed to run git reset: {}", e))?;
     if !reset.status.success() {
         return Err(format!(
@@ -1587,6 +1618,7 @@ fn git_unstage_paths(path: &str, file_paths: &[String]) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn git_discard(path: String, file_path: String) -> Result<(), String> {
+    debug_action("git", &format!("discard {}", file_path));
     let repo = git2::Repository::open(&path).map_err(|e| format!("Not a git repo: {}", e))?;
     let abs = std::path::Path::new(&path).join(&file_path);
     let rel = std::path::Path::new(&file_path);
@@ -1614,12 +1646,7 @@ fn git_discard(path: String, file_path: String) -> Result<(), String> {
     }
 
     // Tracked — revert working-tree to index version.
-    let shell_path = get_shell_path();
-    let output = Command::new("git")
-        .args(["checkout", "--", &file_path])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    let output = run_git_logged(&["checkout", "--", &file_path], &path)
         .map_err(|e| format!("Failed to run git checkout: {}", e))?;
     if !output.status.success() {
         return Err(format!(
@@ -1632,12 +1659,8 @@ fn git_discard(path: String, file_path: String) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn git_fetch(path: String) -> Result<(), String> {
-    let shell_path = get_shell_path();
-    let output = Command::new("git")
-        .args(["fetch", "--all", "--prune"])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    debug_action("git", "fetch --all --prune");
+    let output = run_git_logged(&["fetch", "--all", "--prune"], &path)
         .map_err(|e| format!("Failed to run git fetch: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1648,12 +1671,8 @@ fn git_fetch(path: String) -> Result<(), String> {
 
 #[tauri::command(async)]
 fn git_pull(path: String) -> Result<String, String> {
-    let shell_path = get_shell_path();
-    let output = Command::new("git")
-        .args(["pull"])
-        .current_dir(&path)
-        .env("PATH", &shell_path)
-        .output()
+    debug_action("git", "pull");
+    let output = run_git_logged(&["pull"], &path)
         .map_err(|e| format!("Failed to run git pull: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
@@ -1790,6 +1809,7 @@ fn create_worktree(
         return Err("No repository path set for this project".to_string());
     }
     let repo_path = &meta.repo_path;
+    debug_action("worktree", &format!("create worktree on branch '{}' at {}", branch, path));
 
     // If the branch is already checked out in a worktree (other than the main repo),
     // adopt that existing worktree instead of erroring.
@@ -1837,7 +1857,6 @@ fn create_worktree(
             .map_err(|e| format!("Not a git repo: {}", e))?;
         let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
 
-        let shell_path = get_shell_path();
         let args = if branch_exists {
             vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
         } else {
@@ -1849,8 +1868,8 @@ fn create_worktree(
             a
         };
 
-        let output = Command::new("git").args(&args).current_dir(repo_path)
-            .env("PATH", &shell_path).output()
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = run_git_logged(&arg_refs, repo_path)
             .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1932,27 +1951,8 @@ fn wait_for_exit(pids: &[u32], timeout_ms: u64) -> Vec<u32> {
     }
 }
 
-fn cleanup_worktree_dir(repo_path: &str, wt_path: &str, log: &dyn Fn(&str, &str)) -> Result<(), String> {
-    let shell_path = get_shell_path();
-    let run_git = |args: &[&str]| {
-        log("cmd", &format!("git {}", args.join(" ")));
-        let out = Command::new("git").args(args).current_dir(repo_path)
-            .env("PATH", &shell_path).output();
-        match &out {
-            Ok(o) => {
-                let so = String::from_utf8_lossy(&o.stdout);
-                let se = String::from_utf8_lossy(&o.stderr);
-                if !so.trim().is_empty() { log("stdout", so.trim_end()); }
-                if !se.trim().is_empty() { log("stderr", se.trim_end()); }
-                log("info", &format!("exit {}", o.status.code()
-                    .map(|c| c.to_string()).unwrap_or_else(|| "signal".into())));
-            }
-            Err(e) => log("error", &format!("failed to spawn git: {}", e)),
-        }
-        out
-    };
-
-    let stderr = match run_git(&["worktree", "remove", "--force", wt_path]) {
+fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
+    let stderr = match run_git_logged(&["worktree", "remove", "--force", wt_path], repo_path) {
         Ok(o) if o.status.success() => String::new(),
         Ok(o) => String::from_utf8_lossy(&o.stderr).to_string(),
         Err(e) => format!("failed to run git: {}", e),
@@ -1960,46 +1960,35 @@ fn cleanup_worktree_dir(repo_path: &str, wt_path: &str, log: &dyn Fn(&str, &str)
 
     let path = std::path::Path::new(wt_path);
     if !path.exists() {
-        log("info", "directory no longer exists — removal complete");
+        debug_log("worktree", "info", "directory no longer exists — removal complete");
         return Ok(());
     }
 
     // git aborted partway or the worktree was never registered: drop any dangling
     // registration and delete what's left ourselves. Never touch the main repo or
     // anything with a real .git directory (worktrees only have a .git file).
-    log("info", "directory still present after remove — pruning and falling back to manual delete");
-    let _ = run_git(&["worktree", "prune"]);
+    debug_log("worktree", "info", "directory still present after remove — pruning and falling back to manual delete");
+    let _ = run_git_logged(&["worktree", "prune"], repo_path);
     if wt_path == repo_path || path.join(".git").is_dir() {
-        log("error", "refusing to delete: path is the main repo or has a real .git directory");
+        debug_log("worktree", "error", "refusing to delete: path is the main repo or has a real .git directory");
         return Err(format!("git worktree remove failed: {}", stderr.trim()));
     }
-    log("cmd", &format!("rm -rf {}", wt_path));
+    debug_log("worktree", "cmd", &format!("rm -rf {}", wt_path));
     std::fs::remove_dir_all(path).map_err(|e| {
-        log("error", &format!("manual delete failed: {}", e));
+        debug_log("worktree", "error", &format!("manual delete failed: {}", e));
         format!(
             "git worktree remove failed ({}); deleting the directory also failed: {}",
             stderr.trim(), e
         )
     })?;
-    log("info", "manual delete succeeded — removal complete");
+    debug_log("worktree", "info", "manual delete succeeded — removal complete");
     Ok(())
 }
 
 #[tauri::command(async)]
 fn remove_worktree(
-    project_id: String, worktree_id: String, cleanup: bool,
-    app: tauri::AppHandle, state: State<'_, AppState>,
+    project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let dbg_app = app.clone();
-    let dbg_id = worktree_id.clone();
-    let emit = move |kind: &str, text: &str| {
-        let _ = dbg_app.emit("wt-debug", WorktreeDebugEvent {
-            worktree_id: dbg_id.clone(),
-            kind: kind.to_string(),
-            text: text.to_string(),
-        });
-    };
-
     let worktree;
     let mut pids: Vec<u32> = vec![];
     {
@@ -2009,7 +1998,7 @@ fn remove_worktree(
         worktree = ps.config.worktrees.iter().find(|w| w.id == worktree_id)
             .cloned().ok_or("Worktree not found")?;
 
-        emit("info", &format!("Removing worktree '{}' (branch {}) at {}{}",
+        debug_action("worktree", &format!("Removing worktree '{}' (branch {}) at {}{}",
             worktree.id, worktree.branch, worktree.path,
             if cleanup { " [with directory cleanup]" } else { " [config only]" }));
 
@@ -2030,7 +2019,7 @@ fn remove_worktree(
     #[cfg(unix)]
     {
         if !pids.is_empty() {
-            emit("info", &format!("Stopping {} running service(s): SIGTERM {:?}", pids.len(), pids));
+            debug_log("worktree", "info", &format!("Stopping {} running service(s): SIGTERM {:?}", pids.len(), pids));
         }
         signal_pids(&pids, libc::SIGTERM);
         if cleanup {
@@ -2038,7 +2027,7 @@ fn remove_worktree(
             // removal halfway and orphan it.
             let alive = wait_for_exit(&pids, 3000);
             if !alive.is_empty() {
-                emit("info", &format!("Still alive after 3s, sending SIGKILL: {:?}", alive));
+                debug_log("worktree", "info", &format!("Still alive after 3s, sending SIGKILL: {:?}", alive));
                 signal_pids(&alive, libc::SIGKILL);
                 wait_for_exit(&alive, 1000);
             }
@@ -2051,18 +2040,18 @@ fn remove_worktree(
         let index = load_project_index(&state.projects_dir);
         if let Some(meta) = index.projects.iter().find(|p| p.id == project_id) {
             if !meta.repo_path.is_empty() {
-                emit("info", &format!("repo: {}", meta.repo_path));
+                debug_log("worktree", "info", &format!("repo: {}", meta.repo_path));
                 // Propagating the error keeps the worktree in config so the
                 // removal stays visible and retryable.
-                if let Err(e) = cleanup_worktree_dir(&meta.repo_path, &worktree.path, &emit) {
-                    emit("error", &format!("removal failed: {}", e));
+                if let Err(e) = cleanup_worktree_dir(&meta.repo_path, &worktree.path) {
+                    debug_log("worktree", "error", &format!("removal failed: {}", e));
                     return Err(e);
                 }
             } else {
-                emit("error", "project has no repo_path — skipping directory cleanup");
+                debug_log("worktree", "error", "project has no repo_path — skipping directory cleanup");
             }
         } else {
-            emit("error", "project not found in index — skipping directory cleanup");
+            debug_log("worktree", "error", "project not found in index — skipping directory cleanup");
         }
     }
 
@@ -2070,7 +2059,7 @@ fn remove_worktree(
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
     ps.config.worktrees.retain(|w| w.id != worktree_id);
     save_project_config(&state.projects_dir, &project_id, &ps.config)?;
-    emit("info", "worktree removed from lever config — done");
+    debug_log("worktree", "info", "worktree removed from lever config — done");
     Ok(())
 }
 
@@ -2095,6 +2084,8 @@ fn main() {
                 projects_dir: proj_dir,
                 agent_cache: Mutex::new(AgentScanCache::default()),
             });
+
+            let _ = DEBUG_APP.set(app.handle().clone());
 
             Ok(())
         })

@@ -243,14 +243,14 @@ export function tauriListen<T>(
   return listen<T>(event, (e) => callback(e.payload));
 }
 
-export interface WorktreeDebugEvent {
-  worktreeId: string;
-  kind: "cmd" | "stdout" | "stderr" | "info" | "error";
+export interface DebugLogEvent {
+  category: string;
+  kind: "action" | "cmd" | "stdout" | "stderr" | "info" | "error";
   text: string;
 }
 
-export function onWorktreeDebug(
-  callback: (payload: WorktreeDebugEvent) => void
+export function onDebugLog(
+  callback: (payload: DebugLogEvent) => void
 ): Promise<UnlistenFn> {
-  return tauriListen<WorktreeDebugEvent>("wt-debug", callback);
+  return tauriListen<DebugLogEvent>("debug-log", callback);
 }

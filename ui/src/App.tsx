@@ -14,7 +14,7 @@ import StatusBar from "./components/StatusBar/StatusBar";
 import ConfigModal from "./components/Modals/ConfigModal";
 import StartPage from "./components/StartPage/StartPage";
 import ScratchApp from "./components/ScratchApp/ScratchApp";
-import WorktreeDebugConsole from "./components/WorktreeDebugConsole/WorktreeDebugConsole";
+import DebugConsole from "./components/DebugConsole/DebugConsole";
 import "./stores/themeStore"; // initialize theme on load
 import styles from "./App.module.css";
 
@@ -96,7 +96,7 @@ function ProjectApp() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
-      <WorktreeDebugConsole />
+      <DebugConsole />
     </>
   );
 }
