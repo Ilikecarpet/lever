@@ -139,6 +139,17 @@ struct SvcExitEvent {
     pty_id: String,
 }
 
+/// Debug trace emitted while removing a worktree, so the UI can show the exact
+/// git commands run and their output (a mini terminal) for troubleshooting.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeDebugEvent {
+    worktree_id: String,
+    /// "cmd" | "stdout" | "stderr" | "info" | "error"
+    kind: String,
+    text: String,
+}
+
 #[derive(Serialize)]
 struct StartServiceResult {
     pty_id: String,
@@ -1921,11 +1932,24 @@ fn wait_for_exit(pids: &[u32], timeout_ms: u64) -> Vec<u32> {
     }
 }
 
-fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
+fn cleanup_worktree_dir(repo_path: &str, wt_path: &str, log: &dyn Fn(&str, &str)) -> Result<(), String> {
     let shell_path = get_shell_path();
     let run_git = |args: &[&str]| {
-        Command::new("git").args(args).current_dir(repo_path)
-            .env("PATH", &shell_path).output()
+        log("cmd", &format!("git {}", args.join(" ")));
+        let out = Command::new("git").args(args).current_dir(repo_path)
+            .env("PATH", &shell_path).output();
+        match &out {
+            Ok(o) => {
+                let so = String::from_utf8_lossy(&o.stdout);
+                let se = String::from_utf8_lossy(&o.stderr);
+                if !so.trim().is_empty() { log("stdout", so.trim_end()); }
+                if !se.trim().is_empty() { log("stderr", se.trim_end()); }
+                log("info", &format!("exit {}", o.status.code()
+                    .map(|c| c.to_string()).unwrap_or_else(|| "signal".into())));
+            }
+            Err(e) => log("error", &format!("failed to spawn git: {}", e)),
+        }
+        out
     };
 
     let stderr = match run_git(&["worktree", "remove", "--force", wt_path]) {
@@ -1936,27 +1960,46 @@ fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
 
     let path = std::path::Path::new(wt_path);
     if !path.exists() {
+        log("info", "directory no longer exists — removal complete");
         return Ok(());
     }
 
     // git aborted partway or the worktree was never registered: drop any dangling
     // registration and delete what's left ourselves. Never touch the main repo or
     // anything with a real .git directory (worktrees only have a .git file).
+    log("info", "directory still present after remove — pruning and falling back to manual delete");
     let _ = run_git(&["worktree", "prune"]);
     if wt_path == repo_path || path.join(".git").is_dir() {
+        log("error", "refusing to delete: path is the main repo or has a real .git directory");
         return Err(format!("git worktree remove failed: {}", stderr.trim()));
     }
-    std::fs::remove_dir_all(path).map_err(|e| format!(
-        "git worktree remove failed ({}); deleting the directory also failed: {}",
-        stderr.trim(), e
-    ))?;
+    log("cmd", &format!("rm -rf {}", wt_path));
+    std::fs::remove_dir_all(path).map_err(|e| {
+        log("error", &format!("manual delete failed: {}", e));
+        format!(
+            "git worktree remove failed ({}); deleting the directory also failed: {}",
+            stderr.trim(), e
+        )
+    })?;
+    log("info", "manual delete succeeded — removal complete");
     Ok(())
 }
 
 #[tauri::command(async)]
 fn remove_worktree(
-    project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
+    project_id: String, worktree_id: String, cleanup: bool,
+    app: tauri::AppHandle, state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let dbg_app = app.clone();
+    let dbg_id = worktree_id.clone();
+    let emit = move |kind: &str, text: &str| {
+        let _ = dbg_app.emit("wt-debug", WorktreeDebugEvent {
+            worktree_id: dbg_id.clone(),
+            kind: kind.to_string(),
+            text: text.to_string(),
+        });
+    };
+
     let worktree;
     let mut pids: Vec<u32> = vec![];
     {
@@ -1965,6 +2008,10 @@ fn remove_worktree(
 
         worktree = ps.config.worktrees.iter().find(|w| w.id == worktree_id)
             .cloned().ok_or("Worktree not found")?;
+
+        emit("info", &format!("Removing worktree '{}' (branch {}) at {}{}",
+            worktree.id, worktree.branch, worktree.path,
+            if cleanup { " [with directory cleanup]" } else { " [config only]" }));
 
         // Stop all running services in the worktree
         let wt_service_ids: Vec<String> = worktree.groups.iter()
@@ -1982,12 +2029,16 @@ fn remove_worktree(
 
     #[cfg(unix)]
     {
+        if !pids.is_empty() {
+            emit("info", &format!("Stopping {} running service(s): SIGTERM {:?}", pids.len(), pids));
+        }
         signal_pids(&pids, libc::SIGTERM);
         if cleanup {
             // Anything still writing while git deletes the directory can abort the
             // removal halfway and orphan it.
             let alive = wait_for_exit(&pids, 3000);
             if !alive.is_empty() {
+                emit("info", &format!("Still alive after 3s, sending SIGKILL: {:?}", alive));
                 signal_pids(&alive, libc::SIGKILL);
                 wait_for_exit(&alive, 1000);
             }
@@ -2000,10 +2051,18 @@ fn remove_worktree(
         let index = load_project_index(&state.projects_dir);
         if let Some(meta) = index.projects.iter().find(|p| p.id == project_id) {
             if !meta.repo_path.is_empty() {
+                emit("info", &format!("repo: {}", meta.repo_path));
                 // Propagating the error keeps the worktree in config so the
                 // removal stays visible and retryable.
-                cleanup_worktree_dir(&meta.repo_path, &worktree.path)?;
+                if let Err(e) = cleanup_worktree_dir(&meta.repo_path, &worktree.path, &emit) {
+                    emit("error", &format!("removal failed: {}", e));
+                    return Err(e);
+                }
+            } else {
+                emit("error", "project has no repo_path — skipping directory cleanup");
             }
+        } else {
+            emit("error", "project not found in index — skipping directory cleanup");
         }
     }
 
@@ -2011,6 +2070,7 @@ fn remove_worktree(
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
     ps.config.worktrees.retain(|w| w.id != worktree_id);
     save_project_config(&state.projects_dir, &project_id, &ps.config)?;
+    emit("info", "worktree removed from lever config — done");
     Ok(())
 }
 

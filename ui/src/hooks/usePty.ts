@@ -71,16 +71,28 @@ export function focusPty(paneId: string) {
   }
 }
 
-/** Destroy a terminal and close its PTY. Called only when a pane is truly removed. */
+/** Destroy a terminal and close its PTY. Called only when a pane is truly removed.
+ *
+ * Every step is best-effort: disposing an attached xterm (or its WebGL addon)
+ * can throw, and this is called from worktree removal — a throw here must never
+ * abort the removal. We always reach `ptyStore.delete` so the entry can't leak. */
 export function destroyPty(paneId: string) {
   const entry = ptyStore.get(paneId);
   if (!entry) return;
   entry.disposed = true;
-  entry.unlisten?.();
-  entry.unlistenExit?.();
-  if (entry.ptyId) api.closePty(entry.ptyId);
-  entry.term.dispose();
-  entry.termDiv.remove();
+  const tryStep = (fn: () => void) => {
+    try { fn(); } catch (e) { console.warn(`destroyPty(${paneId}) step failed:`, e); }
+  };
+  tryStep(() => entry.unlisten?.());
+  tryStep(() => entry.unlistenExit?.());
+  if (entry.ptyId) {
+    api.closePty(entry.ptyId).catch((e) =>
+      console.warn(`destroyPty(${paneId}) closePty failed:`, e)
+    );
+  }
+  tryStep(() => entry.webgl?.dispose());
+  tryStep(() => entry.term.dispose());
+  tryStep(() => entry.termDiv.remove());
   ptyStore.delete(paneId);
 }
 

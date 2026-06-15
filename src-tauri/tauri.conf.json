@@ -1,6 +1,6 @@
 {
   "productName": "Lever",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "identifier": "com.lever.dev",
   "build": {
     "frontendDist": "../ui/dist",

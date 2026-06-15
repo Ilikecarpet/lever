@@ -77,7 +77,13 @@ export default function WorktreeSection({ worktree }: Props) {
   const handleRemove = async (cleanup: boolean) => {
     setContextMenu(null);
     setConfirmDelete(null);
-    closeWorktreeWorkspaces(worktree.id);
+    // Tearing down terminal panes is best-effort: a failure here must never
+    // block the actual worktree removal (it previously did, requiring a 2nd try).
+    try {
+      closeWorktreeWorkspaces(worktree.id);
+    } catch (e) {
+      console.error("Failed to close worktree workspaces:", e);
+    }
     try {
       await deleteWorktree(worktree.id, cleanup);
     } catch (e) {
