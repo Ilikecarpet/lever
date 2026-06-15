@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
@@ -17,8 +16,6 @@ import type { PtyDataEvent, PtyExitEvent } from "../types";
 interface PtyEntry {
   term: Terminal;
   fitAddon: FitAddon;
-  /** GPU renderer addon; disposed while detached to free the scarce WebGL context. */
-  webgl: WebglAddon | null;
   ptyId: string | null;
   /** The div that xterm.js was opened into — we move this between mount points */
   termDiv: HTMLDivElement;
@@ -30,23 +27,13 @@ interface PtyEntry {
 
 const ptyStore = new Map<string, PtyEntry>();
 
-/**
- * Use the GPU renderer when available — the DOM renderer is by far the
- * slowest path and TUI agents redraw constantly. Browsers cap live WebGL
- * contexts (~16); on context loss the addon is disposed and xterm falls
- * back to the DOM renderer for that terminal.
- */
-export function loadWebglRenderer(term: Terminal): WebglAddon | null {
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-    return webgl;
-  } catch (e) {
-    console.warn("WebGL renderer unavailable, using DOM renderer:", e);
-    return null;
-  }
-}
+// Terminals deliberately use xterm's DOM renderer rather than the WebGL addon.
+// WKWebView shares one GPU process across every WebGL context and crashes the
+// whole web view — blanking the app until reload — when more than one live
+// context exists at once. A single split (Cmd+D) is enough to reach two, so any
+// GPU-backed terminal is a blackout waiting to happen here. The DOM renderer
+// holds no GPU context and so cannot trigger it. (Same reason service logs were
+// moved off WebGL in 1.5.9.)
 
 // Update all terminals when the theme changes
 onTerminalThemeChange((termTheme) => {
@@ -90,7 +77,6 @@ export function destroyPty(paneId: string) {
       console.warn(`destroyPty(${paneId}) closePty failed:`, e)
     );
   }
-  tryStep(() => entry.webgl?.dispose());
   tryStep(() => entry.term.dispose());
   tryStep(() => entry.termDiv.remove());
   ptyStore.delete(paneId);
@@ -189,9 +175,6 @@ export function usePty(
       termRef.current = existing.term;
       fitAddonRef.current = existing.fitAddon;
 
-      // Re-acquire a GPU context now that this terminal is visible again.
-      if (!existing.webgl) existing.webgl = loadWebglRenderer(existing.term);
-
       // Defer fit until after the browser has laid out the new container.
       requestAnimationFrame(() => {
         if (!existing.disposed) {
@@ -220,10 +203,6 @@ export function usePty(
         if (existing.termDiv.parentNode === container) {
           container.removeChild(existing.termDiv);
         }
-        // Free the WebGL context while detached so it doesn't count against
-        // the WebView's live-context cap. Recreated on reattach above.
-        existing.webgl?.dispose();
-        existing.webgl = null;
         termRef.current = null;
         fitAddonRef.current = null;
       };
@@ -254,7 +233,6 @@ export function usePty(
       })
     );
     term.open(termDiv);
-    const webgl = loadWebglRenderer(term);
     fitAddon.fit();
 
     termRef.current = term;
@@ -263,7 +241,6 @@ export function usePty(
     const entry: PtyEntry = {
       term,
       fitAddon,
-      webgl,
       ptyId: null,
       termDiv,
       unlisten: null,
@@ -316,9 +293,6 @@ export function usePty(
       if (termDiv.parentNode === container) {
         container.removeChild(termDiv);
       }
-      // Free the WebGL context while detached; recreated on reattach.
-      entry.webgl?.dispose();
-      entry.webgl = null;
       termRef.current = null;
       fitAddonRef.current = null;
 
