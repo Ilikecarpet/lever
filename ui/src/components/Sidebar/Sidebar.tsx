@@ -6,6 +6,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import type { ProjectExport } from "../../types";
 import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
@@ -46,6 +47,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
+  const debugConsole = useSettingsStore((s) => s.debugConsole);
+  const toggleDebugConsole = useSettingsStore((s) => s.toggleDebugConsole);
 
   const mainAgent = useWorktreeAgent(null);
 
@@ -220,6 +223,13 @@ export default function Sidebar({ onOpenSettings }: Props) {
             <div className={styles.menuDivider} />
             <button className={styles.menuItem} onClick={handleSettings}>
               <IconGear size={13} /> Settings
+            </button>
+            <button
+              className={styles.menuItem}
+              onClick={(e) => { e.stopPropagation(); toggleDebugConsole(); }}
+            >
+              <IconGear size={13} /> Debug console
+              {debugConsole && <span className={styles.themeCheck}>✓</span>}
             </button>
             <div className={styles.menuDivider} />
             <button

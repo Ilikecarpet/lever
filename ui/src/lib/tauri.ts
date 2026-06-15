@@ -242,3 +242,15 @@ export function tauriListen<T>(
 ): Promise<UnlistenFn> {
   return listen<T>(event, (e) => callback(e.payload));
 }
+
+export interface DebugLogEvent {
+  category: string;
+  kind: "action" | "cmd" | "stdout" | "stderr" | "info" | "error";
+  text: string;
+}
+
+export function onDebugLog(
+  callback: (payload: DebugLogEvent) => void
+): Promise<UnlistenFn> {
+  return tauriListen<DebugLogEvent>("debug-log", callback);
+}
