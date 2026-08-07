@@ -11,7 +11,7 @@ import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import type { ProjectExport } from "../../types";
-import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
+import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconPlus, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -114,9 +114,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
   useEffect(() => {
     if (adding && inputRef.current) {
       inputRef.current.focus();
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
+      inputRef.current.scrollIntoView({ block: "nearest" });
     }
   }, [adding]);
 
@@ -356,13 +354,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
           <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
         ))}
 
-        {worktrees.length > 0 && (
-          <div className={styles.sectionEyebrow}>Worktrees</div>
-        )}
-        {worktrees.map((wt) => (
-          <WorktreeSection key={wt.id} worktree={wt} />
-        ))}
-
         {adding ? (
           <div className={styles.addGroupInput}>
             <input
@@ -373,22 +364,31 @@ export default function Sidebar({ onOpenSettings }: Props) {
             />
           </div>
         ) : (
-          <div className={styles.bottomBar}>
-            <button
-              className={styles.addGroupBtn}
-              onClick={() => setAdding(true)}
-            >
-              + Add Group
-            </button>
-            {repoPath && (
+          <button className={styles.addRow} onClick={() => setAdding(true)}>
+            <IconPlus size={10} /> Add group
+          </button>
+        )}
+
+        {repoPath && (
+          <>
+            <div className={styles.sectionEyebrow}>
+              <span>Worktrees</span>
               <button
-                className={styles.newWorktreeBtn}
+                className={styles.eyebrowAction}
                 onClick={() => setWorktreeModalOpen(true)}
+                title="New worktree"
+                aria-label="New worktree"
               >
-                + New Worktree
+                <IconPlus size={11} />
               </button>
+            </div>
+            {worktrees.length === 0 && (
+              <div className={styles.eyebrowHint}>None yet</div>
             )}
-          </div>
+            {worktrees.map((wt) => (
+              <WorktreeSection key={wt.id} worktree={wt} />
+            ))}
+          </>
         )}
       </div>
       </div>

@@ -230,16 +230,66 @@
 
 /* Zone divider between the repo's own groups and the worktree list */
 .sectionEyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-muted);
-  padding: 12px 14px 2px;
-  margin-top: 10px;
+  padding: 8px 8px 0 14px;
+  margin-top: 12px;
   border-top: 1px solid var(--border);
   user-select: none;
+}
+
+/* Inline action on an eyebrow row (e.g. new worktree) */
+.eyebrowAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.1s;
+}
+.eyebrowAction:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.eyebrowHint {
+  padding: 6px 14px 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* Subtle per-section add action (e.g. add group under the repo's groups) */
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 2px 6px 0;
+  padding: 5px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.1s;
+}
+.addRow:hover {
+  color: var(--text-dim);
+  background: var(--surface-hover);
 }
 .sidebarScroll::-webkit-scrollbar {
   width: 4px;
@@ -247,29 +297,6 @@
 .sidebarScroll::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 4px;
-}
-
-.addGroupBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  cursor: pointer;
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-  font-weight: 500;
-  letter-spacing: 0.07em;
-  transition: color 0.15s, background 0.1s;
-}
-.addGroupBtn:hover {
-  color: var(--text-dim);
-  background: var(--surface-hover);
 }
 
 .addGroupInput {
@@ -407,33 +434,3 @@
   background: var(--surface-hover);
 }
 
-.bottomBar {
-  display: flex;
-  gap: 12px;
-  padding: 8px 14px;
-  border-top: 1px solid var(--border);
-}
-
-.newWorktreeBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--accent);
-  cursor: pointer;
-  border: none;
-  background: none;
-  font-weight: 500;
-  letter-spacing: 0.07em;
-  padding: 0;
-  transition: opacity 0.15s;
-}
-.newWorktreeBtn:hover {
-  opacity: 0.8;
-}
-.newWorktreeBtn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}

@@ -94,11 +94,13 @@ export default function WorktreeSection({ worktree }: Props) {
         onContextMenu={handleContextMenu}
       >
         <span className={styles.branchIcon}><IconBranch size={13} /></span>
-        <span
-          className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
-          title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
-        >{worktree.branch}</span>
-        <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+        <span className={styles.worktreeText}>
+          <span
+            className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
+            title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
+          >{worktree.branch}</span>
+          <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+        </span>
       </div>
 
       {worktree.groups.map((group) => (
