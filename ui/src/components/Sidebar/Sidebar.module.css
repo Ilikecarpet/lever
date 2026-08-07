@@ -373,6 +373,10 @@
   color: var(--accent);
   background: var(--accent-dim);
 }
+.mainContextGitBtnActive {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
 
 .mainCtxMenu {
   position: fixed;

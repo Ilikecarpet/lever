@@ -3,11 +3,122 @@
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);
   min-height: 34px;
+  align-items: stretch;
+}
+
+/* Tabs scroll on their own so the context chip stays pinned */
+.tabScroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   align-items: stretch;
 }
-.bar::-webkit-scrollbar {
+.tabScroll::-webkit-scrollbar {
   height: 0;
+}
+
+/* ---- Context switcher chip ---- */
+.contextWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.contextChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  cursor: pointer;
+  max-width: 220px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.contextChip:hover {
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+.contextBranch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextChevron {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.contextDropdown {
+  position: absolute;
+  top: calc(100% - 3px);
+  left: 8px;
+  min-width: 220px;
+  max-width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 0;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+
+.contextOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.contextOption:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.contextOptionActive {
+  color: var(--accent);
+}
+.contextOptionActive:hover {
+  color: var(--accent);
+}
+
+.contextOptionBranch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextBadge {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.contextCheck {
+  margin-left: auto;
+  color: var(--accent);
 }
 
 .tab {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useGitStore } from "../../stores/gitStore";
 import * as api from "../../lib/tauri";
 import type { GitFileStatus } from "../../types";
-import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle } from "../Icons";
+import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle, IconClose } from "../Icons";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./GitPanel.module.css";
 
@@ -470,18 +470,59 @@ function ChangesSection({
   );
 }
 
+const GIT_WIDTH_KEY = "lever-git-width";
+const GIT_MIN_WIDTH = 300;
+const GIT_MAX_WIDTH = 640;
+
+function getInitialGitWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(GIT_WIDTH_KEY));
+    if (Number.isFinite(v) && v >= GIT_MIN_WIDTH && v <= GIT_MAX_WIDTH) return v;
+  } catch {}
+  return 380;
+}
+
 export default function GitPanel() {
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const gitInfo = useGitStore((s) => s.gitInfo);
   const repoPath = useGitStore((s) => s.repoPath);
   const fetchGit = useGitStore((s) => s.fetch);
   const pull = useGitStore((s) => s.pull);
+  const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
+
+  const [width, setWidth] = useState<number>(getInitialGitWidth);
+  const [resizing, setResizing] = useState(false);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const clamp = (clientX: number) =>
+      Math.min(GIT_MAX_WIDTH, Math.max(GIT_MIN_WIDTH, startW + (startX - clientX)));
+    setResizing(true);
+    const onMove = (ev: MouseEvent) => setWidth(clamp(ev.clientX));
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setResizing(false);
+      try {
+        localStorage.setItem(GIT_WIDTH_KEY, String(Math.round(clamp(ev.clientX))));
+      } catch {}
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   if (!activeGitGroupId) return null;
 
   if (!gitInfo) {
     return (
-      <div className={styles.gitPanel}>
+      <div className={styles.gitPanel} style={{ width }}>
+        <div
+          className={styles.resizeHandle}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+        />
         <div className={styles.gitEmptyState}>
           <span className={styles.gitEmptyIcon}>
             <IconBranch size={28} />
@@ -495,7 +536,13 @@ export default function GitPanel() {
   const hasChanges = gitInfo.changed_files.length > 0;
 
   return (
-    <div className={styles.gitPanel}>
+    <div className={styles.gitPanel} style={{ width }}>
+      <div
+        className={styles.resizeHandle}
+        onMouseDown={handleResizeStart}
+        title="Drag to resize"
+      />
+      {resizing && <div className={styles.resizeOverlay} />}
       <div className={styles.gitPanelHeader}>
         <h3>
           <IconBranch size={14} />
@@ -520,6 +567,14 @@ export default function GitPanel() {
             onClick={() => pull()}
           >
             Pull
+          </button>
+          <button
+            className={styles.gitCloseBtn}
+            onClick={() => setActiveGitGroup(null)}
+            title="Close git panel (⌘G)"
+            aria-label="Close git panel"
+          >
+            <IconClose size={12} />
           </button>
         </div>
       </div>

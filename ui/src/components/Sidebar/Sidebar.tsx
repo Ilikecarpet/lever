@@ -9,6 +9,7 @@ import { useThemeStore, themes } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { switchContext } from "../../lib/switchContext";
 import type { ProjectExport } from "../../types";
 import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import GroupItem from "./GroupItem";
@@ -48,14 +49,13 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const gitInfo = useGitStore((s) => s.gitInfo);
   const repoPath = useGitStore((s) => s.repoPath);
+  const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
 
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
   const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
   const createWorktree = useWorktreeStore((s) => s.createWorktree);
-
-  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -201,20 +201,13 @@ export default function Sidebar({ onOpenSettings }: Props) {
   };
 
   const handleMainContextClick = () => {
-    setActiveWorktree(null);
-    setActiveGitGroup(null);
-    const workspaces = useWorkspaceStore.getState().workspaces;
-    const mainWs = workspaces.find((w) => w.worktreeId === null);
-    if (mainWs) {
-      setActiveWorkspace(mainWs.id);
-    }
+    switchContext(null);
   };
 
+  // Toggles the docked git panel; terminals stay where they are.
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveWorktree(null);
-    setActiveWorkspace(null);
-    setActiveGitGroup("project");
+    setActiveGitGroup(activeGitGroupId ? null : "project");
   };
 
   const handleCreateWorktree = async (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => {
@@ -331,9 +324,9 @@ export default function Sidebar({ onOpenSettings }: Props) {
               <span className={styles.mainContextDirty}>●</span>
             )}
             <span
-              className={styles.mainContextGitBtn}
+              className={`${styles.mainContextGitBtn}${activeGitGroupId ? ` ${styles.mainContextGitBtnActive}` : ""}`}
               onClick={handleOpenGitPanel}
-              title="Git panel"
+              title={activeGitGroupId ? "Close git panel (⌘G)" : "Open git panel (⌘G)"}
             >
               <IconBranch size={12} />
             </span>

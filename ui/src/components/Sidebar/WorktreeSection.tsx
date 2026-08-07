@@ -5,6 +5,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { switchContext } from "../../lib/switchContext";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
@@ -21,13 +22,9 @@ interface ContextMenu {
 
 export default function WorktreeSection({ worktree }: Props) {
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
-  const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
   const deleteWorktree = useWorktreeStore((s) => s.deleteWorktree);
   const closeWorktreeWorkspaces = useWorkspaceStore(
     (s) => s.closeWorktreeWorkspaces
-  );
-  const addWorkspaceForWorktree = useWorkspaceStore(
-    (s) => s.addWorkspaceForWorktree
   );
   const agent = useWorktreeAgent(worktree.id);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -52,19 +49,7 @@ export default function WorktreeSection({ worktree }: Props) {
 
   const handleClick = () => {
     if (isActive) return;
-    setActiveWorktree(worktree.id);
-    const workspaces = useWorkspaceStore.getState().workspaces;
-    const hasWtWorkspace = workspaces.some(
-      (w) => w.worktreeId === worktree.id
-    );
-    if (!hasWtWorkspace) {
-      addWorkspaceForWorktree(worktree.id);
-    } else {
-      const first = workspaces.find((w) => w.worktreeId === worktree.id);
-      if (first) {
-        useWorkspaceStore.getState().setActiveWorkspace(first.id);
-      }
-    }
+    switchContext(worktree.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {

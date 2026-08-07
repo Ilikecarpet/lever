@@ -17,46 +17,47 @@ export default function MainPanel() {
   const activeServiceId = useServiceStore((s) => s.activeServiceId);
 
   const contextWorkspaces = workspaces.filter((w) => w.worktreeId === activeWorktreeId);
-  const showEmpty =
-    contextWorkspaces.length === 0 && !activeGitGroupId && !activeServiceId;
-  const showGitPanel = activeGitGroupId && !activeWorkspaceId;
+  const showEmpty = contextWorkspaces.length === 0 && !activeServiceId;
+  const showGitPanel = !!activeGitGroupId;
 
   return (
     <div className={styles.main}>
       <WorkspaceBar />
       <div className={styles.termArea}>
-        <div className={styles.paneArea}>
-          {showEmpty && (
-            <div className={styles.emptyState}>
-              <span className={styles.emptyIcon}>
-                <IconTerminal size={32} />
-              </span>
-              <span className={styles.emptyTitle}>No workspaces open</span>
-              <span className={styles.emptyHint}>
-                Press <kbd className={styles.emptyKbd}>⌘T</kbd> or click{" "}
-                <kbd className={styles.emptyKbd}>+</kbd> to open a terminal workspace
-              </span>
-            </div>
-          )}
+        <div className={styles.workRow}>
+          <div className={styles.paneArea}>
+            {showEmpty && (
+              <div className={styles.emptyState}>
+                <span className={styles.emptyIcon}>
+                  <IconTerminal size={32} />
+                </span>
+                <span className={styles.emptyTitle}>No workspaces open</span>
+                <span className={styles.emptyHint}>
+                  Press <kbd className={styles.emptyKbd}>⌘T</kbd> or click{" "}
+                  <kbd className={styles.emptyKbd}>+</kbd> to open a terminal workspace
+                </span>
+              </div>
+            )}
 
-          {workspaces.map((ws) => (
-            <div
-              key={ws.id}
-              style={{
-                position: "absolute",
-                inset: 0,
-                visibility: ws.id === activeWorkspaceId ? "visible" : "hidden",
-                pointerEvents: ws.id === activeWorkspaceId ? "auto" : "none",
-              }}
-            >
-              <PaneView
-                node={ws.root}
-                activePaneId={ws.activePaneId}
-                visible={ws.id === activeWorkspaceId}
-                worktreeId={ws.worktreeId}
-              />
-            </div>
-          ))}
+            {workspaces.map((ws) => (
+              <div
+                key={ws.id}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  visibility: ws.id === activeWorkspaceId ? "visible" : "hidden",
+                  pointerEvents: ws.id === activeWorkspaceId ? "auto" : "none",
+                }}
+              >
+                <PaneView
+                  node={ws.root}
+                  activePaneId={ws.activePaneId}
+                  visible={ws.id === activeWorkspaceId}
+                  worktreeId={ws.worktreeId}
+                />
+              </div>
+            ))}
+          </div>
 
           {showGitPanel && <GitPanel />}
         </div>
