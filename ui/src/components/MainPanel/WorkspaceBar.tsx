@@ -6,6 +6,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
 import type { PaneLeaf } from "../../types/pane";
 import { IconClose, IconPlus } from "../Icons";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./WorkspaceBar.module.css";
 
 interface ContextMenu {
@@ -37,6 +38,8 @@ export default function WorkspaceBar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   // Drag state
   const dragState = useRef<{
@@ -227,10 +230,7 @@ export default function WorkspaceBar() {
       </button>
 
       {contextMenu && (
-        <div
-          className={styles.contextMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
+        <div ref={contextMenuRef} className={styles.contextMenu}>
           <button
             className={styles.contextMenuItem}
             onClick={() => startRename(contextMenu.wsId)}

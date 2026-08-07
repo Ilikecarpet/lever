@@ -45,6 +45,25 @@
   opacity: 0.88;
 }
 
+.btnDanger {
+  background: var(--red);
+  color: var(--red-fg);
+  padding: 9px 20px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.btnDanger:hover {
+  opacity: 0.88;
+}
+
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .btnSecondary {
   background: var(--surface);
   color: var(--text-dim);
@@ -243,6 +262,13 @@
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 16px;
+}
+
+.modalBody {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  margin-bottom: 18px;
 }
 
 .modalInput {

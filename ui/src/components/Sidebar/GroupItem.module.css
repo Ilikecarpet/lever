@@ -183,7 +183,7 @@
 }
 .confirmYes:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-fg);
 }
 
 /* Git branch indicator */

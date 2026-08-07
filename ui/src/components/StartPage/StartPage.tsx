@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, ProjectExport, ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./StartPage.module.css";
 
 function timeAgo(unix: number): string {
@@ -48,6 +49,10 @@ export default function StartPage() {
   const [renameValue, setRenameValue] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectMeta | null>(null);
+  const [cloneTarget, setCloneTarget] = useState<ProjectMeta | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const refresh = useCallback(async () => {
     const list = await api.listProjects();
@@ -82,13 +87,13 @@ export default function StartPage() {
       const t = e.target as HTMLElement | null;
       const tag = t?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) return;
-      if (showCreateModal || showImportModal || renamingId) return;
+      if (showCreateModal || showImportModal || renamingId || deleteTarget || cloneTarget) return;
       e.preventDefault();
       handleOpenTerminal();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleOpenTerminal, showCreateModal, showImportModal, renamingId]);
+  }, [handleOpenTerminal, showCreateModal, showImportModal, renamingId, deleteTarget, cloneTarget]);
 
   const handleContextMenu = (e: React.MouseEvent, project: ProjectMeta) => {
     e.preventDefault();
@@ -109,21 +114,14 @@ export default function StartPage() {
     }
   };
 
-  const handleDelete = async (project: ProjectMeta) => {
+  const handleDelete = (project: ProjectMeta) => {
     setContextMenu(null);
-    if (confirm(`Delete project "${project.name}"? This cannot be undone.`)) {
-      await api.deleteProject(project.id);
-      refresh();
-    }
+    setDeleteTarget(project);
   };
 
-  const handleClone = async (project: ProjectMeta) => {
+  const handleClone = (project: ProjectMeta) => {
     setContextMenu(null);
-    const name = prompt("Name for the cloned project:", `${project.name} (copy)`);
-    if (name) {
-      await api.cloneProject(project.id, name);
-      refresh();
-    }
+    setCloneTarget(project);
   };
 
   const handleChangeRepoPath = async (project: ProjectMeta) => {
@@ -142,7 +140,11 @@ export default function StartPage() {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.title}>Lever</div>
-        <div className={styles.subtitle}>Select a project or create a new one</div>
+        <div className={styles.subtitle}>
+          {projects.length === 0
+            ? "A project points Lever at a repository and remembers its services, groups, and worktrees"
+            : "Select a project or create a new one"}
+        </div>
       </div>
 
       <div className={styles.actions}>
@@ -211,7 +213,9 @@ export default function StartPage() {
         <div className={styles.emptyCard} onClick={() => setShowCreateModal(true)}>
           <div className={styles.emptyCardContent}>
             <div className={styles.emptyCardPlus}>+</div>
-            <div className={styles.emptyCardLabel}>New Project</div>
+            <div className={styles.emptyCardLabel}>
+              {projects.length === 0 ? "Create your first project" : "New Project"}
+            </div>
           </div>
         </div>
       </div>
@@ -221,10 +225,7 @@ export default function StartPage() {
       </div>
 
       {contextMenu && (
-        <div
-          className={styles.contextMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
+        <div ref={contextMenuRef} className={styles.contextMenu}>
           <button className={styles.contextMenuItem} onClick={() => handleRename(contextMenu.project)}>
             Rename
           </button>
@@ -260,6 +261,145 @@ export default function StartPage() {
           }}
         />
       )}
+
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          project={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => {
+            setDeleteTarget(null);
+            refresh();
+          }}
+        />
+      )}
+
+      {cloneTarget && (
+        <CloneModal
+          project={cloneTarget}
+          onClose={() => setCloneTarget(null)}
+          onCloned={() => {
+            setCloneTarget(null);
+            refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmDeleteModal({
+  project,
+  onClose,
+  onDeleted,
+}: {
+  project: ProjectMeta;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const mouseDownOnOverlay = useRef(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handleDelete = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.deleteProject(project.id);
+      onDeleted();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className={styles.modalOverlay}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.modal}>
+        <div className={styles.modalTitle}>Delete “{project.name}”?</div>
+        <div className={styles.modalBody}>
+          This removes the project and its Lever configuration (services,
+          groups, worktree list). Your repository on disk is not affected.
+          This cannot be undone.
+        </div>
+        <div className={styles.modalActions}>
+          <button className={styles.btnSecondary} onClick={onClose} autoFocus>
+            Cancel
+          </button>
+          <button className={styles.btnDanger} onClick={handleDelete} disabled={busy}>
+            {busy ? "Deleting…" : "Delete project"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloneModal({
+  project,
+  onClose,
+  onCloned,
+}: {
+  project: ProjectMeta;
+  onClose: () => void;
+  onCloned: () => void;
+}) {
+  const [name, setName] = useState(`${project.name} (copy)`);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const mouseDownOnOverlay = useRef(false);
+
+  const handleClone = async () => {
+    if (busy || !name.trim()) return;
+    setBusy(true);
+    try {
+      await api.cloneProject(project.id, name.trim());
+      onCloned();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className={styles.modalOverlay}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={styles.modal}>
+        <div className={styles.modalTitle}>Clone “{project.name}”</div>
+        <label className={styles.fieldLabel}>Name for the clone</label>
+        <input
+          className={styles.modalInput}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleClone();
+            if (e.key === "Escape") onClose();
+          }}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+        />
+        {error && <div className={styles.modalError}>{error}</div>}
+        <div className={styles.modalActions}>
+          <button className={styles.btnSecondary} onClick={onClose}>
+            Cancel
+          </button>
+          <button className={styles.btnPrimary} onClick={handleClone} disabled={busy || !name.trim()}>
+            {busy ? "Cloning…" : "Clone"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

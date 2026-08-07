@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ServiceDef } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { IconPlay, IconStop } from "../Icons";
 import styles from "./ServiceItem.module.css";
 
@@ -25,6 +26,8 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const isRunning = status === "running";
   const isActive = activeServiceId === service.id;
@@ -115,8 +118,8 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className={styles.ctxMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
           data-ctx-svc={service.id}
         >
           <button className={styles.ctxItem} onClick={handleEdit}>

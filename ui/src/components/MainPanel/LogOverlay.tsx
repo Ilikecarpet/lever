@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useServiceStore } from "../../stores/serviceStore";
@@ -192,6 +192,17 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
   );
 }
 
+const LOG_HEIGHT_KEY = "lever-log-height";
+
+function getInitialLogHeight(): number | null {
+  try {
+    const v = Number(localStorage.getItem(LOG_HEIGHT_KEY));
+    return Number.isFinite(v) && v >= 120 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ServiceTerminal() {
   const activeServiceId = useServiceStore((s) => s.activeServiceId);
   const ptyIds = useServiceStore((s) => s.ptyIds);
@@ -200,6 +211,37 @@ export default function ServiceTerminal() {
 
   const groups = useConfigStore((s) => s.groups);
   const worktrees = useWorktreeStore((s) => s.worktrees);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(getInitialLogHeight);
+  const [resizing, setResizing] = useState(false);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const panel = panelRef.current;
+    if (!panel) return;
+    const startY = e.clientY;
+    const startHeight = panel.getBoundingClientRect().height;
+    const parent = panel.parentElement;
+    const maxH = parent
+      ? Math.max(160, parent.getBoundingClientRect().height * 0.75)
+      : window.innerHeight * 0.6;
+    const clamp = (clientY: number) =>
+      Math.min(maxH, Math.max(120, startHeight + (startY - clientY)));
+
+    setResizing(true);
+    const onMove = (ev: MouseEvent) => setHeight(clamp(ev.clientY));
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setResizing(false);
+      try {
+        localStorage.setItem(LOG_HEIGHT_KEY, String(Math.round(clamp(ev.clientY))));
+      } catch {}
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   if (!activeServiceId) return null;
 
@@ -223,7 +265,17 @@ export default function ServiceTerminal() {
   }
 
   return (
-    <div className={styles.logPanel}>
+    <div
+      ref={panelRef}
+      className={styles.logPanel}
+      style={height != null ? { flex: "0 0 auto", height } : undefined}
+    >
+      <div
+        className={styles.resizeHandle}
+        onMouseDown={handleResizeStart}
+        title="Drag to resize"
+      />
+      {resizing && <div className={styles.resizeOverlay} />}
       <div className={styles.logHeader}>
         <span className={styles.logLabel}>
           {isRunning && <span className={styles.logDot} />}

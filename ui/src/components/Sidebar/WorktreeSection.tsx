@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
@@ -31,6 +33,8 @@ export default function WorktreeSection({ worktree }: Props) {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const isActive = activeWorktreeId === worktree.id;
 
@@ -88,6 +92,10 @@ export default function WorktreeSection({ worktree }: Props) {
       await deleteWorktree(worktree.id, cleanup);
     } catch (e) {
       console.error("Failed to remove worktree:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      useGitStore
+        .getState()
+        .setStatusMessage(`Failed to remove worktree: ${msg}`, "error");
     }
   };
 
@@ -120,8 +128,8 @@ export default function WorktreeSection({ worktree }: Props) {
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className={styles.contextMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
           data-ctx-wt={worktree.id}
         >
           <button

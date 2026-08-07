@@ -8,6 +8,7 @@ import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import type { ProjectExport } from "../../types";
 import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import GroupItem from "./GroupItem";
@@ -73,6 +74,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const mainCtxMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(mainCtxMenuRef, mainCtxMenu?.x ?? 0, mainCtxMenu?.y ?? 0);
 
   useEffect(() => {
     if (adding && inputRef.current) {
@@ -291,8 +294,8 @@ export default function Sidebar({ onOpenSettings }: Props) {
           </div>
           {mainCtxMenu && (
             <div
+              ref={mainCtxMenuRef}
               className={styles.mainCtxMenu}
-              style={{ left: mainCtxMenu.x, top: mainCtxMenu.y }}
               data-ctx-main-repo
             >
               <button

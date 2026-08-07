@@ -109,7 +109,7 @@
 }
 .mBtnDanger:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-fg);
   border-color: var(--red);
 }
 .mBtnSm {
@@ -288,6 +288,20 @@
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+/* Inline "new group" input shown when "+ New Group..." is selected */
+.newGroupRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.newGroupRow input {
+  flex: 1;
+}
+.newGroupRow button {
+  flex-shrink: 0;
 }
 
 /* Two-column row for shorter fields */

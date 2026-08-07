@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useGitStore } from "../../stores/gitStore";
 import * as api from "../../lib/tauri";
 import type { GitFileStatus } from "../../types";
-import { IconBranch, IconFolder } from "../Icons";
+import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle } from "../Icons";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./GitPanel.module.css";
 
 type SectionMode = "staged" | "unstaged";
@@ -152,6 +153,8 @@ function FileItem({
   const [acting, setActing] = useState(false);
   const [discardMenu, setDiscardMenu] = useState<{ x: number; y: number } | null>(null);
   const discardBtnRef = useRef<HTMLButtonElement | null>(null);
+  const discardMenuRef = useRef<HTMLDivElement | null>(null);
+  useClampToViewport(discardMenuRef, discardMenu?.x ?? 0, discardMenu?.y ?? 0);
   const stage = useGitStore((s) => s.stage);
   const unstage = useGitStore((s) => s.unstage);
   const discard = useGitStore((s) => s.discard);
@@ -271,7 +274,7 @@ function FileItem({
           title={file.staged ? "Unstage" : "Stage"}
           aria-label={file.staged ? "Unstage file" : "Stage file"}
         >
-          {file.staged ? "−" : "+"}
+          {file.staged ? <IconMinus size={10} /> : <IconPlus size={10} />}
         </button>
         {mode === "unstaged" && (
           <button
@@ -282,7 +285,7 @@ function FileItem({
             title={discardMenu ? "Cancel" : "Discard changes"}
             aria-label="Discard changes"
           >
-            ↺
+            <IconUndo size={10} />
           </button>
         )}
         <span className={styles.gitFileChevron}>{expanded ? "▾" : "▸"}</span>
@@ -299,8 +302,8 @@ function FileItem({
       </div>
       {discardMenu && (
         <div
+          ref={discardMenuRef}
           className={styles.discardMenu}
-          style={{ left: discardMenu.x, top: discardMenu.y }}
           data-discard-menu={file.path}
           onClick={(e) => e.stopPropagation()}
         >
@@ -339,11 +342,13 @@ function ChangesSection({
   files,
   repoPath,
   mode,
+  emptyLabel,
 }: {
   title: string;
   files: GitFileStatus[];
   repoPath: string;
   mode: SectionMode;
+  emptyLabel: string;
 }) {
   const [shown, setShown] = useState(10);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -432,7 +437,7 @@ function ChangesSection({
       </div>
       <div className={styles.gitSectionBody}>
         {files.length === 0 && (
-          <div className={styles.gitSectionEmpty}>(none)</div>
+          <div className={styles.gitSectionEmpty}>{emptyLabel}</div>
         )}
         {visible.map((f, i) => (
           <FileItem
@@ -445,12 +450,20 @@ function ChangesSection({
           />
         ))}
         {remaining > 0 && (
-          <button
-            className={styles.gitShowMore}
-            onClick={() => setShown((s) => s + 10)}
-          >
-            Show more ({remaining} remaining)
-          </button>
+          <div className={styles.gitShowMoreRow}>
+            <button
+              className={styles.gitShowMore}
+              onClick={() => setShown((s) => s + 10)}
+            >
+              Show more ({remaining} remaining)
+            </button>
+            <button
+              className={styles.gitShowMore}
+              onClick={() => setShown(files.length)}
+            >
+              Show all
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -469,10 +482,17 @@ export default function GitPanel() {
   if (!gitInfo) {
     return (
       <div className={styles.gitPanel}>
-        <div className={styles.gitLoading}>Loading git info...</div>
+        <div className={styles.gitEmptyState}>
+          <span className={styles.gitEmptyIcon}>
+            <IconBranch size={28} />
+          </span>
+          <span className={styles.gitEmptyTitle}>Reading git status…</span>
+        </div>
       </div>
     );
   }
+
+  const hasChanges = gitInfo.changed_files.length > 0;
 
   return (
     <div className={styles.gitPanel}>
@@ -504,21 +524,36 @@ export default function GitPanel() {
         </div>
       </div>
       <div className={styles.gitPanelBody}>
-        {gitInfo.changed_files.length > 0 && (
+        {hasChanges ? (
           <>
             <ChangesSection
               title="Staged"
               files={gitInfo.changed_files.filter((f) => f.staged)}
               repoPath={repoPath}
               mode="staged"
+              emptyLabel="Nothing staged yet"
             />
             <ChangesSection
               title="Changes"
               files={gitInfo.changed_files.filter((f) => !f.staged)}
               repoPath={repoPath}
               mode="unstaged"
+              emptyLabel="No unstaged changes"
             />
+            <div className={styles.gitHint}>
+              Click a file to view its diff · ⌘-click to select several at once
+            </div>
           </>
+        ) : (
+          <div className={styles.gitEmptyState}>
+            <span className={`${styles.gitEmptyIcon} ${styles.gitEmptyIconClean}`}>
+              <IconCheckCircle size={28} />
+            </span>
+            <span className={styles.gitEmptyTitle}>Working tree clean</span>
+            <span className={styles.gitEmptyHint}>
+              Changes on {gitInfo.current_branch} will show up here, ready to stage.
+            </span>
+          </div>
         )}
       </div>
     </div>

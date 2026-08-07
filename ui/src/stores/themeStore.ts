@@ -538,32 +538,49 @@ export const themes: ThemeDef[] = [
 
 const STORAGE_KEY = "lever-theme";
 
+/** Key holding the active theme's CSS variables, applied pre-paint by the
+ *  boot script in index.html so switching windows/reloads never flash the
+ *  default theme. */
+const VARS_STORAGE_KEY = "lever-theme-vars";
+
+function themeVars(theme: ThemeDef): Record<string, string> {
+  return {
+    "--bg": theme.bg,
+    "--sidebar-bg": theme.sidebarBg,
+    "--surface": theme.surface,
+    "--surface-hover": theme.surfaceHover,
+    "--surface-raised": theme.surfaceRaised,
+    "--terminal-bg": theme.terminalBg,
+    "--border": theme.border,
+    "--border-hover": theme.borderHover,
+    "--text": theme.text,
+    "--text-dim": theme.textDim,
+    "--text-muted": theme.textMuted,
+    "--accent": theme.accent,
+    "--accent-hover": theme.accentHover,
+    "--accent-dim": theme.accentDim,
+    "--accent-subtle": theme.accentSubtle,
+    "--accent-fg": theme.accentForeground,
+    "--green": theme.green,
+    "--green-dim": theme.greenDim,
+    "--red": theme.red,
+    "--red-dim": theme.redDim,
+    "--yellow": theme.yellow,
+    "--yellow-dim": theme.yellowDim,
+    "--blue": theme.blue,
+    "--blue-dim": theme.blueDim,
+  };
+}
+
 function applyTheme(theme: ThemeDef) {
   const root = document.documentElement;
-  root.style.setProperty("--bg", theme.bg);
-  root.style.setProperty("--sidebar-bg", theme.sidebarBg);
-  root.style.setProperty("--surface", theme.surface);
-  root.style.setProperty("--surface-hover", theme.surfaceHover);
-  root.style.setProperty("--surface-raised", theme.surfaceRaised);
-  root.style.setProperty("--terminal-bg", theme.terminalBg);
-  root.style.setProperty("--border", theme.border);
-  root.style.setProperty("--border-hover", theme.borderHover);
-  root.style.setProperty("--text", theme.text);
-  root.style.setProperty("--text-dim", theme.textDim);
-  root.style.setProperty("--text-muted", theme.textMuted);
-  root.style.setProperty("--accent", theme.accent);
-  root.style.setProperty("--accent-hover", theme.accentHover);
-  root.style.setProperty("--accent-dim", theme.accentDim);
-  root.style.setProperty("--accent-subtle", theme.accentSubtle);
-  root.style.setProperty("--accent-fg", theme.accentForeground);
-  root.style.setProperty("--green", theme.green);
-  root.style.setProperty("--green-dim", theme.greenDim);
-  root.style.setProperty("--red", theme.red);
-  root.style.setProperty("--red-dim", theme.redDim);
-  root.style.setProperty("--yellow", theme.yellow);
-  root.style.setProperty("--yellow-dim", theme.yellowDim);
-  root.style.setProperty("--blue", theme.blue);
-  root.style.setProperty("--blue-dim", theme.blueDim);
+  const vars = themeVars(theme);
+  for (const [key, value] of Object.entries(vars)) {
+    root.style.setProperty(key, value);
+  }
+  try {
+    localStorage.setItem(VARS_STORAGE_KEY, JSON.stringify(vars));
+  } catch {}
 }
 
 // Callbacks that get notified when the terminal theme changes
