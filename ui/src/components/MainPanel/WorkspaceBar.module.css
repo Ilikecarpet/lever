@@ -23,8 +23,9 @@
   flex-shrink: 0;
   font-weight: 500;
   user-select: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  transition: color 0.15s, background 0.15s;
+  /* Active state is a copper underline, not a pill */
+  box-shadow: inset 0 -2px 0 transparent;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .tab:hover {
   color: var(--text-dim);
@@ -33,6 +34,7 @@
 .tabActive {
   color: var(--text);
   background: var(--accent-dim);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .tabDragging {
   opacity: 0.4;

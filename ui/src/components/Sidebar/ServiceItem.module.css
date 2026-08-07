@@ -41,12 +41,13 @@
 }
 
 .svcBadge {
+  font-family: var(--font-mono);
   font-size: 8px;
   padding: 1px 5px;
   border-radius: 3px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   background: var(--accent-dim);
   color: var(--accent);
 }

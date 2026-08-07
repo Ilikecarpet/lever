@@ -1,44 +1,44 @@
 :root {
-  /* Static defaults match the "Paper" theme (the default when nothing is
+  /* Static defaults match the "Foundry" theme (the default when nothing is
      stored) so first launch paints the right colors before JS runs.
      Returning users are covered by the boot script in index.html, which
      re-applies the persisted theme's variables pre-paint. */
-  --bg: #fafaf9;
-  --sidebar-bg: #f5f5f4;
-  --surface: #e7e5e4;
-  --surface-hover: #d6d3d1;
-  --surface-raised: #eeeceb;
-  --terminal-bg: #fafaf9;
+  --bg: #131110;
+  --sidebar-bg: #0e0d0c;
+  --surface: #1d1916;
+  --surface-hover: #272119;
+  --surface-raised: #221d18;
+  --terminal-bg: #0d0c0a;
 
   /* Borders */
-  --border: #d6d3d1;
-  --border-hover: #a8a29e;
+  --border: #2c2620;
+  --border-hover: #453b31;
 
   /* Text */
-  --text: #1c1917;
-  --text-dim: #57534e;
-  --text-muted: #a8a29e;
+  --text: #ece6de;
+  --text-dim: #a99e90;
+  --text-muted: #665c50;
 
-  /* Accent */
-  --accent: #78716c;
-  --accent-hover: #57534e;
-  --accent-dim: rgba(120, 113, 108, 0.08);
-  --accent-subtle: rgba(120, 113, 108, 0.14);
-  --accent-fg: #ffffff;
+  /* Accent — copper */
+  --accent: #d1885c;
+  --accent-hover: #e2a37b;
+  --accent-dim: rgba(209, 136, 92, 0.09);
+  --accent-subtle: rgba(209, 136, 92, 0.16);
+  --accent-fg: #1c1209;
 
   /* Status */
-  --green: #16a34a;
-  --green-dim: rgba(22, 163, 74, 0.08);
-  --red: #dc2626;
-  --red-dim: rgba(220, 38, 38, 0.08);
+  --green: #86c07a;
+  --green-dim: rgba(134, 192, 122, 0.1);
+  --red: #e5705e;
+  --red-dim: rgba(229, 112, 94, 0.1);
   --red-fg: #ffffff;
-  --yellow: #ca8a04;
-  --yellow-dim: rgba(202, 138, 4, 0.08);
-  --blue: #2563eb;
-  --blue-dim: rgba(37, 99, 235, 0.08);
+  --yellow: #dfa640;
+  --yellow-dim: rgba(223, 166, 64, 0.1);
+  --blue: #7aa5c9;
+  --blue-dim: rgba(122, 165, 201, 0.1);
 
   /* Typography */
-  --font-sans: "Outfit", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
   /* Radius */

@@ -64,16 +64,18 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: lowercase;
   color: var(--text);
   padding: 6px 8px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   width: 100%;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 .titleBtn:hover {
   background: var(--surface-hover);
@@ -211,15 +213,17 @@
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
   color: var(--text-muted);
   cursor: pointer;
   border: none;
   background: none;
   width: 100%;
   text-align: left;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  letter-spacing: 0.07em;
   transition: color 0.15s, background 0.1s;
 }
 .addGroupBtn:hover {
@@ -263,6 +267,7 @@
 .mainContextActive {
   color: var(--accent);
   background: var(--accent-dim);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .mainContextActive:hover {
   color: var(--accent-hover);
@@ -368,13 +373,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
   color: var(--accent);
   cursor: pointer;
   border: none;
   background: none;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  letter-spacing: 0.07em;
   padding: 0;
   transition: opacity 0.15s;
 }

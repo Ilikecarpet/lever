@@ -13,7 +13,10 @@
 .serviceCount {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
   font-weight: 500;
   white-space: nowrap;
 }

@@ -68,11 +68,12 @@
 }
 .gitSectionHeader {
   padding: 8px 14px 8px 18px;
+  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -89,7 +90,8 @@
   font-weight: 500;
   background: var(--surface);
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: 3px;
+  letter-spacing: 0;
 }
 .gitSectionActions {
   display: inline-flex;
@@ -242,12 +244,18 @@
 
 .dirtyIndicator {
   color: var(--yellow);
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   font-weight: 500;
 }
 .cleanIndicator {
   color: var(--green);
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   font-weight: 500;
 }
 .branchMono {
@@ -443,14 +451,14 @@
 }
 .diffFileTag {
   font-size: 9px;
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-weight: 500;
   color: var(--accent);
   background: var(--surface);
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: 3px;
 }
 
 .diffHunk {

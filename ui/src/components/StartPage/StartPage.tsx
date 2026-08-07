@@ -139,7 +139,11 @@ export default function StartPage() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <div className={styles.title}>Lever</div>
+        <div className={styles.title}>
+          <span className={styles.titlePrompt}>❯</span>
+          lever
+          <span className={styles.titleCursor} aria-hidden="true" />
+        </div>
         <div className={styles.subtitle}>
           {projects.length === 0
             ? "A project points Lever at a repository and remembers its services, groups, and worktrees"

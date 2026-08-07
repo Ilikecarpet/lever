@@ -56,6 +56,58 @@ export interface ThemeDef {
   };
 }
 
+const foundry: ThemeDef = {
+  id: "foundry",
+  label: "Foundry",
+  swatch: "#d1885c",
+  bg: "#131110",
+  sidebarBg: "#0e0d0c",
+  surface: "#1d1916",
+  surfaceHover: "#272119",
+  surfaceRaised: "#221d18",
+  terminalBg: "#0d0c0a",
+  border: "#2c2620",
+  borderHover: "#453b31",
+  text: "#ece6de",
+  textDim: "#a99e90",
+  textMuted: "#665c50",
+  accent: "#d1885c",
+  accentHover: "#e2a37b",
+  accentDim: "rgba(209, 136, 92, 0.09)",
+  accentSubtle: "rgba(209, 136, 92, 0.16)",
+  accentForeground: "#1c1209",
+  green: "#86c07a",
+  greenDim: "rgba(134, 192, 122, 0.1)",
+  red: "#e5705e",
+  redDim: "rgba(229, 112, 94, 0.1)",
+  yellow: "#dfa640",
+  yellowDim: "rgba(223, 166, 64, 0.1)",
+  blue: "#7aa5c9",
+  blueDim: "rgba(122, 165, 201, 0.1)",
+  terminal: {
+    background: "#0d0c0a",
+    foreground: "#ece6de",
+    cursor: "#d1885c",
+    selectionBackground: "rgba(209,136,92,0.25)",
+    black: "#1d1916",
+    red: "#e5705e",
+    green: "#86c07a",
+    yellow: "#dfa640",
+    blue: "#7aa5c9",
+    magenta: "#bd8fb5",
+    cyan: "#7fc3b4",
+    white: "#ece6de",
+    brightBlack: "#6b6155",
+    brightRed: "#f2937f",
+    brightGreen: "#a4d69a",
+    brightYellow: "#edc06a",
+    brightBlue: "#9dc0dd",
+    brightMagenta: "#d4aecb",
+    brightCyan: "#a1d8cb",
+    brightWhite: "#faf6f1",
+  },
+};
+
 const obsidian: ThemeDef = {
   id: "obsidian",
   label: "Obsidian",
@@ -525,6 +577,7 @@ const graphite: ThemeDef = {
 };
 
 export const themes: ThemeDef[] = [
+  foundry,
   obsidian,
   tokyoNight,
   rosePine,
@@ -602,7 +655,7 @@ function getInitialThemeId(): string {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && themes.find((t) => t.id === stored)) return stored;
   } catch {}
-  return "paper";
+  return "foundry";
 }
 
 function findTheme(id: string): ThemeDef {
