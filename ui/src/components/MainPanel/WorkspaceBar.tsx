@@ -1,13 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
-import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
 import type { PaneLeaf } from "../../types/pane";
-import { IconClose, IconPlus, IconBranch, IconChevron } from "../Icons";
+import { IconClose, IconPlus } from "../Icons";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
-import { switchContext } from "../../lib/switchContext";
 import styles from "./WorkspaceBar.module.css";
 
 interface ContextMenu {
@@ -26,11 +24,8 @@ export default function WorkspaceBar() {
   const moveWorkspace = useWorkspaceStore((s) => s.moveWorkspace);
 
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
-  const worktrees = useWorktreeStore((s) => s.worktrees);
   const addWorkspaceForWorktree = useWorkspaceStore((s) => s.addWorkspaceForWorktree);
 
-  const mainBranch = useGitStore((s) => s.gitInfo?.current_branch);
-  const repoPath = useGitStore((s) => s.repoPath);
   const setActiveService = useServiceStore((s) => s.setActiveService);
 
   const filteredWorkspaces = workspaces.filter(
@@ -40,32 +35,9 @@ export default function WorkspaceBar() {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [switcherOpen, setSwitcherOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const switcherRef = useRef<HTMLDivElement>(null);
   useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
-
-  // Close the context switcher on click outside
-  useEffect(() => {
-    if (!switcherOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
-        setSwitcherOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [switcherOpen]);
-
-  const activeWorktree = worktrees.find((w) => w.id === activeWorktreeId);
-  const contextLabel = activeWorktree ? activeWorktree.branch : mainBranch ?? "main";
-  const showContextChip = Boolean(repoPath) || worktrees.length > 0;
-
-  const handleSwitchContext = (worktreeId: string | null) => {
-    setSwitcherOpen(false);
-    if (worktreeId !== activeWorktreeId) switchContext(worktreeId);
-  };
 
   // Drag state
   const dragState = useRef<{
@@ -207,45 +179,6 @@ export default function WorkspaceBar() {
 
   return (
     <div className={styles.bar}>
-      {showContextChip && (
-        <div className={styles.contextWrap} ref={switcherRef}>
-          <button
-            className={styles.contextChip}
-            onClick={() => setSwitcherOpen((o) => !o)}
-            title="Switch context (⌘⇧[ / ⌘⇧])"
-          >
-            <IconBranch size={11} />
-            <span className={styles.contextBranch}>{contextLabel}</span>
-            <span className={styles.contextChevron}>
-              <IconChevron size={8} />
-            </span>
-          </button>
-          {switcherOpen && (
-            <div className={styles.contextDropdown}>
-              <button
-                className={`${styles.contextOption}${activeWorktreeId === null ? ` ${styles.contextOptionActive}` : ""}`}
-                onClick={() => handleSwitchContext(null)}
-              >
-                <IconBranch size={11} />
-                <span className={styles.contextOptionBranch}>{mainBranch ?? "main"}</span>
-                <span className={styles.contextBadge}>main</span>
-                {activeWorktreeId === null && <span className={styles.contextCheck}>✓</span>}
-              </button>
-              {worktrees.map((wt) => (
-                <button
-                  key={wt.id}
-                  className={`${styles.contextOption}${activeWorktreeId === wt.id ? ` ${styles.contextOptionActive}` : ""}`}
-                  onClick={() => handleSwitchContext(wt.id)}
-                >
-                  <IconBranch size={11} />
-                  <span className={styles.contextOptionBranch}>{wt.branch}</span>
-                  {activeWorktreeId === wt.id && <span className={styles.contextCheck}>✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       <div className={styles.tabScroll}>
       {filteredWorkspaces.map((ws, i) => (
         <div
