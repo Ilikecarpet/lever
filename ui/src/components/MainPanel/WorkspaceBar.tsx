@@ -178,8 +178,8 @@ export default function WorkspaceBar() {
   }, []);
 
   return (
-    <div className={styles.bar} data-tauri-drag-region>
-      <div className={styles.tabScroll} data-tauri-drag-region>
+    <div className={styles.bar} data-app-drag>
+      <div className={styles.tabScroll} data-app-drag>
       {filteredWorkspaces.map((ws, i) => (
         <div
           key={ws.id}

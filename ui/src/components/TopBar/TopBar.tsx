@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as api from "../../lib/tauri";
 import { useThemeStore, themes } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -98,14 +99,31 @@ export default function TopBar({ onOpenSettings }: Props) {
     onOpenSettings();
   };
 
+  // Explicit window drag: any empty header surface (marked data-app-drag)
+  // moves the window; double-click toggles maximize, matching a native
+  // title bar. Handled ourselves rather than via data-tauri-drag-region so
+  // it can't silently break.
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (!target.hasAttribute("data-app-drag")) return;
+    e.preventDefault();
+    const win = getCurrentWindow();
+    if (e.detail === 2) {
+      void win.toggleMaximize();
+    } else {
+      void win.startDragging();
+    }
+  };
+
   return (
-    <div className={styles.topbar} data-tauri-drag-region>
+    <div className={styles.topbar} data-app-drag onMouseDown={handleHeaderMouseDown}>
       <div
         className={styles.left}
         style={collapsed ? undefined : { width: sidebarWidth }}
-        data-tauri-drag-region
+        data-app-drag
       >
-        <div className={styles.lightsSpacer} data-tauri-drag-region />
+        <div className={styles.lightsSpacer} data-app-drag />
         <div className={styles.menuWrap} ref={menuRef}>
           <button
             className={styles.projectBtn}
@@ -179,7 +197,7 @@ export default function TopBar({ onOpenSettings }: Props) {
             </div>
           )}
         </div>
-        <span className={styles.leftSpacer} data-tauri-drag-region />
+        <span className={styles.leftSpacer} data-app-drag />
         <button
           className={styles.toggleBtn}
           onClick={toggleSidebar}
