@@ -1,17 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { useConfigStore } from "../../stores/configStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import * as api from "../../lib/tauri";
-import { useThemeStore, themes } from "../../stores/themeStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
-import type { ProjectExport } from "../../types";
-import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconPlus, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
+import { IconBranch, IconPlus } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -19,27 +15,6 @@ import styles from "./Sidebar.module.css";
 
 interface Props {
   onOpenSettings: () => void;
-}
-
-const COLLAPSED_KEY = "lever-sidebar-collapsed";
-const WIDTH_KEY = "lever-sidebar-width";
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 360;
-
-function getInitialCollapsed(): boolean {
-  try {
-    return localStorage.getItem(COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function getInitialWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(WIDTH_KEY));
-    if (Number.isFinite(v) && v >= MIN_WIDTH && v <= MAX_WIDTH) return v;
-  } catch {}
-  return 250;
 }
 
 export default function Sidebar({ onOpenSettings }: Props) {
@@ -57,20 +32,15 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
   const createWorktree = useWorktreeStore((s) => s.createWorktree);
 
-  const activeThemeId = useThemeStore((s) => s.activeThemeId);
-  const setTheme = useThemeStore((s) => s.setTheme);
-  const debugConsole = useSettingsStore((s) => s.debugConsole);
-  const toggleDebugConsole = useSettingsStore((s) => s.toggleDebugConsole);
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const width = useUiStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth);
 
   const mainAgent = useWorktreeAgent(null);
 
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [themeExpanded, setThemeExpanded] = useState(false);
   const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [collapsed, setCollapsed] = useState<boolean>(getInitialCollapsed);
-  const [width, setWidth] = useState<number>(getInitialWidth);
   const [resizing, setResizing] = useState(false);
 
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -78,34 +48,18 @@ export default function Sidebar({ onOpenSettings }: Props) {
     e.preventDefault();
     const startX = e.clientX;
     const startW = width;
-    const clamp = (clientX: number) =>
-      Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (clientX - startX)));
     setResizing(true);
-    const onMove = (ev: MouseEvent) => setWidth(clamp(ev.clientX));
+    const onMove = (ev: MouseEvent) => setSidebarWidth(startW + (ev.clientX - startX));
     const onUp = (ev: MouseEvent) => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setResizing(false);
-      try {
-        localStorage.setItem(WIDTH_KEY, String(Math.round(clamp(ev.clientX))));
-      } catch {}
+      setSidebarWidth(startW + (ev.clientX - startX), true);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try { localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0"); } catch {}
-      if (next) {
-        setMenuOpen(false);
-        setMainCtxMenu(null);
-      }
-      return next;
-    });
-  };
-  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainCtxMenuRef = useRef<HTMLDivElement>(null);
@@ -117,17 +71,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
       inputRef.current.scrollIntoView({ block: "nearest" });
     }
   }, [adding]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
 
   useEffect(() => {
     if (!mainCtxMenu) return;
@@ -162,42 +105,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
     handleAddConfirm(e.currentTarget.value);
   };
 
-  const handleHome = async () => {
-    setMenuOpen(false);
-    await api.showStartPage();
-  };
-
-  const handleExport = async () => {
-    setMenuOpen(false);
-    const projectId = api.getProjectId() ?? "project";
-    const projects = await api.listProjects();
-    const project = projects.find((p) => p.id === projectId);
-    const name = project?.name ?? projectId;
-    const repoPathForExport = project?.repo_path ?? "";
-
-    const filePath = await save({
-      title: "Export Config",
-      defaultPath: `${projectId}-config.json`,
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    if (!filePath) return;
-
-    const config = await api.getConfig();
-    const exportDoc: ProjectExport = {
-      version: 1,
-      name,
-      repo_path: repoPathForExport,
-      config,
-    };
-    const json = JSON.stringify(exportDoc, null, 2);
-    await api.writeTextFile(filePath, json);
-  };
-
-  const handleSettings = () => {
-    setMenuOpen(false);
-    onOpenSettings();
-  };
-
   const handleMainContextClick = () => {
     switchContext(null);
   };
@@ -222,14 +129,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
       className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}${resizing ? ` ${styles.sidebarResizing}` : ""}`}
       style={collapsed ? undefined : { width, minWidth: width }}
     >
-      <button
-        className={styles.toggleBtn}
-        onClick={toggleCollapsed}
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        {collapsed ? <IconSidebarExpand size={14} /> : <IconSidebarCollapse size={14} />}
-      </button>
       {!collapsed && (
         <div
           className={styles.resizeHandle}
@@ -243,64 +142,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
         style={collapsed ? undefined : { width, minWidth: width }}
         aria-hidden={collapsed}
       >
-      <div className={styles.sidebarTop} ref={menuRef}>
-        <button
-          className={styles.titleBtn}
-          onClick={() => setMenuOpen((o) => !o)}
-        >
-          Lever
-          <span className={styles.chevron}><IconChevron size={10} /></span>
-        </button>
-
-        {menuOpen && (
-          <div className={styles.menu}>
-            <button className={styles.menuItem} onClick={handleHome}>
-              <IconFolder size={13} /> Projects
-            </button>
-            <button className={styles.menuItem} onClick={handleExport}>
-              <IconExport size={13} /> Export Config
-            </button>
-            <div className={styles.menuDivider} />
-            <button className={styles.menuItem} onClick={handleSettings}>
-              <IconGear size={13} /> Settings
-            </button>
-            <button
-              className={styles.menuItem}
-              onClick={(e) => { e.stopPropagation(); toggleDebugConsole(); }}
-            >
-              <IconGear size={13} /> Debug console
-              {debugConsole && <span className={styles.themeCheck}>✓</span>}
-            </button>
-            <div className={styles.menuDivider} />
-            <button
-              className={styles.themeToggle}
-              onClick={(e) => { e.stopPropagation(); setThemeExpanded((v) => !v); }}
-            >
-              <span className={styles.themeToggleLeft}>
-                <span className={styles.themeSwatch} style={{ background: themes.find((t) => t.id === activeThemeId)?.swatch }} />
-                Theme
-              </span>
-              <span className={`${styles.themeChevron}${themeExpanded ? ` ${styles.themeChevronOpen}` : ""}`}>
-                <IconChevron size={10} />
-              </span>
-            </button>
-            <div className={`${styles.themeList}${themeExpanded ? ` ${styles.themeListOpen}` : ""}`}>
-              {themes.map((t) => (
-                <button
-                  key={t.id}
-                  className={`${styles.themeOption}${activeThemeId === t.id ? ` ${styles.themeOptionActive}` : ""}`}
-                  onClick={() => setTheme(t.id)}
-                >
-                  <span className={styles.themeSwatch} style={{ background: t.swatch }} />
-                  {t.label}
-                  {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
       {repoPath && (
         <>
           <div

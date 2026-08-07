@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useDisableTextAssist } from "./hooks/useDisableTextAssist";
 import Sidebar from "./components/Sidebar/Sidebar";
+import TopBar from "./components/TopBar/TopBar";
 import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ConfigModal from "./components/Modals/ConfigModal";
@@ -85,6 +86,7 @@ function ProjectApp() {
 
   return (
     <>
+      <TopBar onOpenSettings={() => setSettingsOpen(true)} />
       <div className={styles.layout}>
         <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
         <MainPanel />

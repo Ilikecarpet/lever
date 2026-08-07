@@ -55,6 +55,7 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 | `Cmd+W` | Close pane |
 | `Cmd+[` / `Cmd+]` | Focus previous / next pane |
 | `Cmd+1` – `Cmd+9` | Switch to workspace by index |
+| `Cmd+B` | Toggle the sidebar |
 | `Cmd+G` | Toggle the docked git panel |
 | `Cmd+Shift+[` / `Cmd+Shift+]` | Cycle worktree context (main repo → worktrees) |
 

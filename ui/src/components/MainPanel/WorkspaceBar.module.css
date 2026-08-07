@@ -1,8 +1,8 @@
+/* Lives inside the TopBar, which owns background and border */
 .bar {
   display: flex;
-  background: var(--sidebar-bg);
-  border-bottom: 1px solid var(--border);
-  min-height: 34px;
+  flex: 1;
+  min-width: 0;
   align-items: stretch;
 }
 
@@ -20,7 +20,7 @@
 
 .tab {
   padding: 0 14px;
-  height: 34px;
+  height: 100%;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -93,7 +93,7 @@
 
 .newBtn {
   padding: 0 10px;
-  height: 34px;
+  height: 100%;
   display: flex;
   align-items: center;
   color: var(--text-muted);

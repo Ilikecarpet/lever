@@ -935,6 +935,9 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         .map(|p| p.name.clone())
         .unwrap_or_else(|| id.clone());
 
+    // Project windows draw their own header into the title bar area
+    // (unified top bar in the UI); the native title stays hidden and the
+    // traffic lights are repositioned to center in the 38px header.
     tauri::WebviewWindowBuilder::new(
         &app,
         &label,
@@ -943,6 +946,9 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     .title(format!("Lever — {}", project_name))
     .inner_size(900.0, 700.0)
     .min_inner_size(600.0, 400.0)
+    .title_bar_style(tauri::TitleBarStyle::Overlay)
+    .hidden_title(true)
+    .traffic_light_position(tauri::LogicalPosition::new(14.0, 12.0))
     .build()
     .map_err(|e| e.to_string())?;
 

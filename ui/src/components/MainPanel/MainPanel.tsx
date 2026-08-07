@@ -3,7 +3,6 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { IconTerminal } from "../Icons";
-import WorkspaceBar from "./WorkspaceBar";
 import PaneView from "./PaneView";
 import ServiceTerminal from "./LogOverlay";
 import GitPanel from "./GitPanel";
@@ -22,7 +21,6 @@ export default function MainPanel() {
 
   return (
     <div className={styles.main}>
-      <WorkspaceBar />
       <div className={styles.termArea}>
         <div className={styles.workRow}>
           <div className={styles.paneArea}>

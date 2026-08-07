@@ -11,9 +11,11 @@
 }
 
 .sidebarCollapsed {
-  /* !important so the inline expanded width doesn't win during collapse */
-  width: 36px !important;
-  min-width: 36px !important;
+  /* Fully hidden — the toggle lives in the top bar.
+     !important so the inline expanded width doesn't win during collapse. */
+  width: 0 !important;
+  min-width: 0 !important;
+  border-right: none;
 }
 
 .sidebarResizing {
@@ -56,170 +58,6 @@
 .sidebarInnerCollapsed {
   opacity: 0;
   pointer-events: none;
-}
-
-.toggleBtn {
-  position: absolute;
-  top: 9px;
-  right: 6px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.15s, background 0.1s;
-}
-.toggleBtn:hover {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.sidebarTop {
-  padding: 8px 10px;
-  padding-right: 36px;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-
-.titleBtn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: lowercase;
-  color: var(--text);
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.1s;
-  letter-spacing: 0;
-}
-.titleBtn:hover {
-  background: var(--surface-hover);
-}
-
-.chevron {
-  color: var(--text-muted);
-  display: inline-flex;
-}
-
-.menu {
-  position: absolute;
-  top: 100%;
-  left: 10px;
-  right: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 4px 0;
-  z-index: 1000;
-  box-shadow: var(--shadow-lg);
-}
-
-.menuItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: var(--text);
-  transition: background 0.1s;
-  cursor: pointer;
-}
-.menuItem:hover {
-  background: var(--surface-hover);
-}
-
-.themeToggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.themeToggle:hover {
-  background: var(--surface-hover);
-}
-
-.themeToggleLeft {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.themeChevron {
-  color: var(--text-muted);
-  display: inline-flex;
-  transition: transform 0.2s ease;
-}
-.themeChevronOpen {
-  transform: rotate(180deg);
-}
-
-.themeList {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-}
-.themeListOpen {
-  max-height: 400px;
-}
-
-.themeOption {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--text-dim);
-  transition: background 0.1s, color 0.1s;
-  cursor: pointer;
-}
-.themeOption:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.themeOptionActive {
-  color: var(--accent);
-}
-
-.themeSwatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
-  flex-shrink: 0;
-}
-
-.themeCheck {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--accent);
-}
-
-.menuDivider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 
 .sidebarScroll {

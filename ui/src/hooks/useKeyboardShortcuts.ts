@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorktreeStore } from "../stores/worktreeStore";
 import { useGitStore } from "../stores/gitStore";
+import { useUiStore } from "../stores/uiStore";
 import { cycleContext } from "../lib/switchContext";
 
 /** Return the worktree context: current workspace's worktreeId, or the global activeWorktreeId. */
@@ -65,6 +66,13 @@ export function useKeyboardShortcuts() {
         } else {
           store.addWorkspace();
         }
+        return;
+      }
+
+      // Cmd+B — toggle the sidebar
+      if ((e.key === "b" || e.key === "B") && !e.shiftKey) {
+        e.preventDefault();
+        useUiStore.getState().toggleSidebar();
         return;
       }
 
