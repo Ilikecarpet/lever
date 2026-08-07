@@ -29,7 +29,7 @@
 }
 .countDotActive {
   background: var(--green);
-  box-shadow: 0 0 4px rgba(74, 222, 128, 0.3);
+  box-shadow: 0 0 0 3px var(--green-dim);
 }
 
 .info {
@@ -50,6 +50,8 @@
 .paneControls {
   display: flex;
   gap: 2px;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
 }
 
 .paneBtn {

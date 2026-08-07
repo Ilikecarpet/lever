@@ -21,6 +21,9 @@ interface Props {
 }
 
 const COLLAPSED_KEY = "lever-sidebar-collapsed";
+const WIDTH_KEY = "lever-sidebar-width";
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 360;
 
 function getInitialCollapsed(): boolean {
   try {
@@ -28,6 +31,14 @@ function getInitialCollapsed(): boolean {
   } catch {
     return false;
   }
+}
+
+function getInitialWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(WIDTH_KEY));
+    if (Number.isFinite(v) && v >= MIN_WIDTH && v <= MAX_WIDTH) return v;
+  } catch {}
+  return 250;
 }
 
 export default function Sidebar({ onOpenSettings }: Props) {
@@ -59,6 +70,29 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(getInitialCollapsed);
+  const [width, setWidth] = useState<number>(getInitialWidth);
+  const [resizing, setResizing] = useState(false);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    if (collapsed) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const clamp = (clientX: number) =>
+      Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + (clientX - startX)));
+    setResizing(true);
+    const onMove = (ev: MouseEvent) => setWidth(clamp(ev.clientX));
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setResizing(false);
+      try {
+        localStorage.setItem(WIDTH_KEY, String(Math.round(clamp(ev.clientX))));
+      } catch {}
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -193,7 +227,10 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const isMainActive = activeWorktreeId === null;
 
   return (
-    <div className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}`}>
+    <div
+      className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}${resizing ? ` ${styles.sidebarResizing}` : ""}`}
+      style={collapsed ? undefined : { width, minWidth: width }}
+    >
       <button
         className={styles.toggleBtn}
         onClick={toggleCollapsed}
@@ -202,8 +239,17 @@ export default function Sidebar({ onOpenSettings }: Props) {
       >
         {collapsed ? <IconSidebarExpand size={14} /> : <IconSidebarCollapse size={14} />}
       </button>
+      {!collapsed && (
+        <div
+          className={styles.resizeHandle}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+        />
+      )}
+      {resizing && <div className={styles.resizeOverlay} />}
       <div
         className={`${styles.sidebarInner}${collapsed ? ` ${styles.sidebarInnerCollapsed}` : ""}`}
+        style={collapsed ? undefined : { width, minWidth: width }}
         aria-hidden={collapsed}
       >
       <div className={styles.sidebarTop} ref={menuRef}>
@@ -317,6 +363,9 @@ export default function Sidebar({ onOpenSettings }: Props) {
           <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
         ))}
 
+        {worktrees.length > 0 && (
+          <div className={styles.sectionEyebrow}>Worktrees</div>
+        )}
         {worktrees.map((wt) => (
           <WorktreeSection key={wt.id} worktree={wt} />
         ))}

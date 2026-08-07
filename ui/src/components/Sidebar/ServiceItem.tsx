@@ -91,28 +91,29 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
           <span className={styles.svcBadge}>Task</span>
         )}
         <div className={styles.svcActions}>
-          <button
-            className={`${styles.svcBtn} ${styles.svcBtnPlay}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              startService(service.id);
-            }}
-            disabled={isRunning}
-            title="Start"
-          >
-            <IconPlay size={12} />
-          </button>
-          <button
-            className={`${styles.svcBtn} ${styles.svcBtnKill}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              stopService(service.id);
-            }}
-            disabled={!isRunning}
-            title="Stop"
-          >
-            <IconStop size={12} />
-          </button>
+          {isRunning ? (
+            <button
+              className={`${styles.svcBtn} ${styles.svcBtnKill}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                stopService(service.id);
+              }}
+              title="Stop"
+            >
+              <IconStop size={12} />
+            </button>
+          ) : (
+            <button
+              className={`${styles.svcBtn} ${styles.svcBtnPlay}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                startService(service.id);
+              }}
+              title="Start"
+            >
+              <IconPlay size={12} />
+            </button>
+          )}
         </div>
       </div>
 

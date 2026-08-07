@@ -39,6 +39,22 @@
 .tabDragging {
   opacity: 0.4;
 }
+
+/* ⌘N affordance — mono index chip */
+.tabIndex {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 2px 4px;
+  user-select: none;
+}
+.tabActive .tabIndex {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
 .paneTitle {
   color: var(--text-muted);
   font-weight: 400;

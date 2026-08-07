@@ -20,8 +20,8 @@
 }
 
 .svcDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--text-muted);
   flex-shrink: 0;
@@ -29,7 +29,7 @@
 }
 .svcDotRunning {
   background: var(--green);
-  box-shadow: 0 0 6px rgba(74, 222, 128, 0.4);
+  box-shadow: 0 0 0 3px var(--green-dim), 0 0 8px var(--green-dim);
 }
 
 .svcName {

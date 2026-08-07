@@ -191,7 +191,9 @@ export default function WorkspaceBar() {
           onClick={() => handleClick(ws.id)}
           onContextMenu={(e) => handleContextMenu(e, ws.id)}
           onMouseDown={(e) => handleTabMouseDown(e, i, ws.id)}
+          title={i < 9 ? `⌘${i + 1}` : undefined}
         >
+          {i < 9 && <span className={styles.tabIndex}>{i + 1}</span>}
           {editingId === ws.id ? (
             <input
               ref={inputRef}
