@@ -827,7 +827,7 @@ fn import_project(
 /// Chosen so the 12px light circles center vertically in the UI's 38px
 /// unified header (button frame is ~16px tall: 13 + 8 = 21 ≈ header center).
 #[cfg(target_os = "macos")]
-const TRAFFIC_LIGHT_INSET: (f64, f64) = (14.0, 12.0);
+const TRAFFIC_LIGHT_INSET: (f64, f64) = (14.0, 12.5);
 
 /// Reposition the standard window buttons. Port of tao's
 /// `inset_traffic_lights`; needed because the position set at window
@@ -853,8 +853,13 @@ unsafe fn position_traffic_lights(ns_window_ptr: *mut std::ffi::c_void, x: f64, 
         return;
     };
 
+    // Size the title-bar container symmetrically around the buttons and set
+    // each button's origin explicitly: on current macOS the buttons stay
+    // anchored to the container's TOP, so merely growing the container (the
+    // classic tao technique) never moves them down.
     let close_rect = close.frame();
-    let title_bar_frame_height = close_rect.size.height + y;
+    let button_h = close_rect.size.height;
+    let title_bar_frame_height = button_h + y * 2.0;
     let mut title_bar_rect = container.frame();
     title_bar_rect.size.height = title_bar_frame_height;
     title_bar_rect.origin.y = ns_window.frame().size.height - title_bar_frame_height;
@@ -864,6 +869,7 @@ unsafe fn position_traffic_lights(ns_window_ptr: *mut std::ffi::c_void, x: f64, 
     for (i, button) in [close, miniaturize, zoom].into_iter().enumerate() {
         let mut rect = button.frame();
         rect.origin.x = x + (i as f64) * space_between;
+        rect.origin.y = y; // symmetric container → y from bottom == y from top
         button.setFrameOrigin(rect.origin);
     }
 }
