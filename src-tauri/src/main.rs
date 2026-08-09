@@ -2078,6 +2078,83 @@ fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Is `wt_path` still registered as a worktree of `repo_path`? A removal that
+/// deletes the directory but leaves a dangling registration (or vice versa) is
+/// not actually done. Paths are compared with any trailing slash stripped.
+fn worktree_is_registered(repo_path: &str, wt_path: &str) -> bool {
+    let target = wt_path.trim_end_matches('/');
+    list_git_worktrees(repo_path)
+        .iter()
+        .any(|(p, _)| p.trim_end_matches('/') == target)
+}
+
+/// A worktree is only fully removed once its directory is gone from disk AND it
+/// is no longer registered with git.
+fn worktree_fully_removed(repo_path: &str, wt_path: &str) -> bool {
+    !std::path::Path::new(wt_path).exists() && !worktree_is_registered(repo_path, wt_path)
+}
+
+/// Human-readable summary of whatever is still hanging around, for logs/errors.
+fn describe_worktree_remnants(repo_path: &str, wt_path: &str) -> String {
+    let dir = std::path::Path::new(wt_path).exists();
+    let reg = worktree_is_registered(repo_path, wt_path);
+    match (dir, reg) {
+        (true, true) => "directory + git registration".to_string(),
+        (true, false) => "directory".to_string(),
+        (false, true) => "git registration".to_string(),
+        (false, false) => "nothing".to_string(),
+    }
+}
+
+/// Remove the worktree directory and git registration, then verify it actually
+/// happened — retrying a few times if anything is left behind.
+///
+/// Removal can fail transiently: a shell or dev server inside the worktree may
+/// still be releasing files the instant git/`remove_dir_all` runs, leaving the
+/// directory or a dangling registration behind. That is exactly the case that
+/// used to force a manual second attempt. Here we re-check after each attempt
+/// and, while remnants remain, give it another go with a short escalating
+/// backoff so the offending process has time to exit.
+fn cleanup_worktree_dir_verified(repo_path: &str, wt_path: &str) -> Result<(), String> {
+    const MAX_ATTEMPTS: u32 = 4;
+    let mut last_err = String::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        debug_log("worktree", "info",
+            &format!("cleanup attempt {}/{}", attempt, MAX_ATTEMPTS));
+
+        if let Err(e) = cleanup_worktree_dir(repo_path, wt_path) {
+            last_err = e;
+        }
+
+        if worktree_fully_removed(repo_path, wt_path) {
+            debug_log("worktree", "info",
+                "verified removed — directory and git registration both clear");
+            return Ok(());
+        }
+
+        let remnants = describe_worktree_remnants(repo_path, wt_path);
+        debug_log("worktree", "info",
+            &format!("after attempt {}, still present: {}", attempt, remnants));
+
+        if attempt < MAX_ATTEMPTS {
+            // 300ms, 600ms, 900ms — enough for a lingering process to release files.
+            std::thread::sleep(std::time::Duration::from_millis(300 * attempt as u64));
+        }
+    }
+
+    let remnants = describe_worktree_remnants(repo_path, wt_path);
+    let detail = if last_err.is_empty() {
+        String::new()
+    } else {
+        format!(" (last error: {})", last_err)
+    };
+    Err(format!(
+        "worktree still present after {} attempts — leftover: {}{}",
+        MAX_ATTEMPTS, remnants, detail
+    ))
+}
+
 #[tauri::command(async)]
 fn remove_worktree(
     project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
@@ -2136,7 +2213,7 @@ fn remove_worktree(
                 debug_log("worktree", "info", &format!("repo: {}", meta.repo_path));
                 // Propagating the error keeps the worktree in config so the
                 // removal stays visible and retryable.
-                if let Err(e) = cleanup_worktree_dir(&meta.repo_path, &worktree.path) {
+                if let Err(e) = cleanup_worktree_dir_verified(&meta.repo_path, &worktree.path) {
                     debug_log("worktree", "error", &format!("removal failed: {}", e));
                     return Err(e);
                 }
