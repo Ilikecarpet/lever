@@ -13,5 +13,9 @@ libc = "0.2"
 portable-pty = "0.8"
 git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
