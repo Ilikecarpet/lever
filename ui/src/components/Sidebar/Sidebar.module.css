@@ -307,38 +307,63 @@
   font-family: inherit;
 }
 
+/* Styled to match the worktree rows (WorktreeSection .sectionDivider) so
+   the main repo reads as just another context in the same list. */
 .mainContext {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 7px;
+  padding: 5px 12px;
   font-size: 11px;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
   cursor: pointer;
   user-select: none;
-  transition: background 0.1s, color 0.15s;
+  border-radius: var(--radius-sm);
+  margin: 6px 6px 0;
+  transition: background 0.1s, opacity 0.15s;
 }
 .mainContext:hover {
   background: var(--surface-hover);
-  color: var(--text);
 }
 
 .mainContextActive {
-  color: var(--accent);
   background: var(--accent-subtle);
 }
-.mainContextActive:hover {
-  color: var(--accent-hover);
+
+.mainContextInactive {
+  opacity: 0.55;
+}
+.mainContextInactive:hover {
+  opacity: 0.85;
 }
 
-.mainContextDot {
-  font-size: 8px;
+/* Branch on top, path beneath — matches the worktree row layout */
+.mainContextText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
 }
 
 .mainContextBranch {
   font-family: var(--font-mono);
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mainContextPath {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mainContextDirty {

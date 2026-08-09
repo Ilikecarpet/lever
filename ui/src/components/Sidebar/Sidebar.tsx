@@ -279,7 +279,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
       {repoPath && (
         <>
           <div
-            className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
+            className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ` ${styles.mainContextInactive}`}`}
             onClick={handleMainContextClick}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -287,11 +287,16 @@ export default function Sidebar({ onOpenSettings }: Props) {
             }}
           >
             <IconBranch size={13} />
-            <span
-              className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
-              title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
-            >
-              {gitInfo?.current_branch ?? "..."}
+            <span className={styles.mainContextText}>
+              <span
+                className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
+                title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
+              >
+                {gitInfo?.current_branch ?? "..."}
+              </span>
+              <span className={styles.mainContextPath} title={repoPath}>
+                {repoPath.replace(/^\/Users\/[^/]+/, "~")}
+              </span>
             </span>
             {gitInfo?.is_dirty && (
               <span className={styles.mainContextDirty}>●</span>
