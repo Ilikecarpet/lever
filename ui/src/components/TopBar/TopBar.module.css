@@ -20,9 +20,10 @@
   min-width: 0;
 }
 
-/* Room for the macOS traffic lights overlaying this corner */
+/* Room for the macOS traffic lights overlaying this corner,
+   plus breathing space before the project menu */
 .lightsSpacer {
-  width: 76px;
+  width: 94px;
   height: 100%;
   flex-shrink: 0;
 }
