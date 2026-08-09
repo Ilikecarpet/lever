@@ -40,6 +40,7 @@
   min-width: 0;
 }
 
+/* Reads as a control at rest — bordered chip, not bare text */
 .projectBtn {
   display: flex;
   align-items: center;
@@ -48,14 +49,17 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  padding: 4px 8px;
+  padding: 3px 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   min-width: 0;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.1s, border-color 0.15s;
 }
 .projectBtn:hover {
   background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 
 .projectName {
@@ -65,7 +69,7 @@
 }
 
 .chevron {
-  color: var(--text-muted);
+  color: var(--text-dim);
   display: inline-flex;
   flex-shrink: 0;
 }
