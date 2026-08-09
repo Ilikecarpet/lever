@@ -42,6 +42,32 @@ export function IconPlus({ size = 14, className }: P) {
   );
 }
 
+export function IconMinus({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={s} className={className}>
+      <path d="M3 8h10" />
+    </svg>
+  );
+}
+
+export function IconUndo({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <path d="M3 6.5h7a3.5 3.5 0 010 7H7" />
+      <path d="M6 3.5l-3 3 3 3" />
+    </svg>
+  );
+}
+
+export function IconCheckCircle({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M5.2 8.2l2 2 3.8-4.2" />
+    </svg>
+  );
+}
+
 export function IconSplitV({ size = 14, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={s} className={className}>

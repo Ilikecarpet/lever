@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { switchContext } from "../../lib/switchContext";
 import { IconBranch } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
@@ -19,18 +22,16 @@ interface ContextMenu {
 
 export default function WorktreeSection({ worktree }: Props) {
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
-  const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
   const deleteWorktree = useWorktreeStore((s) => s.deleteWorktree);
   const closeWorktreeWorkspaces = useWorkspaceStore(
     (s) => s.closeWorktreeWorkspaces
-  );
-  const addWorkspaceForWorktree = useWorkspaceStore(
-    (s) => s.addWorkspaceForWorktree
   );
   const agent = useWorktreeAgent(worktree.id);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const isActive = activeWorktreeId === worktree.id;
 
@@ -48,19 +49,7 @@ export default function WorktreeSection({ worktree }: Props) {
 
   const handleClick = () => {
     if (isActive) return;
-    setActiveWorktree(worktree.id);
-    const workspaces = useWorkspaceStore.getState().workspaces;
-    const hasWtWorkspace = workspaces.some(
-      (w) => w.worktreeId === worktree.id
-    );
-    if (!hasWtWorkspace) {
-      addWorkspaceForWorktree(worktree.id);
-    } else {
-      const first = workspaces.find((w) => w.worktreeId === worktree.id);
-      if (first) {
-        useWorkspaceStore.getState().setActiveWorkspace(first.id);
-      }
-    }
+    switchContext(worktree.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -88,6 +77,10 @@ export default function WorktreeSection({ worktree }: Props) {
       await deleteWorktree(worktree.id, cleanup);
     } catch (e) {
       console.error("Failed to remove worktree:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      useGitStore
+        .getState()
+        .setStatusMessage(`Failed to remove worktree: ${msg}`, "error");
     }
   };
 
@@ -101,11 +94,13 @@ export default function WorktreeSection({ worktree }: Props) {
         onContextMenu={handleContextMenu}
       >
         <span className={styles.branchIcon}><IconBranch size={13} /></span>
-        <span
-          className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
-          title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
-        >{worktree.branch}</span>
-        <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+        <span className={styles.worktreeText}>
+          <span
+            className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
+            title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
+          >{worktree.branch}</span>
+          <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+        </span>
       </div>
 
       {worktree.groups.map((group) => (
@@ -120,8 +115,8 @@ export default function WorktreeSection({ worktree }: Props) {
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className={styles.contextMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
           data-ctx-wt={worktree.id}
         >
           <button

@@ -103,6 +103,9 @@ export default function ConfigModal({ open, onClose }: Props) {
   const [renamingGroupKey, setRenamingGroupKey] = useState<string | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
 
+  /** null = not creating; otherwise the in-progress new group name */
+  const [newGroupName, setNewGroupName] = useState<string | null>(null);
+
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<string | null>(null);
   const mouseDownOnOverlay = useRef(false);
   const mouseDownOnFormOverlay = useRef(false);
@@ -143,6 +146,25 @@ export default function ConfigModal({ open, onClose }: Props) {
     const timer = setTimeout(() => setConfirmDeleteGroup(null), 2000);
     return () => clearTimeout(timer);
   }, [confirmDeleteGroup]);
+
+  // Escape walks back one layer at a time: new-group input → form → modal.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (renamingGroupKey) return; // rename input handles its own Escape
+      if (newGroupName !== null) {
+        setNewGroupName(null);
+      } else if (formOpen) {
+        setFormOpen(false);
+        setEditing(null);
+      } else {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, formOpen, renamingGroupKey, newGroupName, onClose]);
 
   if (!open) return null;
 
@@ -268,6 +290,7 @@ export default function ConfigModal({ open, onClose }: Props) {
   const closeForm = () => {
     setFormOpen(false);
     setEditing(null);
+    setNewGroupName(null);
   };
 
   const handleSave = () => {
@@ -372,19 +395,25 @@ export default function ConfigModal({ open, onClose }: Props) {
 
   const handleGroupSelectChange = (value: string) => {
     if (value === "__new__") {
-      const name = window.prompt("New group name:");
-      if (!name) {
-        setForm((f) => ({ ...f, target: allGroups[0] ? encodeTarget(allGroups[0].worktreeId, allGroups[0].group.id) : "" }));
-        return;
-      }
-      const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      if (!mainGroups.find((g) => g.id === gid)) {
-        addGroup({ id: gid, label: name, services: [] });
-      }
-      setForm((f) => ({ ...f, target: encodeTarget(null, gid) }));
+      setNewGroupName("");
     } else {
+      setNewGroupName(null);
       setForm((f) => ({ ...f, target: value }));
     }
+  };
+
+  const handleCreateGroup = () => {
+    const name = (newGroupName ?? "").trim();
+    if (!name) {
+      setNewGroupName(null);
+      return;
+    }
+    const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    if (!mainGroups.find((g) => g.id === gid)) {
+      addGroup({ id: gid, label: name, services: [] });
+    }
+    setForm((f) => ({ ...f, target: encodeTarget(null, gid) }));
+    setNewGroupName(null);
   };
 
   return (
@@ -551,7 +580,7 @@ export default function ConfigModal({ open, onClose }: Props) {
                 <div className={styles.fg}>
                   <label>Group</label>
                   <select
-                    value={form.target}
+                    value={newGroupName !== null ? "__new__" : form.target}
                     onChange={(e) =>
                       handleGroupSelectChange(e.target.value)
                     }
@@ -573,6 +602,26 @@ export default function ConfigModal({ open, onClose }: Props) {
                     ))}
                     <option value="__new__">+ New Group...</option>
                   </select>
+                  {newGroupName !== null && (
+                    <div className={styles.newGroupRow}>
+                      <input
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateGroup();
+                        }}
+                        placeholder="New group name"
+                        autoFocus
+                      />
+                      <button
+                        className={`${styles.mBtn} ${styles.mBtnSm}`}
+                        onClick={handleCreateGroup}
+                        disabled={!newGroupName.trim()}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

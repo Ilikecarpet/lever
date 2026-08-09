@@ -29,10 +29,11 @@
 }
 
 .groupLabel {
-  font-size: 12px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
   display: flex;
   align-items: center;
@@ -40,13 +41,15 @@
 }
 
 .groupCount {
+  font-family: var(--font-mono);
   font-size: 9px;
   color: var(--text-muted);
   font-weight: 500;
   background: var(--surface);
   padding: 1px 5px;
-  border-radius: 6px;
+  border-radius: 3px;
   margin-left: 2px;
+  letter-spacing: 0;
 }
 
 /* Always visible, subtle when idle */
@@ -183,7 +186,7 @@
 }
 .confirmYes:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-fg);
 }
 
 /* Git branch indicator */

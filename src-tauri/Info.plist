@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Services and terminal commands spawned by Lever inherit its TCC
+	     (privacy) attribution. Without a usage string here, macOS silently
+	     denies the corresponding access to every child process instead of
+	     prompting. Declaring a key does NOT grant anything by itself — the
+	     user still approves each permission on first use.
+
+	     Not declarable here (granted manually in System Settings →
+	     Privacy & Security, where Lever appears after first attempt):
+	     Full Disk Access, Accessibility, Screen Recording, Input Monitoring. -->
+
+	<!-- Hardware -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Lever needs Bluetooth access so the development services and terminal commands you run inside it can use Bluetooth.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Lever needs camera access so the development services and terminal commands you run inside it can use the camera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lever needs microphone access so the development services and terminal commands you run inside it can use the microphone.</string>
+
+	<!-- Network -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Lever needs local network access so the development services you run inside it can reach devices and servers on your network.</string>
+
+	<!-- Location -->
+	<key>NSLocationUsageDescription</key>
+	<string>Lever needs location access so the development services and terminal commands you run inside it can use location services.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lever needs location access so the development services and terminal commands you run inside it can use location services.</string>
+
+	<!-- Speech -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Lever needs speech recognition access so the development services and terminal commands you run inside it can use speech recognition.</string>
+
+	<!-- Automation: lets services run osascript / control other apps -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Lever needs automation access so the development services and terminal commands you run inside it can control other applications with AppleScript.</string>
+
+	<!-- Personal data stores -->
+	<key>NSContactsUsageDescription</key>
+	<string>Lever needs contacts access so the development services and terminal commands you run inside it can read your contacts.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Lever needs calendar access so the development services and terminal commands you run inside it can read your calendars.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Lever needs reminders access so the development services and terminal commands you run inside it can read your reminders.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Lever needs photo library access so the development services and terminal commands you run inside it can read your photos.</string>
+
+	<!-- Files & folders: these prompts appear even without keys; the
+	     strings just make the dialogs say why. -->
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Commands you run inside Lever may read or write files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Commands you run inside Lever may read or write files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Commands you run inside Lever may read or write files in your Downloads folder.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Commands you run inside Lever may read or write files on removable volumes.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Commands you run inside Lever may read or write files on network volumes.</string>
+</dict>
+</plist>

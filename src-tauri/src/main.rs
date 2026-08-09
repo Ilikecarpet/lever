@@ -820,6 +820,89 @@ fn import_project(
 }
 
 // ---------------------------------------------------------------------------
+// macOS traffic light positioning
+// ---------------------------------------------------------------------------
+
+/// Inset of the close button's frame from the window's top-left corner.
+/// Chosen so the 12px light circles center vertically in the UI's 38px
+/// unified header (button frame is ~16px tall: 13 + 8 = 21 ≈ header center).
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_INSET: (f64, f64) = (14.0, 12.5);
+
+/// Reposition the standard window buttons. Port of tao's
+/// `inset_traffic_lights`; needed because the position set at window
+/// creation is discarded whenever macOS rebuilds the title bar (first
+/// show, focus changes, theme switches, fullscreen round-trips).
+#[cfg(target_os = "macos")]
+unsafe fn position_traffic_lights(ns_window_ptr: *mut std::ffi::c_void, x: f64, y: f64) {
+    use objc2::msg_send;
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+
+    let ns_window = &*(ns_window_ptr as *const NSWindow);
+    let Some(close) = ns_window.standardWindowButton(NSWindowButton::CloseButton) else {
+        return;
+    };
+    let Some(miniaturize) = ns_window.standardWindowButton(NSWindowButton::MiniaturizeButton)
+    else {
+        return;
+    };
+    let Some(zoom) = ns_window.standardWindowButton(NSWindowButton::ZoomButton) else {
+        return;
+    };
+    let Some(container) = close.superview().and_then(|v| v.superview()) else {
+        return;
+    };
+
+    // Size the title-bar container symmetrically around the buttons and set
+    // each button's origin explicitly: on current macOS the buttons stay
+    // anchored to the container's TOP, so merely growing the container (the
+    // classic tao technique) never moves them down.
+    let close_rect = close.frame();
+    let button_h = close_rect.size.height;
+    let title_bar_frame_height = button_h + y * 2.0;
+    let mut title_bar_rect = container.frame();
+    title_bar_rect.size.height = title_bar_frame_height;
+    title_bar_rect.origin.y = ns_window.frame().size.height - title_bar_frame_height;
+    let _: () = msg_send![&*container, setFrame: title_bar_rect];
+
+    let space_between = miniaturize.frame().origin.x - close_rect.origin.x;
+    for (i, button) in [close, miniaturize, zoom].into_iter().enumerate() {
+        let mut rect = button.frame();
+        rect.origin.x = x + (i as f64) * space_between;
+        rect.origin.y = y; // symmetric container → y from bottom == y from top
+        button.setFrameOrigin(rect.origin);
+    }
+}
+
+/// Apply the traffic light inset now and re-apply whenever macOS resets it.
+#[cfg(target_os = "macos")]
+fn keep_traffic_lights_positioned(window: &tauri::WebviewWindow) {
+    fn apply(window: &tauri::WebviewWindow) {
+        let w = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            if let Ok(ptr) = w.ns_window() {
+                unsafe {
+                    position_traffic_lights(ptr, TRAFFIC_LIGHT_INSET.0, TRAFFIC_LIGHT_INSET.1)
+                };
+            }
+        });
+    }
+
+    apply(window);
+    let win = window.clone();
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            tauri::WindowEvent::Focused(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ThemeChanged(_)
+        ) {
+            apply(&win);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands: start page + open project window
 // ---------------------------------------------------------------------------
 
@@ -935,7 +1018,10 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         .map(|p| p.name.clone())
         .unwrap_or_else(|| id.clone());
 
-    tauri::WebviewWindowBuilder::new(
+    // Project windows draw their own header into the title bar area
+    // (unified top bar in the UI); the native title stays hidden and the
+    // traffic lights are repositioned to center in the 38px header.
+    let window = tauri::WebviewWindowBuilder::new(
         &app,
         &label,
         tauri::WebviewUrl::App("index.html".into()),
@@ -943,8 +1029,15 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     .title(format!("Lever — {}", project_name))
     .inner_size(900.0, 700.0)
     .min_inner_size(600.0, 400.0)
+    .title_bar_style(tauri::TitleBarStyle::Overlay)
+    .hidden_title(true)
     .build()
     .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    keep_traffic_lights_positioned(&window);
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
 
     Ok(())
 }
@@ -1985,6 +2078,83 @@ fn cleanup_worktree_dir(repo_path: &str, wt_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Is `wt_path` still registered as a worktree of `repo_path`? A removal that
+/// deletes the directory but leaves a dangling registration (or vice versa) is
+/// not actually done. Paths are compared with any trailing slash stripped.
+fn worktree_is_registered(repo_path: &str, wt_path: &str) -> bool {
+    let target = wt_path.trim_end_matches('/');
+    list_git_worktrees(repo_path)
+        .iter()
+        .any(|(p, _)| p.trim_end_matches('/') == target)
+}
+
+/// A worktree is only fully removed once its directory is gone from disk AND it
+/// is no longer registered with git.
+fn worktree_fully_removed(repo_path: &str, wt_path: &str) -> bool {
+    !std::path::Path::new(wt_path).exists() && !worktree_is_registered(repo_path, wt_path)
+}
+
+/// Human-readable summary of whatever is still hanging around, for logs/errors.
+fn describe_worktree_remnants(repo_path: &str, wt_path: &str) -> String {
+    let dir = std::path::Path::new(wt_path).exists();
+    let reg = worktree_is_registered(repo_path, wt_path);
+    match (dir, reg) {
+        (true, true) => "directory + git registration".to_string(),
+        (true, false) => "directory".to_string(),
+        (false, true) => "git registration".to_string(),
+        (false, false) => "nothing".to_string(),
+    }
+}
+
+/// Remove the worktree directory and git registration, then verify it actually
+/// happened — retrying a few times if anything is left behind.
+///
+/// Removal can fail transiently: a shell or dev server inside the worktree may
+/// still be releasing files the instant git/`remove_dir_all` runs, leaving the
+/// directory or a dangling registration behind. That is exactly the case that
+/// used to force a manual second attempt. Here we re-check after each attempt
+/// and, while remnants remain, give it another go with a short escalating
+/// backoff so the offending process has time to exit.
+fn cleanup_worktree_dir_verified(repo_path: &str, wt_path: &str) -> Result<(), String> {
+    const MAX_ATTEMPTS: u32 = 4;
+    let mut last_err = String::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        debug_log("worktree", "info",
+            &format!("cleanup attempt {}/{}", attempt, MAX_ATTEMPTS));
+
+        if let Err(e) = cleanup_worktree_dir(repo_path, wt_path) {
+            last_err = e;
+        }
+
+        if worktree_fully_removed(repo_path, wt_path) {
+            debug_log("worktree", "info",
+                "verified removed — directory and git registration both clear");
+            return Ok(());
+        }
+
+        let remnants = describe_worktree_remnants(repo_path, wt_path);
+        debug_log("worktree", "info",
+            &format!("after attempt {}, still present: {}", attempt, remnants));
+
+        if attempt < MAX_ATTEMPTS {
+            // 300ms, 600ms, 900ms — enough for a lingering process to release files.
+            std::thread::sleep(std::time::Duration::from_millis(300 * attempt as u64));
+        }
+    }
+
+    let remnants = describe_worktree_remnants(repo_path, wt_path);
+    let detail = if last_err.is_empty() {
+        String::new()
+    } else {
+        format!(" (last error: {})", last_err)
+    };
+    Err(format!(
+        "worktree still present after {} attempts — leftover: {}{}",
+        MAX_ATTEMPTS, remnants, detail
+    ))
+}
+
 #[tauri::command(async)]
 fn remove_worktree(
     project_id: String, worktree_id: String, cleanup: bool, state: State<'_, AppState>,
@@ -2043,7 +2213,7 @@ fn remove_worktree(
                 debug_log("worktree", "info", &format!("repo: {}", meta.repo_path));
                 // Propagating the error keeps the worktree in config so the
                 // removal stays visible and retryable.
-                if let Err(e) = cleanup_worktree_dir(&meta.repo_path, &worktree.path) {
+                if let Err(e) = cleanup_worktree_dir_verified(&meta.repo_path, &worktree.path) {
                     debug_log("worktree", "error", &format!("removal failed: {}", e));
                     return Err(e);
                 }

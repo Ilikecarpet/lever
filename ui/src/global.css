@@ -1,39 +1,44 @@
 :root {
-  /* Background layers — warm charcoal, not cold navy */
-  --bg: #0c0c0e;
-  --sidebar-bg: #111113;
-  --surface: #18181b;
-  --surface-hover: #222225;
-  --surface-raised: #1e1e22;
-  --terminal-bg: #09090b;
+  /* Static defaults match the "Foundry" theme (the default when nothing is
+     stored) so first launch paints the right colors before JS runs.
+     Returning users are covered by the boot script in index.html, which
+     re-applies the persisted theme's variables pre-paint. */
+  --bg: #131110;
+  --sidebar-bg: #0e0d0c;
+  --surface: #1d1916;
+  --surface-hover: #272119;
+  --surface-raised: #221d18;
+  --terminal-bg: #0d0c0a;
 
   /* Borders */
-  --border: #27272b;
-  --border-hover: #3f3f46;
+  --border: #2c2620;
+  --border-hover: #453b31;
 
   /* Text */
-  --text: #e4e4e7;
-  --text-dim: #a1a1aa;
-  --text-muted: #52525b;
+  --text: #ece6de;
+  --text-dim: #a99e90;
+  --text-muted: #665c50;
 
-  /* Accent — violet, distinct from all status colors */
-  --accent: #a78bfa;
-  --accent-hover: #c4b5fd;
-  --accent-dim: rgba(167, 139, 250, 0.08);
-  --accent-subtle: rgba(167, 139, 250, 0.15);
+  /* Accent — copper */
+  --accent: #d1885c;
+  --accent-hover: #e2a37b;
+  --accent-dim: rgba(209, 136, 92, 0.09);
+  --accent-subtle: rgba(209, 136, 92, 0.16);
+  --accent-fg: #1c1209;
 
   /* Status */
-  --green: #4ade80;
-  --green-dim: rgba(74, 222, 128, 0.1);
-  --red: #fb7185;
-  --red-dim: rgba(251, 113, 133, 0.1);
-  --yellow: #fbbf24;
-  --yellow-dim: rgba(251, 191, 36, 0.1);
-  --blue: #60a5fa;
-  --blue-dim: rgba(96, 165, 250, 0.1);
+  --green: #86c07a;
+  --green-dim: rgba(134, 192, 122, 0.1);
+  --red: #e5705e;
+  --red-dim: rgba(229, 112, 94, 0.1);
+  --red-fg: #ffffff;
+  --yellow: #dfa640;
+  --yellow-dim: rgba(223, 166, 64, 0.1);
+  --blue: #7aa5c9;
+  --blue-dim: rgba(122, 165, 201, 0.1);
 
   /* Typography */
-  --font-sans: "Outfit", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
   /* Radius */
@@ -115,4 +120,17 @@ textarea {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Keyboard focus — the resets above strip default outlines, so restore a
+   visible ring for keyboard navigation only (mouse clicks stay clean).
+   Text inputs are excluded: they always match :focus-visible, and they
+   already signal focus with an accent border. */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

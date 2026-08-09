@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import * as api from "../../lib/tauri";
 import { useConfigStore } from "../../stores/configStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import * as api from "../../lib/tauri";
+import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useThemeStore, themes } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { switchContext } from "../../lib/switchContext";
 import type { ProjectExport } from "../../types";
-import { IconChevron, IconFolder, IconExport, IconGear, IconBranch, IconSidebarCollapse, IconSidebarExpand } from "../Icons";
+import { IconBranch, IconPlus, IconChevron, IconFolder, IconExport, IconGear } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -19,16 +22,6 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-const COLLAPSED_KEY = "lever-sidebar-collapsed";
-
-function getInitialCollapsed(): boolean {
-  try {
-    return localStorage.getItem(COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export default function Sidebar({ onOpenSettings }: Props) {
   const groups = useConfigStore((s) => s.groups);
   const addGroup = useConfigStore((s) => s.addGroup);
@@ -36,6 +29,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const gitInfo = useGitStore((s) => s.gitInfo);
   const repoPath = useGitStore((s) => s.repoPath);
+  const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
 
   const worktrees = useWorktreeStore((s) => s.worktrees);
@@ -43,7 +37,9 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const setActiveWorktree = useWorktreeStore((s) => s.setActiveWorktree);
   const createWorktree = useWorktreeStore((s) => s.createWorktree);
 
-  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
+  const collapsed = useUiStore((s) => s.sidebarCollapsed);
+  const width = useUiStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useUiStore((s) => s.setSidebarWidth);
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -54,34 +50,24 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
+  const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeExpanded, setThemeExpanded] = useState(false);
-  const [mainCtxMenu, setMainCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [collapsed, setCollapsed] = useState<boolean>(getInitialCollapsed);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try { localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0"); } catch {}
-      if (next) {
-        setMenuOpen(false);
-        setMainCtxMenu(null);
-      }
-      return next;
-    });
-  };
+  const [projectName, setProjectName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (adding && inputRef.current) {
-      inputRef.current.focus();
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-    }
-  }, [adding]);
+    const pid = api.getProjectId();
+    if (!pid) return;
+    api
+      .listProjects()
+      .then((list) => {
+        const p = list.find((x) => x.id === pid);
+        if (p) setProjectName(p.name);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -93,39 +79,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [menuOpen]);
-
-  useEffect(() => {
-    if (!mainCtxMenu) return;
-    const handler = (e: MouseEvent) => {
-      const menu = document.querySelector("[data-ctx-main-repo]");
-      if (menu && menu.contains(e.target as Node)) return;
-      setMainCtxMenu(null);
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [mainCtxMenu]);
-
-  const handleAddConfirm = (value: string) => {
-    setAdding(false);
-    const name = value.trim();
-    if (!name) return;
-    const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    if (groups.find((g) => g.id === gid)) return;
-    addGroup({ id: gid, label: name, services: [] });
-    saveConfig();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      handleAddConfirm(e.currentTarget.value);
-    } else if (e.key === "Escape") {
-      setAdding(false);
-    }
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    handleAddConfirm(e.currentTarget.value);
-  };
 
   const handleHome = async () => {
     setMenuOpen(false);
@@ -163,21 +116,76 @@ export default function Sidebar({ onOpenSettings }: Props) {
     onOpenSettings();
   };
 
-  const handleMainContextClick = () => {
-    setActiveWorktree(null);
-    setActiveGitGroup(null);
-    const workspaces = useWorkspaceStore.getState().workspaces;
-    const mainWs = workspaces.find((w) => w.worktreeId === null);
-    if (mainWs) {
-      setActiveWorkspace(mainWs.id);
+  const handleResizeStart = (e: React.MouseEvent) => {
+    if (collapsed) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    setResizing(true);
+    const onMove = (ev: MouseEvent) => setSidebarWidth(startW + (ev.clientX - startX));
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setResizing(false);
+      setSidebarWidth(startW + (ev.clientX - startX), true);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const mainCtxMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(mainCtxMenuRef, mainCtxMenu?.x ?? 0, mainCtxMenu?.y ?? 0);
+
+  useEffect(() => {
+    if (adding && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [adding]);
+
+  useEffect(() => {
+    if (!mainCtxMenu) return;
+    const handler = (e: MouseEvent) => {
+      const menu = document.querySelector("[data-ctx-main-repo]");
+      if (menu && menu.contains(e.target as Node)) return;
+      setMainCtxMenu(null);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [mainCtxMenu]);
+
+  const handleAddConfirm = (value: string) => {
+    setAdding(false);
+    const name = value.trim();
+    if (!name) return;
+    const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    if (groups.find((g) => g.id === gid)) return;
+    addGroup({ id: gid, label: name, services: [] });
+    saveConfig();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      handleAddConfirm(e.currentTarget.value);
+    } else if (e.key === "Escape") {
+      setAdding(false);
     }
   };
 
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    handleAddConfirm(e.currentTarget.value);
+  };
+
+  const handleMainContextClick = () => {
+    switchContext(null);
+  };
+
+  // Toggles the docked git panel; terminals stay where they are.
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveWorktree(null);
-    setActiveWorkspace(null);
-    setActiveGitGroup("project");
+    setActiveGitGroup(activeGitGroupId ? null : "project");
   };
 
   const handleCreateWorktree = async (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => {
@@ -190,26 +198,33 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const isMainActive = activeWorktreeId === null;
 
   return (
-    <div className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}`}>
-      <button
-        className={styles.toggleBtn}
-        onClick={toggleCollapsed}
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        {collapsed ? <IconSidebarExpand size={14} /> : <IconSidebarCollapse size={14} />}
-      </button>
+    <div
+      className={`${styles.sidebar}${collapsed ? ` ${styles.sidebarCollapsed}` : ""}${resizing ? ` ${styles.sidebarResizing}` : ""}`}
+      style={collapsed ? undefined : { width, minWidth: width }}
+    >
+      {!collapsed && (
+        <div
+          className={styles.resizeHandle}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+        />
+      )}
+      {resizing && <div className={styles.resizeOverlay} />}
       <div
         className={`${styles.sidebarInner}${collapsed ? ` ${styles.sidebarInnerCollapsed}` : ""}`}
+        style={collapsed ? undefined : { width, minWidth: width }}
         aria-hidden={collapsed}
       >
       <div className={styles.sidebarTop} ref={menuRef}>
         <button
-          className={styles.titleBtn}
+          className={styles.projectBtn}
           onClick={() => setMenuOpen((o) => !o)}
+          title={projectName || "Project menu"}
         >
-          Lever
-          <span className={styles.chevron}><IconChevron size={10} /></span>
+          <span className={styles.projectName}>{projectName || "lever"}</span>
+          <span className={styles.projectChevron}>
+            <IconChevron size={10} />
+          </span>
         </button>
 
         {menuOpen && (
@@ -264,7 +279,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
       {repoPath && (
         <>
           <div
-            className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ""}`}
+            className={`${styles.mainContext}${isMainActive ? ` ${styles.mainContextActive}` : ` ${styles.mainContextInactive}`}`}
             onClick={handleMainContextClick}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -272,27 +287,32 @@ export default function Sidebar({ onOpenSettings }: Props) {
             }}
           >
             <IconBranch size={13} />
-            <span
-              className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
-              title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
-            >
-              {gitInfo?.current_branch ?? "..."}
+            <span className={styles.mainContextText}>
+              <span
+                className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
+                title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
+              >
+                {gitInfo?.current_branch ?? "..."}
+              </span>
+              <span className={styles.mainContextPath} title={repoPath}>
+                {repoPath.replace(/^\/Users\/[^/]+/, "~")}
+              </span>
             </span>
             {gitInfo?.is_dirty && (
               <span className={styles.mainContextDirty}>●</span>
             )}
             <span
-              className={styles.mainContextGitBtn}
+              className={`${styles.mainContextGitBtn}${activeGitGroupId ? ` ${styles.mainContextGitBtnActive}` : ""}`}
               onClick={handleOpenGitPanel}
-              title="Git panel"
+              title={activeGitGroupId ? "Close git panel (⌘G)" : "Open git panel (⌘G)"}
             >
               <IconBranch size={12} />
             </span>
           </div>
           {mainCtxMenu && (
             <div
+              ref={mainCtxMenuRef}
               className={styles.mainCtxMenu}
-              style={{ left: mainCtxMenu.x, top: mainCtxMenu.y }}
               data-ctx-main-repo
             >
               <button
@@ -314,10 +334,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
           <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
         ))}
 
-        {worktrees.map((wt) => (
-          <WorktreeSection key={wt.id} worktree={wt} />
-        ))}
-
         {adding ? (
           <div className={styles.addGroupInput}>
             <input
@@ -328,22 +344,31 @@ export default function Sidebar({ onOpenSettings }: Props) {
             />
           </div>
         ) : (
-          <div className={styles.bottomBar}>
-            <button
-              className={styles.addGroupBtn}
-              onClick={() => setAdding(true)}
-            >
-              + Add Group
-            </button>
-            {repoPath && (
+          <button className={styles.addRow} onClick={() => setAdding(true)}>
+            <IconPlus size={10} /> Add group
+          </button>
+        )}
+
+        {repoPath && (
+          <>
+            <div className={styles.sectionEyebrow}>
+              <span>Worktrees</span>
               <button
-                className={styles.newWorktreeBtn}
+                className={styles.eyebrowAction}
                 onClick={() => setWorktreeModalOpen(true)}
+                title="New worktree"
+                aria-label="New worktree"
               >
-                + New Worktree
+                <IconPlus size={11} />
               </button>
+            </div>
+            {worktrees.length === 0 && (
+              <div className={styles.eyebrowHint}>None yet</div>
             )}
-          </div>
+            {worktrees.map((wt) => (
+              <WorktreeSection key={wt.id} worktree={wt} />
+            ))}
+          </>
         )}
       </div>
       </div>

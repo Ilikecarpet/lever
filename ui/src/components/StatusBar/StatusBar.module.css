@@ -13,7 +13,10 @@
 .serviceCount {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -26,7 +29,7 @@
 }
 .countDotActive {
   background: var(--green);
-  box-shadow: 0 0 4px rgba(74, 222, 128, 0.3);
+  box-shadow: 0 0 0 3px var(--green-dim);
 }
 
 .info {
@@ -35,12 +38,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.infoError {
+  color: var(--red);
+  font-weight: 500;
 }
 
 .paneControls {
   display: flex;
   gap: 2px;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
 }
 
 .paneBtn {
