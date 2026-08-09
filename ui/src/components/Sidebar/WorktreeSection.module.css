@@ -1,8 +1,8 @@
 .sectionDivider {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px 4px;
+  gap: 7px;
+  padding: 5px 12px;
   font-size: 11px;
   color: var(--accent);
   font-weight: 600;
@@ -18,7 +18,7 @@
 }
 
 .sectionDividerActive {
-  background: var(--accent-dim);
+  background: var(--accent-subtle);
 }
 
 .sectionDividerInactive {
@@ -33,9 +33,21 @@
   align-items: center;
 }
 
+/* Branch on top, path beneath — each ellipsized on its own line */
+.worktreeText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
 .branchName {
   font-family: var(--font-mono);
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* While an AI agent works in one of this worktree's terminals, a highlight
@@ -67,17 +79,19 @@
 }
 
 .worktreePath {
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 120px;
 }
 
+/* Guide line showing these groups belong to the worktree above */
 .worktreeGroup {
-  border-left: 3px solid var(--accent);
-  margin-left: 6px;
+  border-left: 1px solid var(--border);
+  margin-left: 18px;
 }
 
 .contextMenu {
@@ -190,5 +204,5 @@
 }
 .confirmYesDanger:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-fg);
 }

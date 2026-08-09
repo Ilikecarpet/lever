@@ -56,6 +56,58 @@ export interface ThemeDef {
   };
 }
 
+const foundry: ThemeDef = {
+  id: "foundry",
+  label: "Foundry",
+  swatch: "#d1885c",
+  bg: "#131110",
+  sidebarBg: "#0e0d0c",
+  surface: "#1d1916",
+  surfaceHover: "#272119",
+  surfaceRaised: "#221d18",
+  terminalBg: "#0d0c0a",
+  border: "#2c2620",
+  borderHover: "#453b31",
+  text: "#ece6de",
+  textDim: "#a99e90",
+  textMuted: "#665c50",
+  accent: "#d1885c",
+  accentHover: "#e2a37b",
+  accentDim: "rgba(209, 136, 92, 0.09)",
+  accentSubtle: "rgba(209, 136, 92, 0.16)",
+  accentForeground: "#1c1209",
+  green: "#86c07a",
+  greenDim: "rgba(134, 192, 122, 0.1)",
+  red: "#e5705e",
+  redDim: "rgba(229, 112, 94, 0.1)",
+  yellow: "#dfa640",
+  yellowDim: "rgba(223, 166, 64, 0.1)",
+  blue: "#7aa5c9",
+  blueDim: "rgba(122, 165, 201, 0.1)",
+  terminal: {
+    background: "#0d0c0a",
+    foreground: "#ece6de",
+    cursor: "#d1885c",
+    selectionBackground: "rgba(209,136,92,0.25)",
+    black: "#1d1916",
+    red: "#e5705e",
+    green: "#86c07a",
+    yellow: "#dfa640",
+    blue: "#7aa5c9",
+    magenta: "#bd8fb5",
+    cyan: "#7fc3b4",
+    white: "#ece6de",
+    brightBlack: "#6b6155",
+    brightRed: "#f2937f",
+    brightGreen: "#a4d69a",
+    brightYellow: "#edc06a",
+    brightBlue: "#9dc0dd",
+    brightMagenta: "#d4aecb",
+    brightCyan: "#a1d8cb",
+    brightWhite: "#faf6f1",
+  },
+};
+
 const obsidian: ThemeDef = {
   id: "obsidian",
   label: "Obsidian",
@@ -525,6 +577,7 @@ const graphite: ThemeDef = {
 };
 
 export const themes: ThemeDef[] = [
+  foundry,
   obsidian,
   tokyoNight,
   rosePine,
@@ -538,32 +591,49 @@ export const themes: ThemeDef[] = [
 
 const STORAGE_KEY = "lever-theme";
 
+/** Key holding the active theme's CSS variables, applied pre-paint by the
+ *  boot script in index.html so switching windows/reloads never flash the
+ *  default theme. */
+const VARS_STORAGE_KEY = "lever-theme-vars";
+
+function themeVars(theme: ThemeDef): Record<string, string> {
+  return {
+    "--bg": theme.bg,
+    "--sidebar-bg": theme.sidebarBg,
+    "--surface": theme.surface,
+    "--surface-hover": theme.surfaceHover,
+    "--surface-raised": theme.surfaceRaised,
+    "--terminal-bg": theme.terminalBg,
+    "--border": theme.border,
+    "--border-hover": theme.borderHover,
+    "--text": theme.text,
+    "--text-dim": theme.textDim,
+    "--text-muted": theme.textMuted,
+    "--accent": theme.accent,
+    "--accent-hover": theme.accentHover,
+    "--accent-dim": theme.accentDim,
+    "--accent-subtle": theme.accentSubtle,
+    "--accent-fg": theme.accentForeground,
+    "--green": theme.green,
+    "--green-dim": theme.greenDim,
+    "--red": theme.red,
+    "--red-dim": theme.redDim,
+    "--yellow": theme.yellow,
+    "--yellow-dim": theme.yellowDim,
+    "--blue": theme.blue,
+    "--blue-dim": theme.blueDim,
+  };
+}
+
 function applyTheme(theme: ThemeDef) {
   const root = document.documentElement;
-  root.style.setProperty("--bg", theme.bg);
-  root.style.setProperty("--sidebar-bg", theme.sidebarBg);
-  root.style.setProperty("--surface", theme.surface);
-  root.style.setProperty("--surface-hover", theme.surfaceHover);
-  root.style.setProperty("--surface-raised", theme.surfaceRaised);
-  root.style.setProperty("--terminal-bg", theme.terminalBg);
-  root.style.setProperty("--border", theme.border);
-  root.style.setProperty("--border-hover", theme.borderHover);
-  root.style.setProperty("--text", theme.text);
-  root.style.setProperty("--text-dim", theme.textDim);
-  root.style.setProperty("--text-muted", theme.textMuted);
-  root.style.setProperty("--accent", theme.accent);
-  root.style.setProperty("--accent-hover", theme.accentHover);
-  root.style.setProperty("--accent-dim", theme.accentDim);
-  root.style.setProperty("--accent-subtle", theme.accentSubtle);
-  root.style.setProperty("--accent-fg", theme.accentForeground);
-  root.style.setProperty("--green", theme.green);
-  root.style.setProperty("--green-dim", theme.greenDim);
-  root.style.setProperty("--red", theme.red);
-  root.style.setProperty("--red-dim", theme.redDim);
-  root.style.setProperty("--yellow", theme.yellow);
-  root.style.setProperty("--yellow-dim", theme.yellowDim);
-  root.style.setProperty("--blue", theme.blue);
-  root.style.setProperty("--blue-dim", theme.blueDim);
+  const vars = themeVars(theme);
+  for (const [key, value] of Object.entries(vars)) {
+    root.style.setProperty(key, value);
+  }
+  try {
+    localStorage.setItem(VARS_STORAGE_KEY, JSON.stringify(vars));
+  } catch {}
 }
 
 // Callbacks that get notified when the terminal theme changes
@@ -585,7 +655,7 @@ function getInitialThemeId(): string {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && themes.find((t) => t.id === stored)) return stored;
   } catch {}
-  return "paper";
+  return "foundry";
 }
 
 function findTheme(id: string): ThemeDef {

@@ -1,0 +1,51 @@
+/* Unified header drawn into the hidden macOS title bar */
+.topbar {
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+/* Left cell tracks the sidebar width so the header reads as one piece with it */
+.left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* Room for the macOS traffic lights overlaying this corner */
+.lightsSpacer {
+  width: 76px;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.leftSpacer {
+  flex: 1;
+  height: 100%;
+  min-width: 4px;
+}
+
+.toggleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.1s;
+}
+.toggleBtn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}

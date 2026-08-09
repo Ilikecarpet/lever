@@ -109,7 +109,7 @@
 }
 .mBtnDanger:hover {
   background: var(--red);
-  color: #fff;
+  color: var(--red-fg);
   border-color: var(--red);
 }
 .mBtnSm {
@@ -123,10 +123,11 @@
   align-items: center;
   gap: 6px;
   padding: 10px 8px 4px;
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
   color: var(--accent);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   font-family: var(--font-mono);
 }
 
@@ -212,12 +213,13 @@
 }
 
 .svcBadge {
+  font-family: var(--font-mono);
   font-size: 8px;
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+  border-radius: 3px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   background: var(--accent-dim);
   color: var(--accent);
 }
@@ -258,8 +260,11 @@
 }
 .fg label {
   display: block;
-  font-size: 11px;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
   margin-bottom: 6px;
 }
@@ -288,6 +293,20 @@
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+/* Inline "new group" input shown when "+ New Group..." is selected */
+.newGroupRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.newGroupRow input {
+  flex: 1;
+}
+.newGroupRow button {
+  flex-shrink: 0;
 }
 
 /* Two-column row for shorter fields */

@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { IconPlay, IconStop, IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
@@ -17,6 +18,8 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
   const [collapsed, setCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const statuses = useServiceStore((s) => s.statuses);
   const startService = useServiceStore((s) => s.startService);
@@ -135,8 +138,8 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
 
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           className={styles.ctxMenu}
-          style={{ left: contextMenu.x, top: contextMenu.y }}
           data-ctx-grp={group.id}
         >
           <button className={styles.ctxItem} onClick={handleManageServices}>

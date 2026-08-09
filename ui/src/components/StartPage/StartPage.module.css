@@ -8,27 +8,63 @@
 }
 
 .header {
-  text-align: center;
-  margin-bottom: 36px;
+  width: 100%;
+  max-width: 840px;
+  text-align: left;
+  margin-bottom: 32px;
 }
 
+/* Wordmark set as a terminal prompt — mono, lowercase, live cursor */
 .title {
-  font-size: 28px;
-  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 27px;
+  font-weight: 600;
   color: var(--text);
   margin-bottom: 8px;
   letter-spacing: -0.02em;
 }
 
+.titlePrompt {
+  color: var(--accent);
+  font-size: 20px;
+  margin-right: 12px;
+  user-select: none;
+}
+
+.titleCursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 7px;
+  background: var(--accent);
+  align-self: center;
+  animation: promptBlink 1.1s steps(1) infinite;
+}
+
+@keyframes promptBlink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titleCursor {
+    animation: none;
+  }
+}
+
 .subtitle {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-dim);
 }
 
 .actions {
+  width: 100%;
+  max-width: 840px;
   display: flex;
   gap: 10px;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .btnPrimary {
@@ -43,6 +79,25 @@
 
 .btnPrimary:hover {
   opacity: 0.88;
+}
+
+.btnDanger {
+  background: var(--red);
+  color: var(--red-fg);
+  padding: 9px 20px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.btnDanger:hover {
+  opacity: 0.88;
+}
+
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .btnSecondary {
@@ -72,15 +127,15 @@
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.2s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .card:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-dim);
+  background: var(--surface-raised);
 }
 
 .cardHeader {
@@ -97,8 +152,13 @@
 }
 
 .cardMeta {
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
+  white-space: nowrap;
+  padding-top: 3px;
 }
 
 .cardInfo {
@@ -115,17 +175,18 @@
 
 .tag {
   background: var(--bg);
+  border: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
 }
 
 .emptyCard {
   background: transparent;
-  border: 2px dashed var(--border);
-  border-radius: var(--radius-lg);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-md);
   padding: 20px;
   cursor: pointer;
   display: flex;
@@ -245,6 +306,13 @@
   margin-bottom: 16px;
 }
 
+.modalBody {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
 .modalInput {
   width: 100%;
   background: var(--bg);
@@ -275,8 +343,11 @@
 
 .fieldLabel {
   display: block;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
   margin-bottom: 6px;
 }

@@ -5,8 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
     <title>Lever</title>
+    <script>
+      // Re-apply the persisted theme's CSS variables before first paint so
+      // the app never flashes the default theme on launch.
+      try {
+        var vars = JSON.parse(localStorage.getItem("lever-theme-vars") || "null");
+        if (vars) {
+          for (var key in vars) {
+            document.documentElement.style.setProperty(key, vars[key]);
+          }
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

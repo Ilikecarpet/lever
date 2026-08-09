@@ -2,12 +2,15 @@ import { create } from "zustand";
 import type { GitRepoInfo } from "../types";
 import * as api from "../lib/tauri";
 
+export type StatusKind = "info" | "error";
+
 interface GitState {
   repoPath: string;
   gitInfo: GitRepoInfo | null;
   worktreeGitInfo: Record<string, GitRepoInfo>;
   activeGitGroupId: string | null;
   statusMessage: string | null;
+  statusKind: StatusKind;
 
   setRepoPath: (path: string) => void;
   refreshGitInfo: () => Promise<void>;
@@ -22,7 +25,7 @@ interface GitState {
   unstageAll: () => Promise<void>;
   discard: (filePath: string) => Promise<void>;
   setActiveGitGroup: (groupId: string | null) => void;
-  setStatusMessage: (msg: string | null) => void;
+  setStatusMessage: (msg: string | null, kind?: StatusKind) => void;
 }
 
 function autoClearStatus(set: (partial: Partial<GitState>) => void) {
@@ -54,6 +57,7 @@ export const useGitStore = create<GitState>((set, get) => ({
   worktreeGitInfo: {},
   activeGitGroupId: null,
   statusMessage: null,
+  statusKind: "info",
 
   setRepoPath: (path) => set({ repoPath: path }),
 
@@ -88,14 +92,14 @@ export const useGitStore = create<GitState>((set, get) => ({
     const { repoPath } = get();
     if (!repoPath) return;
     try {
-      set({ statusMessage: "Fetching..." });
+      set({ statusMessage: "Fetching...", statusKind: "info" });
       await api.gitFetch(repoPath);
       await get().refreshGitInfo();
-      set({ statusMessage: "Fetch complete" });
+      set({ statusMessage: "Fetch complete", statusKind: "info" });
       autoClearStatus(set);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Fetch failed: ${msg}` });
+      set({ statusMessage: `Fetch failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -104,15 +108,15 @@ export const useGitStore = create<GitState>((set, get) => ({
     const { repoPath } = get();
     if (!repoPath) return;
     try {
-      set({ statusMessage: "Pulling..." });
+      set({ statusMessage: "Pulling...", statusKind: "info" });
       const result = await api.gitPull(repoPath);
       await get().refreshGitInfo();
       const summary = result.trim().split("\n")[0] || "Pull complete";
-      set({ statusMessage: summary });
+      set({ statusMessage: summary, statusKind: "info" });
       autoClearStatus(set);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Pull failed: ${msg}` });
+      set({ statusMessage: `Pull failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -125,7 +129,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Stage failed: ${msg}` });
+      set({ statusMessage: `Stage failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -138,7 +142,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Unstage failed: ${msg}` });
+      set({ statusMessage: `Unstage failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -151,7 +155,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Stage failed: ${msg}` });
+      set({ statusMessage: `Stage failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -164,7 +168,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Unstage failed: ${msg}` });
+      set({ statusMessage: `Unstage failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -177,7 +181,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Stage all failed: ${msg}` });
+      set({ statusMessage: `Stage all failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -190,7 +194,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Unstage all failed: ${msg}` });
+      set({ statusMessage: `Unstage all failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -203,7 +207,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       await get().refreshGitInfo();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      set({ statusMessage: `Discard failed: ${msg}` });
+      set({ statusMessage: `Discard failed: ${msg}`, statusKind: "error" });
       autoClearStatus(set);
     }
   },
@@ -212,8 +216,8 @@ export const useGitStore = create<GitState>((set, get) => ({
     set({ activeGitGroupId: groupId });
   },
 
-  setStatusMessage: (msg) => {
-    set({ statusMessage: msg });
+  setStatusMessage: (msg, kind = "info") => {
+    set({ statusMessage: msg, statusKind: kind });
     if (msg) autoClearStatus(set);
   },
 }));

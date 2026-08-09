@@ -4,35 +4,58 @@
     opacity: 0;
   }
   to {
-    max-height: 50vh;
+    max-height: 75vh;
     opacity: 1;
   }
 }
 
 .logPanel {
+  position: relative;
   flex: 0 1 40%;
   min-height: 120px;
-  max-height: 60%;
+  max-height: 75%;
   display: flex;
   flex-direction: column;
   background: var(--bg);
   border-top: 1px solid var(--border);
   z-index: 10;
   animation: logSlideUp 0.15s ease;
-  overflow: hidden;
+}
+
+/* Grab zone straddling the panel's top border */
+.resizeHandle {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 20;
+}
+.resizeHandle:hover {
+  background: var(--accent-subtle);
+}
+
+/* Keeps xterm from swallowing mouse events mid-drag */
+.resizeOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  cursor: ns-resize;
 }
 
 .logHeader {
   padding: 6px 14px;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   flex-shrink: 0;
   background: var(--sidebar-bg);
 }
@@ -48,7 +71,7 @@
   height: 6px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 4px rgba(74, 222, 128, 0.3);
+  box-shadow: 0 0 0 3px var(--green-dim);
 }
 
 .logHeaderActions {

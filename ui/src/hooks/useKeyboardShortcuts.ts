@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorktreeStore } from "../stores/worktreeStore";
+import { useGitStore } from "../stores/gitStore";
+import { useUiStore } from "../stores/uiStore";
+import { cycleContext } from "../lib/switchContext";
 
 /** Return the worktree context: current workspace's worktreeId, or the global activeWorktreeId. */
 function currentWorktreeId(): string | null {
@@ -63,6 +66,33 @@ export function useKeyboardShortcuts() {
         } else {
           store.addWorkspace();
         }
+        return;
+      }
+
+      // Cmd+B — toggle the sidebar
+      if ((e.key === "b" || e.key === "B") && !e.shiftKey) {
+        e.preventDefault();
+        useUiStore.getState().toggleSidebar();
+        return;
+      }
+
+      // Cmd+G — toggle the docked git panel
+      if ((e.key === "g" || e.key === "G") && !e.shiftKey) {
+        e.preventDefault();
+        const gs = useGitStore.getState();
+        gs.setActiveGitGroup(gs.activeGitGroupId ? null : "project");
+        return;
+      }
+
+      // Cmd+Shift+] / Cmd+Shift+[ — cycle worktree context
+      if (e.key === "}" || (e.key === "]" && e.shiftKey)) {
+        e.preventDefault();
+        cycleContext(1);
+        return;
+      }
+      if (e.key === "{" || (e.key === "[" && e.shiftKey)) {
+        e.preventDefault();
+        cycleContext(-1);
         return;
       }
 

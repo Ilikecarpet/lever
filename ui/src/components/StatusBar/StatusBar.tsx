@@ -9,6 +9,7 @@ export default function StatusBar() {
   const groups = useConfigStore((s) => s.groups);
   const statuses = useServiceStore((s) => s.statuses);
   const statusMessage = useGitStore((s) => s.statusMessage);
+  const statusKind = useGitStore((s) => s.statusKind);
   const splitPane = useWorkspaceStore((s) => s.splitPane);
   const closePane = useWorkspaceStore((s) => s.closePane);
 
@@ -24,7 +25,12 @@ export default function StatusBar() {
         <span className={`${styles.countDot}${running > 0 ? ` ${styles.countDotActive}` : ""}`} />
         {running}/{total} running
       </span>
-      <span className={styles.info}>{statusMessage ?? ""}</span>
+      <span
+        className={`${styles.info}${statusMessage && statusKind === "error" ? ` ${styles.infoError}` : ""}`}
+        title={statusMessage ?? undefined}
+      >
+        {statusMessage ?? ""}
+      </span>
       <div className={styles.paneControls}>
         <button
           className={styles.paneBtn}

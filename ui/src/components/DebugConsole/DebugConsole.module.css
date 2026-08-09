@@ -1,6 +1,6 @@
 .panel {
   position: fixed;
-  bottom: 34px;
+  bottom: 32px; /* 26px status bar + 6px gap */
   right: 12px;
   width: 520px;
   max-width: calc(100vw - 24px);
