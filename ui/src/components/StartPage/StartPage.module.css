@@ -130,13 +130,12 @@
   border-radius: var(--radius-md);
   padding: 18px 20px;
   cursor: pointer;
-  box-shadow: inset 2px 0 0 transparent;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .card:hover {
-  border-color: var(--border-hover);
-  box-shadow: inset 2px 0 0 var(--accent);
+  border-color: var(--accent);
+  background: var(--surface-raised);
 }
 
 .cardHeader {

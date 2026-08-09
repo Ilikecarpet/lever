@@ -326,8 +326,7 @@
 
 .mainContextActive {
   color: var(--accent);
-  background: var(--accent-dim);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--accent-subtle);
 }
 .mainContextActive:hover {
   color: var(--accent-hover);
