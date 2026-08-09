@@ -86,7 +86,7 @@ function ProjectApp() {
 
   return (
     <>
-      <TopBar onOpenSettings={() => setSettingsOpen(true)} />
+      <TopBar />
       <div className={styles.layout}>
         <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
         <MainPanel />

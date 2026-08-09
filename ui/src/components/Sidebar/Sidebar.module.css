@@ -60,6 +60,160 @@
   pointer-events: none;
 }
 
+/* ---- Project menu row ---- */
+.sidebarTop {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+/* Reads as a control at rest — bordered chip, not bare text */
+.projectBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.15s;
+}
+.projectBtn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+
+.projectName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectChevron {
+  color: var(--text-dim);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 10px;
+  right: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 0;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text);
+  transition: background 0.1s;
+  cursor: pointer;
+}
+.menuItem:hover {
+  background: var(--surface-hover);
+}
+
+.menuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.themeToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.themeToggle:hover {
+  background: var(--surface-hover);
+}
+
+.themeToggleLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.themeChevron {
+  color: var(--text-muted);
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+.themeChevronOpen {
+  transform: rotate(180deg);
+}
+
+.themeList {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+.themeListOpen {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.themeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: background 0.1s, color 0.1s;
+  cursor: pointer;
+}
+.themeOption:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.themeOptionActive {
+  color: var(--accent);
+}
+
+.themeSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+
+.themeCheck {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--accent);
+}
+
 .sidebarScroll {
   flex: 1;
   overflow-y: auto;
