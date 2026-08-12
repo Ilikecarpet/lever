@@ -12,3 +12,6 @@ ui/node_modules/
 .vscode/
 *.swp
 *.swo
+
+# Vite dependency pre-bundling cache
+ui/.vite/
