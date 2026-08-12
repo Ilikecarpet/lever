@@ -277,3 +277,76 @@
   background: var(--red);
   color: var(--red-fg);
 }
+
+/* Add group — same row and input as the main repo's, so a worktree gains
+   groups exactly the way the repo does. */
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 2px 6px 0;
+  padding: 5px 8px 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.1s, color 0.15s;
+}
+.addRow:hover {
+  color: var(--text-dim);
+  background: var(--surface-hover);
+}
+
+.addGroupInput {
+  padding: 6px 14px 6px 18px;
+}
+.addGroupInput input {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--terminal-bg);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+/* Git panel control — the same affordance the main repo row has, pointed at
+   this worktree's own working tree. */
+.worktreeDirty {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--yellow);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.worktreeGitBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.1s;
+}
+.worktreeGitBtn:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.worktreeGitBtnActive {
+  color: var(--accent);
+  background: var(--accent-dim);
+}

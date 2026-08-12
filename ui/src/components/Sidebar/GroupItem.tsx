@@ -3,6 +3,7 @@ import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { usePanelStore } from "../../stores/panelStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
@@ -10,14 +11,15 @@ import styles from "./GroupItem.module.css";
 
 interface Props {
   group: ServiceGroup;
-  onOpenSettings?: () => void;
   worktreeId?: string | null;
 }
 
-export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) {
+export default function GroupItem({ group, worktreeId }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const renameRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
@@ -25,8 +27,11 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
   const removeGroup = useConfigStore((s) => s.removeGroup);
+  const updateGroup = useConfigStore((s) => s.updateGroup);
   const removeWorktreeGroup = useWorktreeStore((s) => s.removeWorktreeGroup);
+  const updateWorktreeGroup = useWorktreeStore((s) => s.updateWorktreeGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
+  const addInInspector = usePanelStore((s) => s.addService);
 
   const runningCount = group.services.filter(
     (svc) => (statuses[svc.id] ?? "stopped") === "running"
@@ -44,6 +49,10 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
     (svc) => (statuses[svc.id] ?? "stopped") === "running"
   ).length;
   const fraction = hasStartable ? startableRunning / startable.length : 0;
+
+  useEffect(() => {
+    if (renaming) renameRef.current?.select();
+  }, [renaming]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -79,16 +88,32 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (!onOpenSettings) return;
     e.preventDefault();
     e.stopPropagation();
     setConfirmDelete(false);
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const handleManageServices = () => {
+  const handleAddService = () => {
     setContextMenu(null);
-    onOpenSettings?.();
+    addInInspector(worktreeId ?? null, group.id);
+  };
+
+  const handleStartRename = () => {
+    setContextMenu(null);
+    setRenaming(true);
+  };
+
+  /** Renaming lives here rather than in the inspector: the group heading is
+   *  the thing being renamed, so you edit it where you can see it. */
+  const handleRenameConfirm = (value: string) => {
+    const name = value.trim();
+    if (name && name !== group.label) {
+      if (worktreeId) updateWorktreeGroup(worktreeId, group.id, { label: name });
+      else updateGroup(group.id, { label: name });
+      saveConfig();
+    }
+    setRenaming(false);
   };
 
   const handleDeleteConfirm = () => {
@@ -121,9 +146,24 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
           >
             <IconChevron size={10} />
           </span>
-          {group.label}
+          {renaming ? (
+            <input
+              ref={renameRef}
+              className={styles.renameInput}
+              defaultValue={group.label}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") handleRenameConfirm(e.currentTarget.value);
+                if (e.key === "Escape") setRenaming(false);
+              }}
+              onBlur={(e) => handleRenameConfirm(e.currentTarget.value)}
+            />
+          ) : (
+            group.label
+          )}
           {/* The count is only load-bearing while the levers are hidden. */}
-          {collapsed && (
+          {!renaming && collapsed && (
             <span className={styles.groupCount}>
               {runningCount}/{group.services.length}
             </span>
@@ -165,7 +205,7 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
       >
         <div className={styles.groupServicesInner}>
           {group.services.map((svc) => (
-            <ServiceItem key={svc.id} service={svc} groupId={group.id} onOpenSettings={onOpenSettings} worktreeId={worktreeId} />
+            <ServiceItem key={svc.id} service={svc} groupId={group.id} worktreeId={worktreeId} />
           ))}
         </div>
       </div>
@@ -176,14 +216,17 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
           className={styles.ctxMenu}
           data-ctx-grp={group.id}
         >
-          <button className={styles.ctxItem} onClick={handleManageServices}>
-            Manage Services
+          <button className={styles.ctxItem} onClick={handleAddService}>
+            Add service
+          </button>
+          <button className={styles.ctxItem} onClick={handleStartRename}>
+            Rename group
           </button>
           <button
             className={`${styles.ctxItem} ${styles.ctxItemDanger}`}
             onClick={() => setConfirmDelete((v) => !v)}
           >
-            Delete Group
+            Delete group
           </button>
           <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
             <div className={styles.confirmInner}>

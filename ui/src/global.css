@@ -41,6 +41,11 @@
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
+  /* Window chrome. Anything that has to sit inside the layout band — the
+     service inspector flies out into it — measures itself off these. */
+  --topbar-h: 38px;
+  --statusbar-h: 26px;
+
   /* Radius */
   --radius-sm: 4px;
   --radius-md: 8px;

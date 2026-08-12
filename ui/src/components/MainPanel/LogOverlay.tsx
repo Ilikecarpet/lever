@@ -5,6 +5,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useThemeStore, onTerminalThemeChange } from "../../stores/themeStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import * as api from "../../lib/tauri";
 import { tauriListen } from "../../lib/tauri";
 import { IconClose } from "../Icons";
@@ -110,7 +111,7 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     const term = new Terminal({
       theme: useThemeStore.getState().getTerminalTheme(),
       fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
-      fontSize: 13,
+      fontSize: useSettingsStore.getState().terminalFontSize,
       lineHeight: 1.4,
       cursorBlink: false,
       cursorInactiveStyle: "outline",

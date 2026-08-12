@@ -4,11 +4,20 @@ import * as api from "../lib/tauri";
 
 export type StatusKind = "info" | "error";
 
+/** The main repo, as opposed to one of its worktrees. */
+export const MAIN_GIT_TARGET = "project";
+
 interface GitState {
   repoPath: string;
   gitInfo: GitRepoInfo | null;
   worktreeGitInfo: Record<string, GitRepoInfo>;
+  /**
+   * What the git panel is pointed at: MAIN_GIT_TARGET for the main repo, or a
+   * worktree id. Null when the panel is closed.
+   */
   activeGitGroupId: string | null;
+  /** The working tree that staging, diffing and pulling act on. */
+  activeGitPath: string;
   statusMessage: string | null;
   statusKind: StatusKind;
 
@@ -24,7 +33,7 @@ interface GitState {
   stageAll: () => Promise<void>;
   unstageAll: () => Promise<void>;
   discard: (filePath: string) => Promise<void>;
-  setActiveGitGroup: (groupId: string | null) => void;
+  setActiveGitGroup: (groupId: string | null, path?: string) => void;
   setStatusMessage: (msg: string | null, kind?: StatusKind) => void;
 }
 
@@ -51,11 +60,26 @@ function gitInfoEqual(a: GitRepoInfo | null | undefined, b: GitRepoInfo): boolea
   });
 }
 
+/** The working tree the panel is acting on — a worktree's, or the main repo's. */
+function activeGitPath(state: GitState): string {
+  return state.activeGitPath || state.repoPath;
+}
+
+/** Re-read status for whichever tree was just mutated, not always the main one. */
+function refreshActiveGitInfo(get: () => GitState): Promise<void> {
+  const s = get();
+  if (!s.activeGitGroupId || s.activeGitGroupId === MAIN_GIT_TARGET) {
+    return s.refreshGitInfo();
+  }
+  return s.refreshWorktreeGitInfo(s.activeGitGroupId, activeGitPath(s));
+}
+
 export const useGitStore = create<GitState>((set, get) => ({
   repoPath: "",
   gitInfo: null,
   worktreeGitInfo: {},
   activeGitGroupId: null,
+  activeGitPath: "",
   statusMessage: null,
   statusKind: "info",
 
@@ -87,14 +111,13 @@ export const useGitStore = create<GitState>((set, get) => ({
       console.error(`Failed to get worktree git info for ${worktreeId}:`, e);
     }
   },
-
   fetch: async () => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
       set({ statusMessage: "Fetching...", statusKind: "info" });
-      await api.gitFetch(repoPath);
-      await get().refreshGitInfo();
+      await api.gitFetch(path);
+      await refreshActiveGitInfo(get);
       set({ statusMessage: "Fetch complete", statusKind: "info" });
       autoClearStatus(set);
     } catch (e) {
@@ -105,12 +128,12 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   pull: async () => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
       set({ statusMessage: "Pulling...", statusKind: "info" });
-      const result = await api.gitPull(repoPath);
-      await get().refreshGitInfo();
+      const result = await api.gitPull(path);
+      await refreshActiveGitInfo(get);
       const summary = result.trim().split("\n")[0] || "Pull complete";
       set({ statusMessage: summary, statusKind: "info" });
       autoClearStatus(set);
@@ -122,11 +145,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   stage: async (filePath) => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
-      await api.gitStage(repoPath, filePath);
-      await get().refreshGitInfo();
+      await api.gitStage(path, filePath);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Stage failed: ${msg}`, statusKind: "error" });
@@ -135,11 +158,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   unstage: async (filePath) => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
-      await api.gitUnstage(repoPath, filePath);
-      await get().refreshGitInfo();
+      await api.gitUnstage(path, filePath);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Unstage failed: ${msg}`, statusKind: "error" });
@@ -148,11 +171,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   stageMany: async (filePaths) => {
-    const { repoPath } = get();
-    if (!repoPath || filePaths.length === 0) return;
+    const path = activeGitPath(get());
+    if (!path || filePaths.length === 0) return;
     try {
-      await api.gitStageMany(repoPath, filePaths);
-      await get().refreshGitInfo();
+      await api.gitStageMany(path, filePaths);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Stage failed: ${msg}`, statusKind: "error" });
@@ -161,11 +184,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   unstageMany: async (filePaths) => {
-    const { repoPath } = get();
-    if (!repoPath || filePaths.length === 0) return;
+    const path = activeGitPath(get());
+    if (!path || filePaths.length === 0) return;
     try {
-      await api.gitUnstageMany(repoPath, filePaths);
-      await get().refreshGitInfo();
+      await api.gitUnstageMany(path, filePaths);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Unstage failed: ${msg}`, statusKind: "error" });
@@ -174,11 +197,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   stageAll: async () => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
-      await api.gitStageAll(repoPath);
-      await get().refreshGitInfo();
+      await api.gitStageAll(path);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Stage all failed: ${msg}`, statusKind: "error" });
@@ -187,11 +210,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   unstageAll: async () => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
-      await api.gitUnstageAll(repoPath);
-      await get().refreshGitInfo();
+      await api.gitUnstageAll(path);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Unstage all failed: ${msg}`, statusKind: "error" });
@@ -200,11 +223,11 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   discard: async (filePath) => {
-    const { repoPath } = get();
-    if (!repoPath) return;
+    const path = activeGitPath(get());
+    if (!path) return;
     try {
-      await api.gitDiscard(repoPath, filePath);
-      await get().refreshGitInfo();
+      await api.gitDiscard(path, filePath);
+      await refreshActiveGitInfo(get);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({ statusMessage: `Discard failed: ${msg}`, statusKind: "error" });
@@ -212,8 +235,13 @@ export const useGitStore = create<GitState>((set, get) => ({
     }
   },
 
-  setActiveGitGroup: (groupId) => {
-    set({ activeGitGroupId: groupId });
+  setActiveGitGroup: (groupId, path) => {
+    if (groupId === null) {
+      set({ activeGitGroupId: null });
+      return;
+    }
+    // A worktree passes its own path; the main repo falls back to the project's.
+    set({ activeGitGroupId: groupId, activeGitPath: path ?? get().repoPath });
   },
 
   setStatusMessage: (msg, kind = "info") => {

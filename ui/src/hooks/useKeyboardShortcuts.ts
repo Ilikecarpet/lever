@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorktreeStore } from "../stores/worktreeStore";
-import { useGitStore } from "../stores/gitStore";
+import { useGitStore, MAIN_GIT_TARGET } from "../stores/gitStore";
 import { useUiStore } from "../stores/uiStore";
 import { cycleContext } from "../lib/switchContext";
 
@@ -76,11 +76,20 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd+G — toggle the docked git panel
+      // Cmd+G — toggle the docked git panel on the context you are actually in,
+      // so it stages the worktree you are working in rather than always main.
       if ((e.key === "g" || e.key === "G") && !e.shiftKey) {
         e.preventDefault();
         const gs = useGitStore.getState();
-        gs.setActiveGitGroup(gs.activeGitGroupId ? null : "project");
+        const wtId = currentWorktreeId();
+        const wt = wtId
+          ? useWorktreeStore.getState().worktrees.find((w) => w.id === wtId)
+          : undefined;
+        const target = wt ? wt.id : MAIN_GIT_TARGET;
+        gs.setActiveGitGroup(
+          gs.activeGitGroupId === target ? null : target,
+          wt ? wt.path : gs.repoPath
+        );
         return;
       }
 

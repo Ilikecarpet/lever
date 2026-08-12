@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useGitStore } from "../../stores/gitStore";
+import { useGitStore, MAIN_GIT_TARGET } from "../../stores/gitStore";
 import * as api from "../../lib/tauri";
 import type { GitFileStatus } from "../../types";
 import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle, IconClose } from "../Icons";
@@ -484,8 +484,9 @@ function getInitialGitWidth(): number {
 
 export default function GitPanel() {
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
-  const gitInfo = useGitStore((s) => s.gitInfo);
-  const repoPath = useGitStore((s) => s.repoPath);
+  const mainGitInfo = useGitStore((s) => s.gitInfo);
+  const worktreeGitInfo = useGitStore((s) => s.worktreeGitInfo);
+  const repoPath = useGitStore((s) => s.activeGitPath || s.repoPath);
   const fetchGit = useGitStore((s) => s.fetch);
   const pull = useGitStore((s) => s.pull);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
@@ -514,6 +515,12 @@ export default function GitPanel() {
   };
 
   if (!activeGitGroupId) return null;
+
+  // The panel follows whatever it was opened on: the main repo, or a worktree.
+  const gitInfo =
+    activeGitGroupId === MAIN_GIT_TARGET
+      ? mainGitInfo
+      : (worktreeGitInfo[activeGitGroupId] ?? null);
 
   if (!gitInfo) {
     return (

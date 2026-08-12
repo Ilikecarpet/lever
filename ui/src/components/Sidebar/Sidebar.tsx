@@ -2,13 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import * as api from "../../lib/tauri";
 import { useConfigStore } from "../../stores/configStore";
-import { useGitStore } from "../../stores/gitStore";
+import { useGitStore, MAIN_GIT_TARGET } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useThemeStore, themes } from "../../stores/themeStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { usePanelStore } from "../../stores/panelStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
@@ -20,11 +20,7 @@ import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
 import styles from "./Sidebar.module.css";
 
-interface Props {
-  onOpenSettings: () => void;
-}
-
-export default function Sidebar({ onOpenSettings }: Props) {
+export default function Sidebar() {
   const groups = useConfigStore((s) => s.groups);
   const addGroup = useConfigStore((s) => s.addGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
@@ -45,8 +41,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
-  const debugConsole = useSettingsStore((s) => s.debugConsole);
-  const toggleDebugConsole = useSettingsStore((s) => s.toggleDebugConsole);
+  const openSettings = usePanelStore((s) => s.openSettings);
 
   const statuses = useServiceStore((s) => s.statuses);
 
@@ -126,7 +121,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
 
   const handleSettings = () => {
     setMenuOpen(false);
-    onOpenSettings();
+    openSettings();
   };
 
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -212,7 +207,10 @@ export default function Sidebar({ onOpenSettings }: Props) {
   // Toggles the docked git panel; terminals stay where they are.
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setActiveGitGroup(activeGitGroupId ? null : "project");
+    setActiveGitGroup(
+      activeGitGroupId === MAIN_GIT_TARGET ? null : MAIN_GIT_TARGET,
+      repoPath
+    );
   };
 
   const handleCreateWorktree = async (branch: string, path: string, baseBranch?: string, replaceStale?: boolean) => {
@@ -263,13 +261,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
             <div className={styles.menuDivider} />
             <button className={styles.menuItem} onClick={handleSettings}>
               <IconGear size={13} /> Settings
-            </button>
-            <button
-              className={styles.menuItem}
-              onClick={(e) => { e.stopPropagation(); toggleDebugConsole(); }}
-            >
-              <IconGear size={13} /> Debug console
-              {debugConsole && <span className={styles.themeCheck}>✓</span>}
             </button>
             <div className={styles.menuDivider} />
             <button
@@ -345,9 +336,9 @@ export default function Sidebar({ onOpenSettings }: Props) {
               <span className={styles.mainContextDirty} title="Uncommitted changes" />
             )}
             <span
-              className={`${styles.mainContextGitBtn}${activeGitGroupId ? ` ${styles.mainContextGitBtnActive}` : ""}`}
+              className={`${styles.mainContextGitBtn}${activeGitGroupId === MAIN_GIT_TARGET ? ` ${styles.mainContextGitBtnActive}` : ""}`}
               onClick={handleOpenGitPanel}
-              title={activeGitGroupId ? "Close git panel (⌘G)" : "Open git panel (⌘G)"}
+              title={activeGitGroupId === MAIN_GIT_TARGET ? "Close git panel (⌘G)" : "Open git panel (⌘G)"}
             >
               <IconBranch size={12} />
             </span>
@@ -362,10 +353,10 @@ export default function Sidebar({ onOpenSettings }: Props) {
                 className={styles.mainCtxItem}
                 onClick={() => {
                   setMainCtxMenu(null);
-                  onOpenSettings();
+                  setAdding(true);
                 }}
               >
-                Manage Services
+                Add group
               </button>
             </div>
           )}
@@ -380,7 +371,7 @@ export default function Sidebar({ onOpenSettings }: Props) {
         >
           <div className={styles.contextGroupsInner}>
             {groups.map((group) => (
-              <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
+              <GroupItem key={group.id} group={group} />
             ))}
 
             {adding ? (

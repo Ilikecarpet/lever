@@ -7,6 +7,7 @@ import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useThemeStore, onTerminalThemeChange } from "../stores/themeStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import type { PtyDataEvent, PtyExitEvent } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,23 @@ onTerminalThemeChange((termTheme) => {
   for (const [, entry] of ptyStore) {
     if (!entry.disposed) {
       entry.term.options.theme = termTheme;
+    }
+  }
+});
+
+// Type size applies to every open terminal immediately. Each one has to be
+// refitted afterwards: the cell size changed, so the cols/rows the PTY was told
+// about are now wrong and output would wrap in the wrong place.
+useSettingsStore.subscribe((state, prev) => {
+  if (state.terminalFontSize === prev.terminalFontSize) return;
+  for (const [, entry] of ptyStore) {
+    if (entry.disposed) continue;
+    entry.term.options.fontSize = state.terminalFontSize;
+    try {
+      entry.fitAddon.fit();
+    } catch {
+      // A pane that is detached from the DOM has no size to fit to yet; it
+      // refits on its next mount.
     }
   }
 });
@@ -218,8 +236,9 @@ export function usePty(
     const term = new Terminal({
       theme: useThemeStore.getState().getTerminalTheme(),
       fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
-      fontSize: 13,
+      fontSize: useSettingsStore.getState().terminalFontSize,
       lineHeight: 1.4,
+      scrollback: useSettingsStore.getState().terminalScrollback,
       cursorBlink: false,
       cursorInactiveStyle: "outline",
       allowProposedApi: true,

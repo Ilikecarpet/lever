@@ -139,6 +139,22 @@ export function IconExport({ size = 14, className }: P) {
   );
 }
 
+export function IconPencil({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <path d="M11.5 2.5l2 2L6 12l-2.8.8L4 10z" />
+    </svg>
+  );
+}
+
+export function IconTrash({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9a1 1 0 001 1h4.6a1 1 0 001-1L12 4" />
+    </svg>
+  );
+}
+
 export function IconSidebarCollapse({ size = 14, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>

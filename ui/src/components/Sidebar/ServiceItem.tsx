@@ -3,6 +3,7 @@ import type { ServiceDef } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { usePanelStore } from "../../stores/panelStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./ServiceItem.module.css";
 
@@ -15,11 +16,10 @@ const DONE_MS = 700;
 interface Props {
   service: ServiceDef;
   groupId: string;
-  onOpenSettings?: () => void;
   worktreeId?: string | null;
 }
 
-export default function ServiceItem({ service, groupId, onOpenSettings, worktreeId }: Props) {
+export default function ServiceItem({ service, groupId, worktreeId }: Props) {
   const status = useServiceStore((s) => s.statuses[service.id] ?? "stopped");
   const pending = useServiceStore((s) => s.pending[service.id]);
   const startService = useServiceStore((s) => s.startService);
@@ -29,6 +29,7 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   const removeService = useConfigStore((s) => s.removeService);
   const removeWorktreeService = useWorktreeStore((s) => s.removeWorktreeService);
   const saveConfig = useConfigStore((s) => s.saveConfig);
+  const editInInspector = usePanelStore((s) => s.editService);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -98,16 +99,17 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (!onOpenSettings) return;
     e.preventDefault();
     e.stopPropagation();
     setConfirmDelete(false);
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
+  /** Opens the inspector on this service — no list to navigate, it is already
+   *  pointed at the row you right-clicked. */
   const handleEdit = () => {
     setContextMenu(null);
-    onOpenSettings?.();
+    editInInspector(worktreeId ?? null, groupId, service.id);
   };
 
   const handleDeleteConfirm = () => {

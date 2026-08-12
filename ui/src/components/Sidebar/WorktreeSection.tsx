@@ -8,9 +8,9 @@ import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
-import { IconBranch, IconChevron } from "../Icons";
+import { useConfigStore } from "../../stores/configStore";
+import { IconBranch, IconChevron, IconPlus } from "../Icons";
 import GroupItem from "./GroupItem";
-import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
 import styles from "./WorktreeSection.module.css";
 
 interface Props {
@@ -30,10 +30,15 @@ export default function WorktreeSection({ worktree }: Props) {
   );
   const agent = useWorktreeAgent(worktree.id);
   const statuses = useServiceStore((s) => s.statuses);
+  const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
+  const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
+  const gitInfo = useGitStore((s) => s.worktreeGitInfo[worktree.id]);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const addWorktreeGroup = useWorktreeStore((s) => s.addWorktreeGroup);
+  const saveConfig = useConfigStore((s) => s.saveConfig);
   const rowRef = useRef<HTMLDivElement>(null);
   useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
@@ -77,14 +82,33 @@ export default function WorktreeSection({ worktree }: Props) {
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const handleManageServices = () => {
-    setContextMenu(null);
-    setSettingsOpen(true);
+  // Staging and diffing run against this worktree's own working tree, so the
+  // panel is opened on it rather than on the main repo.
+  const gitOpen = activeGitGroupId === worktree.id;
+  const handleOpenGitPanel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActiveGitGroup(gitOpen ? null : worktree.id, worktree.path);
+  };
+
+  /** Mirrors the main repo's add-group row, so a worktree gets groups the same
+   *  way the repo does rather than only through a settings dialog. */
+  const handleAddGroupConfirm = (value: string) => {
+    setAdding(false);
+    const name = value.trim();
+    if (!name) return;
+    const gid = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    if (worktree.groups.find((g) => g.id === gid)) return;
+    addWorktreeGroup(worktree.id, { id: gid, label: name, services: [] });
+    saveConfig();
   };
 
   const handleRemove = async (cleanup: boolean) => {
     setContextMenu(null);
     setConfirmDelete(null);
+    // Otherwise the panel is left staging against a directory that is going away.
+    if (useGitStore.getState().activeGitGroupId === worktree.id) {
+      setActiveGitGroup(null);
+    }
     // Tearing down terminal panes is best-effort: a failure here must never
     // block the actual worktree removal (it previously did, requiring a 2nd try).
     try {
@@ -135,6 +159,16 @@ export default function WorktreeSection({ worktree }: Props) {
             {runningCount}
           </span>
         )}
+        {gitInfo?.is_dirty && (
+          <span className={styles.worktreeDirty} title="Uncommitted changes" />
+        )}
+        <span
+          className={`${styles.worktreeGitBtn}${gitOpen ? ` ${styles.worktreeGitBtnActive}` : ""}`}
+          onClick={handleOpenGitPanel}
+          title={gitOpen ? "Close git panel" : "Open git panel"}
+        >
+          <IconBranch size={12} />
+        </span>
       </div>
 
       {/* Groups collapse away unless this worktree is the selected context. */}
@@ -146,10 +180,27 @@ export default function WorktreeSection({ worktree }: Props) {
             <GroupItem
               key={group.id}
               group={group}
-              onOpenSettings={() => setSettingsOpen(true)}
               worktreeId={worktree.id}
             />
           ))}
+
+          {adding ? (
+            <div className={styles.addGroupInput}>
+              <input
+                autoFocus
+                placeholder="Group name..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddGroupConfirm(e.currentTarget.value);
+                  if (e.key === "Escape") setAdding(false);
+                }}
+                onBlur={(e) => handleAddGroupConfirm(e.currentTarget.value)}
+              />
+            </div>
+          ) : (
+            <button className={styles.addRow} onClick={() => setAdding(true)}>
+              <IconPlus size={10} /> Add group
+            </button>
+          )}
         </div>
       </div>
 
@@ -161,9 +212,12 @@ export default function WorktreeSection({ worktree }: Props) {
         >
           <button
             className={styles.contextMenuItem}
-            onClick={handleManageServices}
+            onClick={() => {
+              setContextMenu(null);
+              setAdding(true);
+            }}
           >
-            Manage Services
+            Add group
           </button>
           <div className={styles.contextMenuDivider} />
           <button
@@ -212,11 +266,6 @@ export default function WorktreeSection({ worktree }: Props) {
         </div>
       )}
 
-      <WorktreeConfigModal
-        open={settingsOpen}
-        worktreeId={worktree.id}
-        onClose={() => setSettingsOpen(false)}
-      />
     </>
   );
 }

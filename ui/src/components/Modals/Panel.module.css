@@ -1,0 +1,191 @@
+/* The flyout shell, shared by every panel that hinges on the sidebar's right
+   edge: the service inspector and the settings panel. Only one is ever open,
+   so they must not drift apart.
+
+   `--hinge` is the sidebar's live width, set inline by the panel. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  /* Transparent, and the click catcher — the scrim below is decoration only. */
+  background: none;
+}
+
+/* Dims the main panel only. The sidebar stays lit: it is where the panel came
+   from, and it is still the navigation while this is open. */
+.scrim {
+  position: absolute;
+  left: var(--hinge, 0px);
+  right: 0;
+  top: var(--topbar-h);
+  bottom: var(--statusbar-h);
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  animation: scrimIn 0.18s ease;
+}
+@keyframes scrimIn {
+  from { opacity: 0; }
+}
+
+.panel {
+  position: absolute;
+  left: var(--hinge, 0px);
+  top: var(--topbar-h);
+  bottom: var(--statusbar-h);
+  width: min(540px, calc(100vw - var(--hinge, 0px) - 28px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  /* Square against the sidebar, rounded away from it — the shape says which
+     edge it is attached to. */
+  border: 1px solid var(--border);
+  border-left-color: var(--border-hover);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  box-shadow: var(--shadow-lg);
+  animation: flyOut 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* A short travel, not a full slide: the panel emerges from the seam instead of
+   sweeping across the sidebar it is supposed to be hinged to. */
+@keyframes flyOut {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+.title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.spacer {
+  flex: 1;
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 22px 26px 26px;
+}
+
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 26px;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.15s, color 0.12s, opacity 0.12s;
+}
+.btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn:disabled:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.btnPrimary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.btnPrimary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btnPrimary:disabled:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.btnGhost {
+  background: none;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+.btnGhost:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btnDanger {
+  background: none;
+  border-color: transparent;
+  color: var(--red);
+}
+.btnDanger:hover {
+  background: var(--red-dim);
+  border-color: transparent;
+  color: var(--red);
+}
+
+.btnSm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* ---- Section heading ---- */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.sectionName {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sectionRule {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}

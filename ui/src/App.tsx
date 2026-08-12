@@ -6,13 +6,15 @@ import { useServiceStore } from "./stores/serviceStore";
 import { useGitStore } from "./stores/gitStore";
 import { useWorktreeStore } from "./stores/worktreeStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
+import { useSettingsStore } from "./stores/settingsStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useDisableTextAssist } from "./hooks/useDisableTextAssist";
 import Sidebar from "./components/Sidebar/Sidebar";
 import TopBar from "./components/TopBar/TopBar";
 import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
-import ConfigModal from "./components/Modals/ConfigModal";
+import ServiceInspector from "./components/Modals/ServiceInspector";
+import SettingsPanel from "./components/Modals/SettingsPanel";
 import StartPage from "./components/StartPage/StartPage";
 import ScratchApp from "./components/ScratchApp/ScratchApp";
 import DebugConsole from "./components/DebugConsole/DebugConsole";
@@ -29,7 +31,6 @@ function ProjectApp() {
   const refreshGitInfo = useGitStore((s) => s.refreshGitInfo);
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const initialized = useRef(false);
 
   useKeyboardShortcuts();
@@ -47,6 +48,11 @@ function ProjectApp() {
     // reads cwd once (on pane mount), so a late setRepoPath can't fix it.
     const pid = getProjectId();
     const bootstrap = async () => {
+      // Mirror the close-behaviour preference down before anything can be
+      // started, so a quit right after launch still honours it.
+      api
+        .setStopServicesOnQuit(useSettingsStore.getState().stopServicesOnQuit)
+        .catch(() => {});
       if (pid) {
         try {
           const rp = await api.getRepoPath(pid);
@@ -88,16 +94,14 @@ function ProjectApp() {
     <>
       <TopBar />
       <div className={styles.layout}>
-        <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+        <Sidebar />
         <MainPanel />
       </div>
       <StatusBar />
-      {settingsOpen && (
-        <ConfigModal
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
+      {/* One instance each for the whole app — the sidebar points them at
+          things, and panelStore guarantees only one is open. */}
+      <ServiceInspector />
+      <SettingsPanel />
       <DebugConsole />
     </>
   );

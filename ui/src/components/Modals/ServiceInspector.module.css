@@ -1,0 +1,230 @@
+/* Service-specific styles. The flyout shell, buttons and section headings come
+   from Panel.module.css, shared with the settings panel.
+
+   Colour discipline, matching the sidebar: accent is the primary action and
+   nothing else here; green belongs to run state; red is reserved for things
+   that destroy. Focus is neutral elevation. */
+
+.detailName {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.crumbs i {
+  font-style: normal;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* The command, shown as the thing it is. It updates as you type, so what will
+   be spawned is never something you have to assemble in your head. */
+.runStrip {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 20px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--terminal-bg);
+  overflow-x: auto;
+}
+.runPrompt {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--green);
+}
+.runCmd {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.runCmd em {
+  font-style: normal;
+  color: var(--text-dim);
+}
+.runEmpty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.runCwd {
+  margin-top: 6px;
+  padding-left: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.fieldSet {
+  margin-top: 24px;
+}
+
+.fRow {
+  display: flex;
+  gap: 14px;
+}
+.fRow > .f {
+  flex: 1;
+  min-width: 0;
+}
+.f {
+  margin-bottom: 14px;
+}
+.f label {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+.f input,
+.f select {
+  width: 100%;
+  padding: 8px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.15s, background 0.12s;
+}
+/* Focus is neutral elevation, never accent — accent is the primary action. */
+.f input:focus,
+.f select:focus {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+.f input::placeholder {
+  color: var(--text-muted);
+}
+.f input:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.mono {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+.fMuted {
+  opacity: 0.45;
+}
+
+/* Segmented type control — both options visible, because the choice changes
+   what the row becomes in the sidebar. */
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.segBtn {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.segBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text-dim);
+}
+.segBtn + .segBtn {
+  border-left: 1px solid var(--border);
+}
+.segBtnOn {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ---- Confirm accordion ----
+   The same idiom as the sidebar's context menus, so there is one way to confirm
+   a deletion in the whole app. Grid rows rather than a max-height cap so the
+   message can wrap to any height without clipping. */
+.confirm {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.confirm[data-open="1"] {
+  grid-template-rows: 1fr;
+}
+.confirmInner {
+  overflow: hidden;
+  min-height: 0;
+}
+.confirmBox {
+  padding: 12px 26px;
+  border-top: 1px solid var(--border);
+  background: var(--red-dim);
+}
+.confirmMsg {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.confirmMsg b {
+  color: var(--text);
+  font-weight: 600;
+}
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
+}
+.confirmNo,
+.confirmYes {
+  padding: 5px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.confirmNo {
+  font-weight: 500;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+}
+.confirmNo:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.confirmYes {
+  font-weight: 600;
+  background: var(--red-dim);
+  color: var(--red);
+}
+.confirmYes:hover {
+  background: var(--red);
+  color: var(--red-fg);
+}
