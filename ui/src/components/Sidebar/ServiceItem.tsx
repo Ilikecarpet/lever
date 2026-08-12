@@ -4,8 +4,13 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
-import { IconPlay, IconStop } from "../Icons";
 import styles from "./ServiceItem.module.css";
+
+/** A task can start and finish faster than the eye can register, so its ring
+ *  spins for at least this long before it is allowed to resolve. */
+const MIN_SPIN_MS = 700;
+/** How long the completion mark lingers after a task ends. */
+const DONE_MS = 700;
 
 interface Props {
   service: ServiceDef;
@@ -16,6 +21,7 @@ interface Props {
 
 export default function ServiceItem({ service, groupId, onOpenSettings, worktreeId }: Props) {
   const status = useServiceStore((s) => s.statuses[service.id] ?? "stopped");
+  const pending = useServiceStore((s) => s.pending[service.id]);
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
   const activeServiceId = useServiceStore((s) => s.activeServiceId);
@@ -31,6 +37,32 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
 
   const isRunning = status === "running";
   const isActive = activeServiceId === service.id;
+  const isTask = service.service_type === "task";
+  const inFlight = pending !== undefined;
+
+  // --- Task motion: fire → spin → settle -----------------------------------
+  // The ring is driven from the click rather than from polled status, because a
+  // task can begin and exit inside a single poll window and would otherwise
+  // never be seen running at all.
+  const [floor, setFloor] = useState(false);
+  const [done, setDone] = useState(false);
+  const floorTimer = useRef<number | undefined>(undefined);
+  const wasSpinning = useRef(false);
+  const spinning = isTask && (isRunning || inFlight || floor);
+
+  useEffect(() => {
+    if (spinning) {
+      wasSpinning.current = true;
+      return;
+    }
+    if (!wasSpinning.current) return;
+    wasSpinning.current = false;
+    setDone(true);
+    const t = window.setTimeout(() => setDone(false), DONE_MS);
+    return () => window.clearTimeout(t);
+  }, [spinning]);
+
+  useEffect(() => () => window.clearTimeout(floorTimer.current), []);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -46,6 +78,23 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
 
   const handleClick = () => {
     setActiveService(isActive ? null : service.id);
+  };
+
+  /** The lever (services) and the ring (tasks) both toggle; the row itself
+   *  still just focuses the terminal. */
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (inFlight) return;
+    if (isRunning) {
+      stopService(service.id);
+      return;
+    }
+    if (isTask) {
+      setFloor(true);
+      window.clearTimeout(floorTimer.current);
+      floorTimer.current = window.setTimeout(() => setFloor(false), MIN_SPIN_MS);
+    }
+    startService(service.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -78,43 +127,37 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
   return (
     <>
       <div
-        className={`${styles.svcItem}${isActive ? ` ${styles.svcItemActive}` : ""}`}
+        className={`${styles.svcItem}${isActive ? ` ${styles.svcItemActive}` : ""}${isRunning ? ` ${styles.svcItemRunning}` : ""}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        title="Toggle terminal"
       >
-        <div
-          className={`${styles.svcDot}${isRunning ? ` ${styles.svcDotRunning}` : ""}`}
-        />
-        <span className={styles.svcName}>{service.label}</span>
-        {service.service_type === "task" && (
-          <span className={styles.svcBadge}>Task</span>
+        <span className={styles.svcName} title={service.label}>
+          {service.label}
+        </span>
+        {isTask && <span className={styles.svcKind}>task</span>}
+
+        {isTask ? (
+          <button
+            className={`${styles.ringWrap}${spinning ? ` ${styles.spinning}` : ""}${done ? ` ${styles.done}` : ""}`}
+            onClick={handleToggle}
+            title={spinning ? "Stop task" : "Run task"}
+            aria-label={spinning ? `Stop ${service.label}` : `Run ${service.label}`}
+          >
+            <span className={styles.fire}>▶</span>
+            <span className={styles.ring} />
+          </button>
+        ) : (
+          <button
+            className={`${styles.lever}${isRunning ? ` ${styles.leverOn}` : ""}${inFlight ? ` ${styles.leverMid}` : ""}`}
+            onClick={handleToggle}
+            role="switch"
+            aria-checked={isRunning}
+            title={inFlight ? (pending === "starting" ? "Starting…" : "Stopping…") : isRunning ? "Stop" : "Start"}
+            aria-label={`${isRunning ? "Stop" : "Start"} ${service.label}`}
+          >
+            <span className={styles.leverKnob} />
+          </button>
         )}
-        <div className={styles.svcActions}>
-          {isRunning ? (
-            <button
-              className={`${styles.svcBtn} ${styles.svcBtnKill}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                stopService(service.id);
-              }}
-              title="Stop"
-            >
-              <IconStop size={12} />
-            </button>
-          ) : (
-            <button
-              className={`${styles.svcBtn} ${styles.svcBtnPlay}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                startService(service.id);
-              }}
-              title="Start"
-            >
-              <IconPlay size={12} />
-            </button>
-          )}
-        </div>
       </div>
 
       {contextMenu && (
@@ -133,22 +176,24 @@ export default function ServiceItem({ service, groupId, onOpenSettings, worktree
             Delete
           </button>
           <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmWarning}>
-              This will permanently remove this service.
-            </div>
-            <div className={styles.confirmActions}>
-              <button
-                className={styles.confirmCancel}
-                onClick={() => setConfirmDelete(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className={styles.confirmYes}
-                onClick={handleDeleteConfirm}
-              >
-                Yes, delete
-              </button>
+            <div className={styles.confirmInner}>
+              <div className={styles.confirmWarning}>
+                This will permanently remove this service.
+              </div>
+              <div className={styles.confirmActions}>
+                <button
+                  className={styles.confirmCancel}
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={styles.confirmYes}
+                  onClick={handleDeleteConfirm}
+                >
+                  Yes, delete
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -5,12 +5,14 @@ import { useConfigStore } from "../../stores/configStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useServiceStore } from "../../stores/serviceStore";
 import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useThemeStore, themes } from "../../stores/themeStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
+import { afterFold } from "../../lib/revealOnSwitch";
 import type { ProjectExport } from "../../types";
 import { IconBranch, IconPlus, IconChevron, IconFolder, IconExport, IconGear } from "../Icons";
 import GroupItem from "./GroupItem";
@@ -46,7 +48,18 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const debugConsole = useSettingsStore((s) => s.debugConsole);
   const toggleDebugConsole = useSettingsStore((s) => s.toggleDebugConsole);
 
+  const statuses = useServiceStore((s) => s.statuses);
+
   const mainAgent = useWorktreeAgent(null);
+
+  const isMainActive = activeWorktreeId === null;
+
+  // Collapsing hides the services themselves, so the row carries the count —
+  // otherwise the main repo can be running things with nothing on screen
+  // saying so.
+  const mainRunningCount = groups
+    .flatMap((g) => g.services)
+    .filter((svc) => (statuses[svc.id] ?? "stopped") === "running").length;
 
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
@@ -138,6 +151,20 @@ export default function Sidebar({ onOpenSettings }: Props) {
   const mainCtxMenuRef = useRef<HTMLDivElement>(null);
   useClampToViewport(mainCtxMenuRef, mainCtxMenu?.x ?? 0, mainCtxMenu?.y ?? 0);
 
+  // Switching away collapses the main groups, so drop any half-typed new group
+  // rather than leaving a focused input hidden inside the collapsed section.
+  useEffect(() => {
+    if (activeWorktreeId !== null) setAdding(false);
+  }, [activeWorktreeId]);
+
+  // The main repo's groups sit at the top of the scroll area, so returning to
+  // it means scrolling back up — otherwise the view stays down where whatever
+  // worktree was selected used to be.
+  useEffect(() => {
+    if (!isMainActive) return;
+    return afterFold((behavior) => scrollRef.current?.scrollTo({ top: 0, behavior }));
+  }, [isMainActive]);
+
   useEffect(() => {
     if (adding && inputRef.current) {
       inputRef.current.focus();
@@ -194,8 +221,6 @@ export default function Sidebar({ onOpenSettings }: Props) {
     setActiveWorktree(wt.id);
     useWorkspaceStore.getState().addWorkspaceForWorktree(wt.id);
   };
-
-  const isMainActive = activeWorktreeId === null;
 
   return (
     <div
@@ -260,17 +285,19 @@ export default function Sidebar({ onOpenSettings }: Props) {
               </span>
             </button>
             <div className={`${styles.themeList}${themeExpanded ? ` ${styles.themeListOpen}` : ""}`}>
-              {themes.map((t) => (
-                <button
-                  key={t.id}
-                  className={`${styles.themeOption}${activeThemeId === t.id ? ` ${styles.themeOptionActive}` : ""}`}
-                  onClick={() => setTheme(t.id)}
-                >
-                  <span className={styles.themeSwatch} style={{ background: t.swatch }} />
-                  {t.label}
-                  {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
-                </button>
-              ))}
+              <div className={styles.themeListInner}>
+                {themes.map((t) => (
+                  <button
+                    key={t.id}
+                    className={`${styles.themeOption}${activeThemeId === t.id ? ` ${styles.themeOptionActive}` : ""}`}
+                    onClick={() => setTheme(t.id)}
+                  >
+                    <span className={styles.themeSwatch} style={{ background: t.swatch }} />
+                    {t.label}
+                    {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -286,7 +313,14 @@ export default function Sidebar({ onOpenSettings }: Props) {
               setMainCtxMenu({ x: e.clientX, y: e.clientY });
             }}
           >
-            <IconBranch size={13} />
+            <span
+              className={`${styles.contextChevron}${isMainActive ? "" : ` ${styles.contextChevronCollapsed}`}`}
+            >
+              <IconChevron size={10} />
+            </span>
+            <span className={styles.branchIcon}>
+              <IconBranch size={13} />
+            </span>
             <span className={styles.mainContextText}>
               <span
                 className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
@@ -298,8 +332,17 @@ export default function Sidebar({ onOpenSettings }: Props) {
                 {repoPath.replace(/^\/Users\/[^/]+/, "~")}
               </span>
             </span>
+            {!isMainActive && mainRunningCount > 0 && (
+              <span
+                className={styles.runningBadge}
+                title={`${mainRunningCount} service${mainRunningCount !== 1 ? "s" : ""} running`}
+              >
+                <span className={styles.runningDot} />
+                {mainRunningCount}
+              </span>
+            )}
             {gitInfo?.is_dirty && (
-              <span className={styles.mainContextDirty}>●</span>
+              <span className={styles.mainContextDirty} title="Uncommitted changes" />
             )}
             <span
               className={`${styles.mainContextGitBtn}${activeGitGroupId ? ` ${styles.mainContextGitBtnActive}` : ""}`}
@@ -330,24 +373,32 @@ export default function Sidebar({ onOpenSettings }: Props) {
       )}
 
       <div className={styles.sidebarScroll} ref={scrollRef}>
-        {groups.map((group) => (
-          <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
-        ))}
+        {/* Only the selected context shows its groups; the rest stay collapsed
+            behind their branch row so the sidebar tracks one branch at a time. */}
+        <div
+          className={`${styles.contextGroups}${isMainActive ? "" : ` ${styles.contextGroupsCollapsed}`}`}
+        >
+          <div className={styles.contextGroupsInner}>
+            {groups.map((group) => (
+              <GroupItem key={group.id} group={group} onOpenSettings={onOpenSettings} />
+            ))}
 
-        {adding ? (
-          <div className={styles.addGroupInput}>
-            <input
-              ref={inputRef}
-              placeholder="Group name..."
-              onKeyDown={handleKeyDown}
-              onBlur={handleBlur}
-            />
+            {adding ? (
+              <div className={styles.addGroupInput}>
+                <input
+                  ref={inputRef}
+                  placeholder="Group name..."
+                  onKeyDown={handleKeyDown}
+                  onBlur={handleBlur}
+                />
+              </div>
+            ) : (
+              <button className={styles.addRow} onClick={() => setAdding(true)}>
+                <IconPlus size={10} /> Add group
+              </button>
+            )}
           </div>
-        ) : (
-          <button className={styles.addRow} onClick={() => setAdding(true)}>
-            <IconPlus size={10} /> Add group
-          </button>
-        )}
+        </div>
 
         {repoPath && (
           <>

@@ -1,95 +1,155 @@
+/* Rows sit on a 4px rhythm; the control column on the right is a fixed 22px so
+   levers and task rings line up into a single edge down the group. */
 .svcItem {
-  padding: 5px 12px 5px 20px;
+  padding: 4px 10px 4px 20px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
-  transition: background var(--transition-fast, 0.1s);
-  font-size: 12px;
+  transition: background var(--transition-fast, 0.1s), box-shadow 0.12s;
   border-radius: var(--radius-sm);
-  margin: 1px 6px;
+  margin: 0 6px;
 }
 .svcItem:hover {
   background: var(--surface-hover);
 }
+/* Focus — the terminal you are looking at — is neutral elevation, never accent.
+   Accent and green are reserved for run state, so the two never collide. */
 .svcItemActive {
-  background: var(--accent-dim);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-hover);
 }
 .svcItemActive:hover {
-  background: var(--accent-subtle);
-}
-
-.svcDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
-  transition: all 0.2s ease;
-}
-.svcDotRunning {
-  background: var(--green);
-  box-shadow: 0 0 0 3px var(--green-dim), 0 0 8px var(--green-dim);
+  background: var(--surface-hover);
 }
 
 .svcName {
   flex: 1;
-  font-weight: 500;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+.svcItemRunning .svcName,
+.svcItemActive .svcName {
+  color: var(--text);
 }
 
-.svcBadge {
+/* Type label, deliberately not accent-coloured: it classifies, it does not
+   claim attention the way a run state does. */
+.svcKind {
   font-family: var(--font-mono);
-  font-size: 8px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 9px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  background: var(--accent-dim);
-  color: var(--accent);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
-/* Always visible controls — subtle when idle, bright on hover */
-.svcActions {
-  display: flex;
-  gap: 2px;
-  opacity: 0.35;
-  transition: opacity 0.15s;
-}
-.svcItem:hover .svcActions {
-  opacity: 1;
-}
-
-.svcBtn {
-  background: none;
-  border: none;
+/* ---- Lever (services) ---- */
+.lever {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   cursor: pointer;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
+  padding: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+.leverKnob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.18s;
+}
+.leverOn {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+.leverOn .leverKnob {
+  transform: translateX(10px);
+  background: var(--green);
+}
+/* Held mid-throw while the spawn or the kill is still in flight — the switch
+   must not claim a process is up before the backend has said so. */
+.leverMid {
+  border-color: var(--border-hover);
+}
+.leverMid .leverKnob {
+  transform: translateX(5px);
+  background: var(--text-dim);
+  animation: leverWait 0.9s ease-in-out infinite;
+}
+@keyframes leverWait {
+  50% { opacity: 0.35; }
+}
+
+/* ---- Ring runner (tasks) ---- */
+.ringWrap {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
 }
-.svcBtnPlay {
-  color: var(--green);
+.fire {
+  font-size: 8px;
+  color: var(--text-muted);
+  transition: color 0.15s, opacity 0.15s;
 }
-.svcBtnPlay:hover {
-  background: var(--green-dim);
+.svcItem:hover .fire {
+  color: var(--text-dim);
 }
-.svcBtnKill {
-  color: var(--red);
+.spinning .fire,
+.done .fire {
+  opacity: 0;
 }
-.svcBtnKill:hover {
-  background: var(--red-dim);
+
+.ring {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s;
 }
-.svcBtn:disabled {
-  opacity: 0.15;
-  cursor: default;
+.spinning .ring {
+  opacity: 1;
+  animation: ringSpin 0.7s linear infinite;
+}
+/* Completion is deliberately neutral: the backend discards waitpid's status,
+   so the UI cannot know whether the task succeeded. */
+.done .ring {
+  opacity: 1;
+  border-color: var(--accent);
+  animation: ringOut 0.7s ease forwards;
+}
+@keyframes ringSpin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ringOut {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.55); opacity: 0; }
 }
 
 /* Context menu */
@@ -127,14 +187,20 @@
   background: var(--red-dim);
 }
 
-/* Delete confirmation accordion */
+/* Delete confirmation accordion. Grid rows rather than a max-height cap: the
+   warning wraps to three lines in a 140px menu, which the old 80px ceiling
+   clipped into the buttons. */
 .confirmAccordion {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.confirmInner {
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  min-height: 0;
 }
 .confirmOpen {
-  max-height: 80px;
+  grid-template-rows: 1fr;
 }
 
 .confirmWarning {

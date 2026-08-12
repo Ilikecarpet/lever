@@ -4,7 +4,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
-import { IconPlay, IconStop, IconChevron } from "../Icons";
+import { IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
 import styles from "./GroupItem.module.css";
 
@@ -32,6 +32,19 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
     (svc) => (statuses[svc.id] ?? "stopped") === "running"
   ).length;
 
+  // A group of nothing but tasks gets no master: there is no sustained state to
+  // latch, and tasks are fired individually from their own rows.
+  const startable = group.services.filter((svc) => svc.service_type !== "task");
+  const hasStartable = startable.length > 0;
+
+  // The master rides the fraction of the group that is actually up, so 1-of-4
+  // and 3-of-4 are distinguishable at a glance rather than both reading as
+  // "some". Tasks are excluded — they are never part of the latched state.
+  const startableRunning = startable.filter(
+    (svc) => (statuses[svc.id] ?? "stopped") === "running"
+  ).length;
+  const fraction = hasStartable ? startableRunning / startable.length : 0;
+
   useEffect(() => {
     if (!contextMenu) return;
     const handler = (e: MouseEvent) => {
@@ -44,6 +57,9 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
     return () => window.removeEventListener("mousedown", handler);
   }, [contextMenu, group.id]);
 
+  // Throwing the master to a side always means that side, whatever the current
+  // position — no toggling and hoping. Start walks the group top-down and stop
+  // walks it bottom-up, so the levers ripple in the order things really happen.
   const handleStartAll = async (e: React.MouseEvent) => {
     e.stopPropagation();
     for (const svc of group.services) {
@@ -106,34 +122,52 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
             <IconChevron size={10} />
           </span>
           {group.label}
-          <span className={styles.groupCount}>
-            {runningCount}/{group.services.length}
-          </span>
+          {/* The count is only load-bearing while the levers are hidden. */}
+          {collapsed && (
+            <span className={styles.groupCount}>
+              {runningCount}/{group.services.length}
+            </span>
+          )}
         </span>
-        <div className={styles.groupActions}>
-          <button
-            className={`${styles.groupBtn} ${styles.groupBtnStart}`}
-            onClick={handleStartAll}
-            title="Start all"
+        <span className={styles.groupRule} />
+        {hasStartable && (
+          <div
+            className={styles.master}
+            data-any={startableRunning > 0 ? "1" : "0"}
+            data-all={startableRunning === startable.length ? "1" : "0"}
+            style={{ ["--pct" as string]: String(fraction) }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <IconPlay size={12} />
-          </button>
-          <button
-            className={`${styles.groupBtn} ${styles.groupBtnStop}`}
-            onClick={handleStopAll}
-            title="Stop all"
-          >
-            <IconStop size={12} />
-          </button>
-        </div>
+            <span className={styles.masterFill} />
+            <span className={styles.masterKnob} />
+            <button
+              className={`${styles.masterZone} ${styles.masterZoneOff}`}
+              onClick={handleStopAll}
+              title="Stop all"
+              aria-label={`Stop all in ${group.label}`}
+            >
+              <span className={styles.masterLabel}>Off</span>
+            </button>
+            <button
+              className={`${styles.masterZone} ${styles.masterZoneOn}`}
+              onClick={handleStartAll}
+              title="Start all"
+              aria-label={`Start all in ${group.label}`}
+            >
+              <span className={styles.masterLabel}>On</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <div
         className={`${styles.groupServices}${collapsed ? ` ${styles.groupServicesCollapsed}` : ""}`}
       >
-        {group.services.map((svc) => (
-          <ServiceItem key={svc.id} service={svc} groupId={group.id} onOpenSettings={onOpenSettings} worktreeId={worktreeId} />
-        ))}
+        <div className={styles.groupServicesInner}>
+          {group.services.map((svc) => (
+            <ServiceItem key={svc.id} service={svc} groupId={group.id} onOpenSettings={onOpenSettings} worktreeId={worktreeId} />
+          ))}
+        </div>
       </div>
 
       {contextMenu && (
@@ -152,18 +186,20 @@ export default function GroupItem({ group, onOpenSettings, worktreeId }: Props) 
             Delete Group
           </button>
           <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmWarning}>
-              {group.services.length > 0
-                ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
-                : "This will delete this empty group."}
-            </div>
-            <div className={styles.confirmActions}>
-              <button className={styles.confirmCancel} onClick={() => setConfirmDelete(false)}>
-                Cancel
-              </button>
-              <button className={styles.confirmYes} onClick={handleDeleteConfirm}>
-                Yes, delete
-              </button>
+            <div className={styles.confirmInner}>
+              <div className={styles.confirmWarning}>
+                {group.services.length > 0
+                  ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
+                  : "This will delete this empty group."}
+              </div>
+              <div className={styles.confirmActions}>
+                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(false)}>
+                  Cancel
+                </button>
+                <button className={styles.confirmYes} onClick={handleDeleteConfirm}>
+                  Yes, delete
+                </button>
+              </div>
             </div>
           </div>
         </div>

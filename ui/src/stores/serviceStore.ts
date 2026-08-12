@@ -5,6 +5,10 @@ import type { AgentInfo, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
+  /** Services with a start/stop in flight. The sidebar's switch holds mid-throw
+   *  while one of these is set, so it never claims a process is up before the
+   *  spawn has actually come back. */
+  pending: Record<string, "starting" | "stopping">;
   ptyIds: Record<string, string>;
   /** pty_id -> AI agent CLI (e.g. "claude") detected in that terminal */
   agents: Record<string, AgentInfo>;
@@ -34,8 +38,21 @@ function statusesEqual(
   return aKeys.every((k) => a[k] === b[k]);
 }
 
+/** Drops one id from the pending map, keeping the same reference when the id
+ *  was not pending so subscribers don't re-render for nothing. */
+function clearPending(
+  pending: Record<string, "starting" | "stopping">,
+  id: string
+): Record<string, "starting" | "stopping"> {
+  if (!(id in pending)) return pending;
+  const next = { ...pending };
+  delete next[id];
+  return next;
+}
+
 export const useServiceStore = create<ServiceState>((set, get) => ({
   statuses: {},
+  pending: {},
   ptyIds: {},
   agents: {},
   activeServiceId: null,
@@ -68,18 +85,22 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
   },
 
   startService: async (id) => {
+    set((state) => ({ pending: { ...state.pending, [id]: "starting" } }));
     try {
       const result = await api.startService(id);
       set((state) => ({
         ptyIds: { ...state.ptyIds, [id]: result.pty_id },
         statuses: { ...state.statuses, [id]: "running" },
+        pending: clearPending(state.pending, id),
       }));
     } catch (e) {
       console.error("Failed to start service:", e);
+      set((state) => ({ pending: clearPending(state.pending, id) }));
     }
   },
 
   stopService: async (id) => {
+    set((state) => ({ pending: { ...state.pending, [id]: "stopping" } }));
     try {
       await api.stopService(id);
       set((state) => {
@@ -88,11 +109,13 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         return {
           ptyIds,
           statuses: { ...state.statuses, [id]: "stopped" },
+          pending: clearPending(state.pending, id),
           activeServiceId: state.activeServiceId === id ? null : state.activeServiceId,
         };
       });
     } catch (e) {
       console.error("Failed to stop service:", e);
+      set((state) => ({ pending: clearPending(state.pending, id) }));
     }
   },
 
@@ -109,7 +132,10 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         // Find which service had this pty_id
         for (const [svcId, ptyId] of Object.entries(state.ptyIds)) {
           if (ptyId === payload.pty_id) {
-            return { statuses: { ...state.statuses, [svcId]: "stopped" } };
+            return {
+              statuses: { ...state.statuses, [svcId]: "stopped" },
+              pending: clearPending(state.pending, svcId),
+            };
           }
         }
         return {};

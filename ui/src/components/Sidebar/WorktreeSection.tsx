@@ -3,10 +3,12 @@ import type { WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGitStore } from "../../stores/gitStore";
+import { useServiceStore } from "../../stores/serviceStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
-import { IconBranch } from "../Icons";
+import { afterFold } from "../../lib/revealOnSwitch";
+import { IconBranch, IconChevron } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeConfigModal from "../Modals/WorktreeConfigModal";
 import styles from "./WorktreeSection.module.css";
@@ -27,13 +29,30 @@ export default function WorktreeSection({ worktree }: Props) {
     (s) => s.closeWorktreeWorkspaces
   );
   const agent = useWorktreeAgent(worktree.id);
+  const statuses = useServiceStore((s) => s.statuses);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<"remove" | "disk" | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   const isActive = activeWorktreeId === worktree.id;
+
+  // Collapsing hides the services themselves, so the row carries the count —
+  // otherwise a worktree can be running things with nothing on screen saying so.
+  const runningCount = worktree.groups
+    .flatMap((g) => g.services)
+    .filter((svc) => (statuses[svc.id] ?? "stopped") === "running").length;
+
+  // Everything above just folded shut, so bring the newly-opened section into
+  // view rather than leaving it pinned wherever the old layout left it.
+  useEffect(() => {
+    if (!isActive) return;
+    return afterFold((behavior) =>
+      rowRef.current?.scrollIntoView({ block: "nearest", behavior })
+    );
+  }, [isActive]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -89,10 +108,16 @@ export default function WorktreeSection({ worktree }: Props) {
   return (
     <>
       <div
+        ref={rowRef}
         className={`${styles.sectionDivider}${isActive ? ` ${styles.sectionDividerActive}` : ` ${styles.sectionDividerInactive}`}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
+        <span
+          className={`${styles.contextChevron}${isActive ? "" : ` ${styles.contextChevronCollapsed}`}`}
+        >
+          <IconChevron size={10} />
+        </span>
         <span className={styles.branchIcon}><IconBranch size={13} /></span>
         <span className={styles.worktreeText}>
           <span
@@ -101,17 +126,32 @@ export default function WorktreeSection({ worktree }: Props) {
           >{worktree.branch}</span>
           <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
         </span>
+        {!isActive && runningCount > 0 && (
+          <span
+            className={styles.runningBadge}
+            title={`${runningCount} service${runningCount !== 1 ? "s" : ""} running`}
+          >
+            <span className={styles.runningDot} />
+            {runningCount}
+          </span>
+        )}
       </div>
 
-      {worktree.groups.map((group) => (
-        <div key={group.id} className={styles.worktreeGroup}>
-          <GroupItem
-            group={group}
-            onOpenSettings={() => setSettingsOpen(true)}
-            worktreeId={worktree.id}
-          />
+      {/* Groups collapse away unless this worktree is the selected context. */}
+      <div
+        className={`${styles.worktreeGroups}${isActive ? "" : ` ${styles.worktreeGroupsCollapsed}`}`}
+      >
+        <div className={styles.worktreeGroupsInner}>
+          {worktree.groups.map((group) => (
+            <GroupItem
+              key={group.id}
+              group={group}
+              onOpenSettings={() => setSettingsOpen(true)}
+              worktreeId={worktree.id}
+            />
+          ))}
         </div>
-      ))}
+      </div>
 
       {contextMenu && (
         <div
@@ -133,16 +173,18 @@ export default function WorktreeSection({ worktree }: Props) {
             Remove from sidebar
           </button>
           <div className={`${styles.confirmAccordion}${confirmDelete === "remove" ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmWarning}>
-              This will remove the worktree from the sidebar only.
-            </div>
-            <div className={styles.confirmActions}>
-              <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
-                Cancel
-              </button>
-              <button className={styles.confirmYes} onClick={() => handleRemove(false)}>
-                Yes, remove
-              </button>
+            <div className={styles.confirmInner}>
+              <div className={styles.confirmWarning}>
+                This will remove the worktree from the sidebar only.
+              </div>
+              <div className={styles.confirmActions}>
+                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                  Cancel
+                </button>
+                <button className={styles.confirmYes} onClick={() => handleRemove(false)}>
+                  Yes, remove
+                </button>
+              </div>
             </div>
           </div>
 
@@ -153,16 +195,18 @@ export default function WorktreeSection({ worktree }: Props) {
             Remove + delete from disk
           </button>
           <div className={`${styles.confirmAccordion}${confirmDelete === "disk" ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmWarning}>
-              This will permanently delete the worktree files from disk.
-            </div>
-            <div className={styles.confirmActions}>
-              <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
-                Cancel
-              </button>
-              <button className={styles.confirmYesDanger} onClick={() => handleRemove(true)}>
-                Yes, delete from disk
-              </button>
+            <div className={styles.confirmInner}>
+              <div className={styles.confirmWarning}>
+                This will permanently delete the worktree files from disk.
+              </div>
+              <div className={styles.confirmActions}>
+                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                  Cancel
+                </button>
+                <button className={styles.confirmYesDanger} onClick={() => handleRemove(true)}>
+                  Yes, delete from disk
+                </button>
+              </div>
             </div>
           </div>
         </div>

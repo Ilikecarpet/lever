@@ -4,7 +4,7 @@
   gap: 7px;
   padding: 5px 12px;
   font-size: 11px;
-  color: var(--accent);
+  color: var(--text-dim);
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -17,20 +17,91 @@
   background: var(--surface-hover);
 }
 
+/* Selection is carried by colour, not geometry: only the selected row's branch
+   name and icon are accent-toned, so the accent itself reads as "this is the
+   context you are in". Unselected rows fall back to neutral text. */
 .sectionDividerActive {
   background: var(--accent-subtle);
 }
-
-.sectionDividerInactive {
-  opacity: 0.55;
+.sectionDividerActive .branchIcon,
+.sectionDividerActive .branchName {
+  color: var(--accent-hover);
 }
-.sectionDividerInactive:hover {
-  opacity: 0.85;
+.sectionDividerActive .branchName {
+  font-weight: 700;
+}
+
+/* Dim the identity of an unselected row — but per-element, not via opacity on
+   the row itself, so the running badge stays at full strength. It is the one
+   thing a collapsed row exists to report. */
+.sectionDividerInactive .contextChevron,
+.sectionDividerInactive .branchIcon,
+.sectionDividerInactive .worktreeText {
+  /* Lighter touch than before — colour already separates the selected row, so
+     this only has to push the rest back a step. */
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.sectionDividerInactive:hover .contextChevron,
+.sectionDividerInactive:hover .branchIcon,
+.sectionDividerInactive:hover .worktreeText {
+  opacity: 1;
 }
 
 .branchIcon {
   display: flex;
   align-items: center;
+}
+
+/* Chevron marking whether this worktree's groups are showing */
+.contextChevron {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.contextChevronCollapsed {
+  transform: rotate(-90deg);
+}
+
+/* Running-service count, shown only while the row is collapsed */
+.runningBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--green);
+  background: var(--green-dim);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.runningDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+/* Groups of an unselected worktree fold away behind its branch row. The
+   1fr → 0fr grid row animates to the content's natural height, which a
+   max-height transition can't do without measuring it in JS. */
+.worktreeGroups {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
+}
+.worktreeGroupsInner {
+  overflow: hidden;
+  min-height: 0;
+}
+.worktreeGroupsCollapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Branch on top, path beneath — each ellipsized on its own line */
@@ -88,12 +159,6 @@
   white-space: nowrap;
 }
 
-/* Guide line showing these groups belong to the worktree above */
-.worktreeGroup {
-  border-left: 1px solid var(--border);
-  margin-left: 18px;
-}
-
 .contextMenu {
   position: fixed;
   background: var(--surface);
@@ -136,14 +201,20 @@
   margin: 4px 0;
 }
 
-/* Delete confirmation accordion */
+/* Delete confirmation accordion. Grid rows rather than a max-height cap: the
+   warning wraps to three lines in a 180px menu, which the old 80px ceiling
+   clipped into the buttons. */
 .confirmAccordion {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.confirmInner {
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  min-height: 0;
 }
 .confirmOpen {
-  max-height: 80px;
+  grid-template-rows: 1fr;
 }
 
 .confirmWarning {
