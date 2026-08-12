@@ -1,5 +1,5 @@
 .statusbar {
-  height: 26px;
+  height: var(--statusbar-h);
   background: var(--sidebar-bg);
   border-top: 1px solid var(--border);
   display: flex;

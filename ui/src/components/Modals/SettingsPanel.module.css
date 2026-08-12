@@ -1,0 +1,167 @@
+/* Settings-specific rows. The flyout shell, buttons and section headings come
+   from Panel.module.css, shared with the service inspector. */
+
+.section {
+  margin-bottom: 30px;
+}
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 10px 0;
+}
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+}
+.rowLabel {
+  font-size: 12.5px;
+  color: var(--text);
+}
+.rowSub {
+  margin-top: 3px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ---- Stepper ---- */
+.stepper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.stepBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+.stepBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.stepBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.stepBtn:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+}
+.stepValue {
+  min-width: 28px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 5px 0;
+}
+
+/* The setting is about legibility, so it is set in the thing being changed. */
+.preview {
+  margin: 4px 0 6px;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--terminal-bg);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.previewPrompt {
+  color: var(--green);
+  margin-right: 7px;
+}
+
+.numInput {
+  flex-shrink: 0;
+  width: 88px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s, background 0.12s;
+}
+/* Focus is neutral elevation, never accent — accent is the primary action. */
+.numInput:focus {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+/* ---- Lever, matching the sidebar's service switch ---- */
+.lever {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.leverKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.18s;
+}
+.leverOn {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+.leverOn .leverKnob {
+  transform: translateX(13px);
+  background: var(--green);
+}
+
+.pathValue {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pathUnset {
+  color: var(--text-muted);
+  font-style: italic;
+}

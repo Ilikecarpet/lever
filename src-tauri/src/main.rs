@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Emitter, Manager, State};
 
@@ -211,6 +211,10 @@ struct AppState {
     pty_counter: Mutex<u32>,
     projects_dir: PathBuf,
     agent_cache: Mutex<AgentScanCache>,
+    /// Mirrors the UI's "stop services when this window closes" preference.
+    /// Held here because the decision is made on CloseRequested, by which point
+    /// the web view may already be tearing down and cannot be asked.
+    stop_services_on_quit: AtomicBool,
 }
 
 #[derive(Default)]
@@ -673,6 +677,12 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
     index.projects.push(meta.clone());
     save_project_index(&state.projects_dir, &index)?;
     Ok(meta)
+}
+
+/// Pushed from the settings panel on load and on every change.
+#[tauri::command]
+fn set_stop_services_on_quit(enabled: bool, state: State<'_, AppState>) {
+    state.stop_services_on_quit.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -2253,6 +2263,7 @@ fn main() {
                 pty_counter: Mutex::new(0),
                 projects_dir: proj_dir,
                 agent_cache: Mutex::new(AgentScanCache::default()),
+                stop_services_on_quit: AtomicBool::new(true),
             });
 
             let _ = DEBUG_APP.set(app.handle().clone());
@@ -2298,6 +2309,7 @@ fn main() {
             create_worktree,
             remove_worktree,
             get_default_branch,
+            set_stop_services_on_quit,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -2305,8 +2317,21 @@ fn main() {
                 if label.starts_with("project-") {
                     let project_id = label[8..].to_string();
                     let state = window.state::<AppState>();
+                    let stop_on_quit = state.stop_services_on_quit.load(Ordering::Relaxed);
                     let mut projects = state.projects.lock().unwrap();
                     if let Some(ps) = projects.get_mut(&project_id) {
+                        // Closing the window used to leave every spawned service
+                        // running with nothing on screen left to stop it.
+                        if stop_on_quit {
+                            for (_svc_id, t) in ps.tracked.iter() {
+                                #[cfg(unix)]
+                                unsafe {
+                                    libc::kill(-(t.pid as i32), libc::SIGTERM);
+                                    libc::kill(t.pid as i32, libc::SIGTERM);
+                                }
+                            }
+                            ps.tracked.clear();
+                        }
                         if !project_id.starts_with("scratch-") {
                             save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
                         }

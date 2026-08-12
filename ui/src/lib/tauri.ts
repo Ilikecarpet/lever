@@ -153,6 +153,12 @@ export function getRepoPath(id: string): Promise<string> {
   return invoke<string>("get_repo_path", { id });
 }
 
+/** Mirror the "stop services on quit" preference down to the backend, which is
+ *  the only side still running when the window close is handled. */
+export function setStopServicesOnQuit(enabled: boolean): Promise<void> {
+  return invoke<void>("set_stop_services_on_quit", { enabled });
+}
+
 // ---------------------------------------------------------------------------
 // Worktree commands
 // ---------------------------------------------------------------------------

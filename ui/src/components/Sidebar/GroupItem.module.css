@@ -3,7 +3,7 @@
 }
 
 .groupHeader {
-  padding: 8px 12px 4px;
+  padding: 8px 10px 4px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -28,16 +28,46 @@
   transform: rotate(-90deg);
 }
 
+/* The header is a divider, not a title: uppercase and letterspaced against the
+   rows' lowercase mono, with a rule running to the master. It reads as the
+   thing that separates groups rather than competing with the names inside. */
 .groupLabel {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   color: var(--text-dim);
   display: flex;
   align-items: center;
   gap: 5px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.groupRule {
+  flex: 1;
+  height: 1px;
+  min-width: 8px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* Renaming happens in place, so the heading keeps its own type while you edit. */
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 5px;
+  background: var(--surface);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  outline: none;
 }
 
 .groupCount {
@@ -52,50 +82,156 @@
   letter-spacing: 0;
 }
 
-/* Always visible, subtle when idle */
-.groupActions {
-  display: flex;
-  gap: 2px;
-  opacity: 0.3;
-  transition: opacity 0.15s;
+/* ---- Master fader ----
+   One control instead of two icon buttons. The knob rides the fraction of the
+   group that is up, and each half throws the whole group to that side — from
+   any position, in one click. */
+.master {
+  --pct: 0;
+  position: relative;
+  width: 64px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.18s;
 }
-.groupHeader:hover .groupActions {
+
+/* The lit run is at full strength whatever the fraction: a group that is half
+   up looks half as wide, not half as bright. It ends at the centre of the knob
+   — knob travel is 46px starting 8px in, so that centre is 8px + pct × 46px —
+   which is what makes the knob read as the head of the lit run rather than a
+   marker floating somewhere past it. */
+.masterFill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(8px + var(--pct) * 46px);
+  border-radius: 9px 0 0 9px;
+  background: var(--green);
+  opacity: 0.3;
+  transition: width 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.18s;
+}
+/* Nothing running means nothing lit — no stub under the knob. */
+.master[data-any="0"] .masterFill {
+  opacity: 0;
+}
+
+.masterKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  z-index: 3;
+  pointer-events: none;
+  /* 64 − 2 border − 12 knob − 4 inset = 46px of travel */
+  transform: translateX(calc(var(--pct) * 46px));
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.2s,
+    opacity 0.14s;
+}
+/* The knob sits at the head of the lit run, so it takes the lit colour as soon
+   as anything is up; the border is what reserves "all of it". */
+.master[data-any="1"] {
+  border-color: var(--border-hover);
+}
+.master[data-any="1"] .masterKnob {
+  background: var(--green);
+}
+.master[data-all="1"] {
+  border-color: var(--green);
+}
+
+/* Reaching for the control is when you need to know what each side does, so
+   the labels come up on hover and the knob steps back to stay out of them. */
+.master:hover .masterKnob {
+  opacity: 0.28;
+}
+
+.masterZone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.masterZoneOff {
+  left: 0;
+}
+.masterZoneOn {
+  right: 0;
+}
+.masterZoneOff:hover {
+  background: var(--red-dim);
+}
+.masterZoneOn:hover {
+  background: var(--green-dim);
+}
+
+.masterLabel {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.14s, color 0.12s;
+}
+.masterZoneOff .masterLabel {
+  left: 7px;
+}
+.masterZoneOn .masterLabel {
+  right: 7px;
+}
+.master:hover .masterLabel {
+  opacity: 1;
+}
+.masterZoneOff:hover .masterLabel {
+  color: var(--red);
+}
+.masterZoneOn:hover .masterLabel {
+  color: var(--green);
+}
+/* Keyboard users get the labels too, since they cannot hover to reveal them.
+   The ring is drawn inside the zone rather than as an outline: the track clips
+   its children, so a normal focus outline would be cut off. */
+.masterZone:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.masterZone:focus-visible .masterLabel {
   opacity: 1;
 }
 
-.groupBtn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  transition: background 0.1s;
-}
-.groupBtnStart {
-  color: var(--green);
-}
-.groupBtnStart:hover {
-  background: var(--green-dim);
-}
-.groupBtnStop {
-  color: var(--red);
-}
-.groupBtnStop:hover {
-  background: var(--red-dim);
-}
-
+/* 1fr → 0fr animates to the content's natural height in both directions,
+   which a max-height transition can't do without measuring it in JS.
+   Matches the branch-level fold in Sidebar/WorktreeSection. */
 .groupServices {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
+}
+.groupServicesInner {
   padding: 2px 0;
   overflow: hidden;
-  transition: max-height 0.25s ease, opacity 0.2s ease;
+  min-height: 0;
 }
 .groupServicesCollapsed {
-  max-height: 0 !important;
-  padding: 0;
+  grid-template-rows: 0fr;
   opacity: 0;
 }
 
@@ -135,13 +271,19 @@
 }
 
 /* Delete confirmation accordion */
+/* Grid rows rather than a max-height cap: the warning wraps to three lines in
+   a narrow menu, which the old 80px ceiling clipped into the buttons. */
 .confirmAccordion {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.confirmInner {
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  min-height: 0;
 }
 .confirmOpen {
-  max-height: 80px;
+  grid-template-rows: 1fr;
 }
 
 .confirmWarning {

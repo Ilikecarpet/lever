@@ -2,7 +2,7 @@
 .topbar {
   display: flex;
   align-items: stretch;
-  height: 38px;
+  height: var(--topbar-h);
   flex-shrink: 0;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--border);

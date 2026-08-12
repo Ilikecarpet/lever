@@ -41,6 +41,11 @@
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
 
+  /* Window chrome. Anything that has to sit inside the layout band — the
+     service inspector flies out into it — measures itself off these. */
+  --topbar-h: 38px;
+  --statusbar-h: 26px;
+
   /* Radius */
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -133,4 +138,18 @@ select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Honour the OS "reduce motion" setting: collapses, the agent sweep, and
+   every hover transition resolve instantly instead of animating. Durations
+   are near-zero rather than 0 so transitionend still fires. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
