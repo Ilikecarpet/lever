@@ -22,7 +22,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const [branch, setBranch] = useState("");
   const [path, setPath] = useState("");
   const [pathEdited, setPathEdited] = useState(false);
-  const [branches, setBranches] = useState<string[]>([]);
+  const [branches, setBranches] = useState<api.BranchEntry[]>([]);
   const [baseBranch, setBaseBranch] = useState("");
   const [existing, setExisting] = useState<api.ExistingWorktree[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -58,14 +58,18 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const adoptable = trimmedBranch
     ? existing.find((w) => w.branch === trimmedBranch)
     : undefined;
-  const branchAlreadyExists = !!trimmedBranch && branches.includes(trimmedBranch);
-  const showBaseBranch = !adoptable && !branchAlreadyExists;
-  const namespaceConflict = trimmedBranch && !adoptable
+  const matched = trimmedBranch
+    ? branches.find((b) => b.name === trimmedBranch)
+    : undefined;
+  // A remote-only branch is checked out and tracked as-is, so there is no base
+  // to pick — same as for a branch that already exists locally.
+  const showBaseBranch = !adoptable && !matched;
+  const namespaceConflict = trimmedBranch && !adoptable && !matched
     ? branches.find(
-        (b) =>
+        ({ name: b }) =>
           b !== trimmedBranch &&
           (b.startsWith(`${trimmedBranch}/`) || trimmedBranch.startsWith(`${b}/`))
-      )
+      )?.name
     : undefined;
 
   useEffect(() => {
@@ -79,7 +83,8 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
 
   const filteredBranches = branch
     ? branches.filter(
-        (b) => b.toLowerCase().includes(branch.toLowerCase()) && b !== branch
+        (b) =>
+          b.name.toLowerCase().includes(branch.toLowerCase()) && b.name !== branch
       )
     : branches;
 
@@ -144,14 +149,15 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             <div className={styles.suggestions}>
               {filteredBranches.slice(0, 10).map((b) => (
                 <div
-                  key={b}
+                  key={b.remoteRef ?? b.name}
                   className={styles.suggestion}
                   onMouseDown={() => {
-                    setBranch(b);
+                    setBranch(b.name);
                     setShowSuggestions(false);
                   }}
                 >
-                  {b}
+                  {b.name}
+                  {b.remoteRef && <span className={styles.remoteTag}>remote</span>}
                 </div>
               ))}
             </div>
@@ -161,6 +167,13 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
         {adoptable && (
           <div className={styles.adoptBadge}>
             Worktree already exists at <span className={styles.adoptPath}>{adoptable.path}</span>
+          </div>
+        )}
+
+        {!adoptable && matched?.remoteRef && (
+          <div className={styles.infoBadge}>
+            Checks out <span className={styles.infoName}>{matched.remoteRef}</span> into the
+            worktree, tracking it.
           </div>
         )}
 
@@ -182,9 +195,12 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             >
               <option value="">(current HEAD)</option>
               {branches.map((b) => (
-                <option key={b} value={b}>{b}</option>
+                <option key={b.remoteRef ?? b.name} value={b.name}>{b.name}</option>
               ))}
             </select>
+            <div className={styles.hint}>
+              Fetches first, then branches off the latest commit on this branch.
+            </div>
           </div>
         )}
 

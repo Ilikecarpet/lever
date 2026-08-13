@@ -89,12 +89,30 @@ select.input {
 }
 
 .suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 7px 12px;
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
   font-family: var(--font-mono);
   transition: background 0.1s;
+}
+
+/* Marks a branch that exists only on the remote — picking it checks the remote
+   branch out directly, so there is no base to choose. */
+.remoteTag {
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 3px);
+  padding: 1px 4px;
 }
 .suggestion:hover {
   background: var(--surface-hover);
@@ -157,6 +175,27 @@ select.input {
   font-size: 11px;
   color: var(--green, #22c55e);
   opacity: 0.85;
+}
+
+.infoBadge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
+.infoName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 5px;
+  line-height: 1.4;
 }
 
 .warnBadge {
