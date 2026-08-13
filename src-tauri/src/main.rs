@@ -1810,8 +1810,18 @@ fn list_existing_worktrees(project_id: String, state: State<'_, AppState>) -> Re
         .collect())
 }
 
+/// A branch offered in the new-worktree picker. Remote-only branches are listed
+/// under the local name they would get, with `remoteRef` naming the ref to track
+/// — the UI needs that distinction to know a "branch from" base is meaningless.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchEntry {
+    name: String,
+    remote_ref: Option<String>,
+}
+
 #[tauri::command(async)]
-fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<BranchEntry>, String> {
     let index = load_project_index(&state.projects_dir);
     let meta = index.projects.iter().find(|p| p.id == project_id)
         .ok_or("Project not found")?;
@@ -1820,16 +1830,127 @@ fn list_branches(project_id: String, state: State<'_, AppState>) -> Result<Vec<S
     }
     let repo = git2::Repository::open(&meta.repo_path)
         .map_err(|e| format!("Not a git repo: {}", e))?;
-    let mut branches = Vec::new();
-    for branch_result in repo.branches(None).map_err(|e| e.to_string())? {
-        let (branch, _branch_type) = branch_result.map_err(|e| e.to_string())?;
+
+    let mut locals: Vec<String> = Vec::new();
+    for branch_result in repo.branches(Some(git2::BranchType::Local)).map_err(|e| e.to_string())? {
+        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
         if let Some(name) = branch.name().map_err(|e| e.to_string())? {
-            branches.push(name.to_string());
+            locals.push(name.to_string());
         }
     }
-    branches.sort();
-    branches.dedup();
-    Ok(branches)
+    locals.sort();
+    locals.dedup();
+
+    // Remote-only branches, keyed by the local name they'd take. A remote HEAD
+    // pointer ("origin/HEAD") is an alias, not a branch, so it's skipped.
+    let mut remotes: Vec<BranchEntry> = Vec::new();
+    for branch_result in repo.branches(Some(git2::BranchType::Remote)).map_err(|e| e.to_string())? {
+        let (branch, _) = branch_result.map_err(|e| e.to_string())?;
+        let Some(full) = branch.name().map_err(|e| e.to_string())? else { continue };
+        let Some(short) = strip_remote_prefix(&repo, full) else { continue };
+        if short == "HEAD" || locals.contains(&short) { continue; }
+        if remotes.iter().any(|e| e.name == short) { continue; }
+        remotes.push(BranchEntry { name: short, remote_ref: Some(full.to_string()) });
+    }
+    remotes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut entries: Vec<BranchEntry> = locals.into_iter()
+        .map(|name| BranchEntry { name, remote_ref: None })
+        .collect();
+    entries.extend(remotes);
+    Ok(entries)
+}
+
+/// "origin/feature/x" -> "feature/x", for any configured remote. None when the
+/// name isn't prefixed with a known remote.
+fn strip_remote_prefix(repo: &git2::Repository, name: &str) -> Option<String> {
+    let remotes = repo.remotes().ok()?;
+    remotes.iter().flatten()
+        .filter_map(|r| name.strip_prefix(&format!("{}/", r)))
+        .map(str::to_string)
+        .next()
+}
+
+/// The remote-tracking ref for a local branch name, preferring `origin`.
+fn find_remote_branch(repo: &git2::Repository, name: &str) -> Option<String> {
+    let remotes = repo.remotes().ok()?;
+    let mut names: Vec<String> = remotes.iter().flatten().map(str::to_string).collect();
+    names.sort_by_key(|r| r != "origin");
+    names.into_iter()
+        .map(|r| format!("{}/{}", r, name))
+        .find(|full| repo.find_branch(full, git2::BranchType::Remote).is_ok())
+}
+
+/// Upstream of a local branch as a ref name, e.g. "origin/main".
+fn upstream_of(repo: &git2::Repository, name: &str) -> Option<String> {
+    let local = repo.find_branch(name, git2::BranchType::Local).ok()?;
+    let upstream = local.upstream().ok()?;
+    upstream.name().ok().flatten().map(str::to_string)
+}
+
+/// Where a new worktree's branch comes from.
+enum BranchSourceKind {
+    /// Already exists locally: check it out, fast-forwarding to `upstream` if set.
+    Existing { upstream: Option<String> },
+    /// Exists only on a remote: create the local branch tracking `remote_ref`.
+    Track { remote_ref: String },
+    /// Doesn't exist yet: branch off `base` (None = current HEAD of the repo).
+    New { base: Option<String> },
+}
+
+struct BranchSource {
+    /// Local branch name to check out — never remote-qualified.
+    local_name: String,
+    kind: BranchSourceKind,
+}
+
+/// Work out what the requested branch means against freshly fetched refs.
+///
+/// The picker lists remote-only branches, so "na/fix" may exist only as
+/// "origin/na/fix"; that must become a local branch tracking the remote, not a
+/// literal branch named "origin/na/fix" cut from whatever HEAD happens to be.
+fn resolve_branch_source(
+    repo: &git2::Repository, requested: &str, base_branch: Option<&str>,
+) -> BranchSource {
+    let requested = requested.trim();
+
+    // A remote-qualified request ("origin/na/fix") names the local branch "na/fix".
+    let (local_name, explicit_remote) =
+        match strip_remote_prefix(repo, requested)
+            .filter(|_| repo.find_branch(requested, git2::BranchType::Remote).is_ok())
+        {
+            Some(short) => (short, Some(requested.to_string())),
+            None => (requested.to_string(), None),
+        };
+
+    if repo.find_branch(&local_name, git2::BranchType::Local).is_ok() {
+        let upstream = upstream_of(repo, &local_name);
+        return BranchSource { local_name, kind: BranchSourceKind::Existing { upstream } };
+    }
+
+    if let Some(remote_ref) = explicit_remote.or_else(|| find_remote_branch(repo, &local_name)) {
+        return BranchSource { local_name, kind: BranchSourceKind::Track { remote_ref } };
+    }
+
+    let base = base_branch
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|b| resolve_base_ref(repo, b));
+    BranchSource { local_name, kind: BranchSourceKind::New { base } }
+}
+
+/// Resolve a base branch to the newest commit we have for it: its remote-tracking
+/// ref when there is one, so a stale local copy of `main` doesn't become the base.
+fn resolve_base_ref(repo: &git2::Repository, base: &str) -> String {
+    if repo.find_branch(base, git2::BranchType::Remote).is_ok() {
+        return base.to_string();
+    }
+    if repo.find_branch(base, git2::BranchType::Local).is_ok() {
+        if let Some(upstream) = upstream_of(repo, base) {
+            return upstream;
+        }
+    }
+    find_remote_branch(repo, base).unwrap_or_else(|| base.to_string())
 }
 
 #[tauri::command(async)]
@@ -1914,6 +2035,23 @@ fn create_worktree(
     let repo_path = &meta.repo_path;
     debug_action("worktree", &format!("create worktree on branch '{}' at {}", branch, path));
 
+    // A worktree should start from the latest remote state, so fetch before
+    // resolving any ref. Offline is not fatal — branching off slightly stale
+    // refs beats refusing to create the worktree at all.
+    match run_git_logged(&["fetch", "--all", "--prune"], repo_path) {
+        Ok(out) if out.status.success() => {}
+        _ => debug_log("git", "warn",
+            "fetch before worktree create failed; falling back to local refs"),
+    }
+
+    let repo = git2::Repository::open(repo_path)
+        .map_err(|e| format!("Not a git repo: {}", e))?;
+    let source = resolve_branch_source(&repo, &branch, base_branch.as_deref());
+    // From here on, `branch` is the local branch name — the request may have
+    // named a remote ref ("origin/na/fix"), which is not a local branch name.
+    let branch = source.local_name.clone();
+    drop(repo);
+
     // If the branch is already checked out in a worktree (other than the main repo),
     // adopt that existing worktree instead of erroring.
     let existing_worktrees = list_git_worktrees(repo_path);
@@ -1956,20 +2094,28 @@ fn create_worktree(
                 .map_err(|e| format!("Failed to delete stale directory '{}': {}", path, e))?;
         }
 
-        let repo = git2::Repository::open(repo_path)
-            .map_err(|e| format!("Not a git repo: {}", e))?;
-        let branch_exists = repo.find_branch(&branch, git2::BranchType::Local).is_ok();
-
-        let args = if branch_exists {
-            vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()]
-        } else {
-            let mut a = vec!["worktree".to_string(), "add".to_string(), "-b".to_string(),
-                branch.clone(), path.clone()];
-            if let Some(base) = base_branch.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                a.push(base.to_string());
+        let mut args: Vec<String> = vec!["worktree".into(), "add".into()];
+        match &source.kind {
+            BranchSourceKind::Existing { .. } => {
+                args.push(path.clone());
+                args.push(branch.clone());
             }
-            a
-        };
+            // --track makes the new local branch follow the remote one, so pulls
+            // and status in the worktree work without extra setup.
+            BranchSourceKind::Track { remote_ref } => {
+                args.extend(["--track".into(), "-b".into(), branch.clone(), path.clone(),
+                    remote_ref.clone()]);
+            }
+            // --no-track because the base is resolved to a remote ref
+            // ("origin/main"); without it git would make the new branch track
+            // the base, so a later pull in the worktree would merge main into it.
+            BranchSourceKind::New { base } => {
+                args.extend(["--no-track".into(), "-b".into(), branch.clone(), path.clone()]);
+                if let Some(base) = base {
+                    args.push(base.clone());
+                }
+            }
+        }
 
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let output = run_git_logged(&arg_refs, repo_path)
@@ -1978,6 +2124,21 @@ fn create_worktree(
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("git worktree add failed: {}", stderr));
         }
+
+        // An existing local branch may lag its remote; the worktree is freshly
+        // checked out and clean, so fast-forward it to the fetched upstream.
+        // Divergence or local-only commits make this impossible — keep the
+        // branch as it is rather than touching the user's commits.
+        if let BranchSourceKind::Existing { upstream: Some(upstream) } = &source.kind {
+            let ok = run_git_logged(&["merge", "--ff-only", upstream], &path)
+                .map(|o| o.status.success()).unwrap_or(false);
+            if !ok {
+                debug_log("git", "warn", &format!(
+                    "could not fast-forward '{}' to '{}' — left at its current commit",
+                    branch, upstream));
+            }
+        }
+
         path.clone()
     };
 

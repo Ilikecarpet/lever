@@ -177,8 +177,15 @@ export function removeWorktree(projectId: string, worktreeId: string, cleanup: b
   return invoke<void>("remove_worktree", { projectId, worktreeId, cleanup });
 }
 
-export function listBranches(projectId: string): Promise<string[]> {
-  return invoke<string[]>("list_branches", { projectId });
+export interface BranchEntry {
+  /** Local branch name — remote-only branches use the name they'd get locally. */
+  name: string;
+  /** Set when the branch exists only on a remote, e.g. "origin/na/fix". */
+  remoteRef: string | null;
+}
+
+export function listBranches(projectId: string): Promise<BranchEntry[]> {
+  return invoke<BranchEntry[]>("list_branches", { projectId });
 }
 
 export interface ExistingWorktree {
