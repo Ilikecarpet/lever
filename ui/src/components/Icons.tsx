@@ -139,6 +139,14 @@ export function IconExport({ size = 14, className }: P) {
   );
 }
 
+export function IconDownload({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <path d="M8 2.5V10M5 7l3 3 3-3M3 11v2h10v-2" />
+    </svg>
+  );
+}
+
 export function IconPencil({ size = 12, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
