@@ -32,7 +32,10 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # No updater artifact here: signing it needs TAURI_SIGNING_PRIVATE_KEY,
+      # which fork and Dependabot PRs never get. The release build makes the
+      # signed one.
       - name: Build Tauri app (validation)
         uses: tauri-apps/tauri-action@v0
         with:
-          args: --target aarch64-apple-darwin
+          args: --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
