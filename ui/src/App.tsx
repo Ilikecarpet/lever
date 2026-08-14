@@ -7,6 +7,7 @@ import { useGitStore } from "./stores/gitStore";
 import { useWorktreeStore } from "./stores/worktreeStore";
 import { useWorkspaceStore } from "./stores/workspaceStore";
 import { useSettingsStore } from "./stores/settingsStore";
+import { useUpdateStore } from "./stores/updateStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useDisableTextAssist } from "./hooks/useDisableTextAssist";
 import Sidebar from "./components/Sidebar/Sidebar";
@@ -82,9 +83,12 @@ function ProjectApp() {
       }
     }, 5000);
 
+    const stopUpdatePolling = useUpdateStore.getState().startPolling();
+
     return () => {
       clearInterval(servicePollId);
       clearInterval(gitPollId);
+      stopUpdatePolling();
       unlistenSvcExit.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

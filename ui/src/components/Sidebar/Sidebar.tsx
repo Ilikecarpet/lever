@@ -9,12 +9,21 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useThemeStore, themes, type ThemeDef } from "../../stores/themeStore";
 import { usePanelStore } from "../../stores/panelStore";
+import { useUpdateStore } from "../../stores/updateStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
 import type { ProjectExport } from "../../types";
-import { IconBranch, IconPlus, IconChevron, IconFolder, IconExport, IconGear } from "../Icons";
+import {
+  IconBranch,
+  IconPlus,
+  IconChevron,
+  IconFolder,
+  IconExport,
+  IconGear,
+  IconDownload,
+} from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
@@ -47,6 +56,9 @@ export default function Sidebar() {
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const setTheme = useThemeStore((s) => s.setTheme);
   const openSettings = usePanelStore((s) => s.openSettings);
+  const updatePhase = useUpdateStore((s) => s.phase);
+  const updateVersion = useUpdateStore((s) => s.version);
+  const checkForUpdate = useUpdateStore((s) => s.check);
 
   const statuses = useServiceStore((s) => s.statuses);
 
@@ -127,6 +139,14 @@ export default function Sidebar() {
   const handleSettings = () => {
     setMenuOpen(false);
     openSettings();
+  };
+
+  /** The check runs here, but its result — and the install button — render in
+   *  Settings, so open that rather than answering inside a menu that closes. */
+  const handleCheckUpdates = () => {
+    setMenuOpen(false);
+    openSettings();
+    checkForUpdate(true);
   };
 
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -266,6 +286,16 @@ export default function Sidebar() {
             <div className={styles.menuDivider} />
             <button className={styles.menuItem} onClick={handleSettings}>
               <IconGear size={13} /> Settings
+            </button>
+            <button className={styles.menuItem} onClick={handleCheckUpdates}>
+              <IconDownload size={13} />{" "}
+              {updatePhase === "available"
+                ? `Update to ${updateVersion}`
+                : updatePhase === "checking"
+                  ? "Checking…"
+                  : updatePhase === "downloading"
+                    ? "Downloading…"
+                    : "Check for Updates"}
             </button>
             <div className={styles.menuDivider} />
             <button

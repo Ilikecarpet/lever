@@ -165,3 +165,27 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+.progressTrack {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  width: 0;
+  background: var(--green);
+  transition: width 0.15s linear;
+}
+/* No content length from the server — sweep instead of pretending to measure. */
+.progressIndeterminate {
+  width: 35%;
+  animation: progressSweep 1.1s ease-in-out infinite;
+}
+@keyframes progressSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

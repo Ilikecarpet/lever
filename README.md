@@ -109,6 +109,8 @@ Download the latest `.dmg` from [Releases](https://github.com/Ilikecarpet/lever/
 > xattr -cr /Applications/Lever.app
 > ```
 
+After that first install, Lever updates itself: it checks the releases feed hourly and offers the new version under Settings → Updates, which downloads, replaces the bundle, and restarts. The quarantine step above is only needed for the manual `.dmg`, never for an update Lever installs on its own.
+
 ## Project Structure
 
 ```

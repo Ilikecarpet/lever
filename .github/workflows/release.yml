@@ -76,7 +76,9 @@ jobs:
             echo "$NOTES"
             echo ""
             echo "### Installation (macOS, Apple Silicon)"
-            echo "Download the \`.dmg\`, open it, and drag Lever to Applications."
+            echo "Already running Lever? It updates itself — check Settings → Updates."
+            echo ""
+            echo "First install: download the \`.dmg\`, open it, and drag Lever to Applications."
             echo ""
             echo "> **Note:** Since the app is not code-signed, macOS may flag it as damaged. Run this in Terminal to fix:"
             echo "> \`\`\`"
@@ -89,6 +91,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater artifact (minisign, unrelated to Apple signing)
+          # and is what makes tauri-action publish latest.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key was generated without one; the var still has to be present.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: v${{ needs.check-version.outputs.version }}
           releaseName: "Lever v${{ needs.check-version.outputs.version }}"

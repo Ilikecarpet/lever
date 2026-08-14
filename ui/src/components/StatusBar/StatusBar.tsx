@@ -2,6 +2,8 @@ import { useConfigStore } from "../../stores/configStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useUpdateStore } from "../../stores/updateStore";
+import { usePanelStore } from "../../stores/panelStore";
 import { IconSplitV, IconSplitH, IconClose } from "../Icons";
 import styles from "./StatusBar.module.css";
 
@@ -12,6 +14,9 @@ export default function StatusBar() {
   const statusKind = useGitStore((s) => s.statusKind);
   const splitPane = useWorkspaceStore((s) => s.splitPane);
   const closePane = useWorkspaceStore((s) => s.closePane);
+  const updatePhase = useUpdateStore((s) => s.phase);
+  const updateVersion = useUpdateStore((s) => s.version);
+  const openSettings = usePanelStore((s) => s.openSettings);
 
   const allServices = groups.flatMap((g) => g.services);
   const total = allServices.length;
@@ -31,6 +36,20 @@ export default function StatusBar() {
       >
         {statusMessage ?? ""}
       </span>
+      {/* An announcement, not a second set of controls — the install button
+          itself lives in Settings, which this points at. */}
+      {(updatePhase === "available" || updatePhase === "downloading") && (
+        <button
+          className={styles.update}
+          onClick={openSettings}
+          title="Open Settings to install"
+        >
+          <span className={styles.updateDot} />
+          {updatePhase === "downloading"
+            ? `Updating to ${updateVersion}…`
+            : `Version ${updateVersion} available`}
+        </button>
+      )}
       <div className={styles.paneControls}>
         <button
           className={styles.paneBtn}

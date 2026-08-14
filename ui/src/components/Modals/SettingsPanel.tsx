@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
 import * as api from "../../lib/tauri";
 import { usePanelStore } from "../../stores/panelStore";
 import {
@@ -10,6 +11,7 @@ import {
   SCROLLBACK_MAX,
 } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
+import { useUpdateStore } from "../../stores/updateStore";
 import shell from "./Panel.module.css";
 import styles from "./SettingsPanel.module.css";
 
@@ -32,6 +34,7 @@ export default function SettingsPanel() {
   const hinge = sidebarCollapsed ? 0 : sidebarWidth;
 
   const [repoPath, setRepoPath] = useState("");
+  const [appVersion, setAppVersion] = useState("");
   /** Kept as text so the field can be empty mid-edit without snapping to a bound. */
   const [scrollbackText, setScrollbackText] = useState(String(scrollback));
   const mouseDownOnOverlay = useRef(false);
@@ -41,6 +44,7 @@ export default function SettingsPanel() {
   useEffect(() => {
     if (!open) return;
     setScrollbackText(String(useSettingsStore.getState().terminalScrollback));
+    getVersion().then(setAppVersion).catch(() => setAppVersion(""));
     const projectId = api.getProjectId();
     if (!projectId) return;
     api.getRepoPath(projectId).then(setRepoPath).catch(() => setRepoPath(""));
@@ -103,6 +107,15 @@ export default function SettingsPanel() {
         </div>
 
         <div className={shell.scroll}>
+          {/* ---- Updates ---- */}
+          <section className={styles.section}>
+            <div className={shell.sectionHead}>
+              <span className={shell.sectionName}>Updates</span>
+              <span className={shell.sectionRule} />
+            </div>
+            <UpdateSection appVersion={appVersion} />
+          </section>
+
           {/* ---- Terminal ---- */}
           <section className={styles.section}>
             <div className={shell.sectionHead}>
@@ -212,6 +225,75 @@ export default function SettingsPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/** Version, plus whatever the hourly release check has to say about it. */
+function UpdateSection({ appVersion }: { appVersion: string }) {
+  const phase = useUpdateStore((s) => s.phase);
+  const version = useUpdateStore((s) => s.version);
+  const progress = useUpdateStore((s) => s.progress);
+  const error = useUpdateStore((s) => s.error);
+  const checkedAt = useUpdateStore((s) => s.checkedAt);
+  const check = useUpdateStore((s) => s.check);
+  const install = useUpdateStore((s) => s.install);
+
+  const label = appVersion ? `Lever ${appVersion}` : "Lever";
+
+  let title = label;
+  let sub = "Lever looks for new releases hourly.";
+  let action: { text: string; run: () => void } | null = {
+    text: "Check now",
+    run: () => check(true),
+  };
+
+  if (phase === "checking") {
+    sub = "Checking for a newer release…";
+    action = null;
+  } else if (phase === "available") {
+    title = `${label} — version ${version} is available`;
+    sub = "Installing restarts Lever, which stops services started from this window.";
+    action = { text: "Install and restart", run: install };
+  } else if (phase === "downloading") {
+    title = `Downloading version ${version}…`;
+    sub = "Lever restarts on its own once the download finishes.";
+    action = null;
+  } else if (phase === "ready") {
+    title = `Version ${version} installed`;
+    sub = "Restarting…";
+    action = null;
+  } else if (phase === "error") {
+    title = `${label} — update check failed`;
+    sub = error ?? "Unknown error.";
+    action = { text: "Try again", run: () => check(true) };
+  } else if (checkedAt) {
+    sub = "Up to date. Lever looks for new releases hourly.";
+  }
+
+  return (
+    <>
+      <div className={styles.row}>
+        <div className={styles.rowText}>
+          <div className={styles.rowLabel}>{title}</div>
+          <div className={styles.rowSub}>{sub}</div>
+        </div>
+        {action && (
+          <button className={shell.btn} onClick={action.run}>
+            {action.text}
+          </button>
+        )}
+      </div>
+      {phase === "downloading" && (
+        <div className={styles.progressTrack}>
+          <div
+            className={`${styles.progressFill}${progress === null ? ` ${styles.progressIndeterminate}` : ""}`}
+            style={progress === null ? undefined : { width: `${Math.round(progress * 100)}%` }}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
