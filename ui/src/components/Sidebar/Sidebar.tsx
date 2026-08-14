@@ -7,7 +7,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
-import { useThemeStore, themes } from "../../stores/themeStore";
+import { useThemeStore, themes, type ThemeDef } from "../../stores/themeStore";
 import { usePanelStore } from "../../stores/panelStore";
 import { useWorktreeAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
@@ -19,6 +19,11 @@ import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
 import styles from "./Sidebar.module.css";
+
+/** Picker swatch: the theme's background is the main read, with an accent wedge
+ *  so the four dark themes stay tellable apart at 12px. */
+const swatchFill = (t: ThemeDef | undefined) =>
+  t ? `linear-gradient(135deg, ${t.swatch} 0 50%, ${t.accent} 50% 100%)` : undefined;
 
 export default function Sidebar() {
   const groups = useConfigStore((s) => s.groups);
@@ -268,7 +273,7 @@ export default function Sidebar() {
               onClick={(e) => { e.stopPropagation(); setThemeExpanded((v) => !v); }}
             >
               <span className={styles.themeToggleLeft}>
-                <span className={styles.themeSwatch} style={{ background: themes.find((t) => t.id === activeThemeId)?.swatch }} />
+                <span className={styles.themeSwatch} style={{ background: swatchFill(themes.find((t) => t.id === activeThemeId)) }} />
                 Theme
               </span>
               <span className={`${styles.themeChevron}${themeExpanded ? ` ${styles.themeChevronOpen}` : ""}`}>
@@ -283,7 +288,7 @@ export default function Sidebar() {
                     className={`${styles.themeOption}${activeThemeId === t.id ? ` ${styles.themeOptionActive}` : ""}`}
                     onClick={() => setTheme(t.id)}
                   >
-                    <span className={styles.themeSwatch} style={{ background: t.swatch }} />
+                    <span className={styles.themeSwatch} style={{ background: swatchFill(t) }} />
                     {t.label}
                     {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
                   </button>

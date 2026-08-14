@@ -212,7 +212,9 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1.5px solid var(--border);
+  /* The swatch is the theme's background, so on a dark theme it sits nearly
+     black on a nearly black menu — the ring is what makes it legible. */
+  border: 1.5px solid var(--border-hover);
   flex-shrink: 0;
 }
 
