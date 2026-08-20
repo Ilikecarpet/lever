@@ -1,51 +1,12 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
-import { useThemeStore, onTerminalThemeChange } from "../../stores/themeStore";
-import { useSettingsStore } from "../../stores/settingsStore";
-import * as api from "../../lib/tauri";
-import { tauriListen } from "../../lib/tauri";
+import { ensureSvcTerm, parkSvcTerm } from "../../lib/svcTerminals";
 import { IconClose } from "../Icons";
-import type { PtyDataEvent } from "../../types";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./LogOverlay.module.css";
-
-// Module-level store for service terminals — survives React remounts
-interface SvcTermEntry {
-  term: Terminal;
-  fitAddon: FitAddon;
-  termDiv: HTMLDivElement;
-  ptyId: string;
-  unlisten: (() => void) | null;
-  onDataDisposable: { dispose: () => void } | null;
-  disposed: boolean;
-}
-
-const svcTermStore = new Map<string, SvcTermEntry>();
-
-// Update all service terminals when theme changes
-onTerminalThemeChange((termTheme) => {
-  for (const [, entry] of svcTermStore) {
-    if (!entry.disposed) {
-      entry.term.options.theme = termTheme;
-    }
-  }
-});
-
-/** Destroy a service terminal entry. */
-export function destroySvcTerm(serviceId: string) {
-  const entry = svcTermStore.get(serviceId);
-  if (!entry) return;
-  entry.disposed = true;
-  entry.unlisten?.();
-  entry.onDataDisposable?.dispose();
-  entry.term.dispose();
-  entry.termDiv.remove();
-  svcTermStore.delete(serviceId);
-}
 
 function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,124 +20,59 @@ function ServiceTerminalView({ serviceId, ptyId }: { serviceId: string; ptyId: s
     const container = containerRef.current;
     if (!container) return;
 
-    const existing = svcTermStore.get(serviceId);
+    // Normally this terminal already exists and has been buffering since the
+    // service started; ensureSvcTerm only builds one when we are the first to
+    // reach this PTY, e.g. a session adopted back after a webview reload.
+    const entry = ensureSvcTerm(serviceId, ptyId);
 
-    // Reattach existing terminal for same ptyId
-    if (existing && !existing.disposed && existing.ptyId === ptyId) {
-      container.appendChild(existing.termDiv);
-      existing.term.focus();
-      existing.term.blur();
-      fitAddonRef.current = existing.fitAddon;
-      // Defer fit until the browser has laid out the new container.
-      requestAnimationFrame(() => {
-        if (!existing.disposed) {
-          existing.fitAddon.fit();
-          existing.term.scrollToBottom();
-        }
-      });
-
-      let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-      const observer = new ResizeObserver(() => {
-        if (resizeTimeout) clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-          if (!existing.disposed) {
-            existing.fitAddon.fit();
-            existing.term.scrollToBottom();
-          }
-        }, 50);
-      });
-      observer.observe(container);
-
-      return () => {
-        if (resizeTimeout) clearTimeout(resizeTimeout);
-        observer.disconnect();
-        if (existing.termDiv.parentNode === container) {
-          container.removeChild(existing.termDiv);
-        }
-        fitAddonRef.current = null;
-      };
+    container.appendChild(entry.termDiv);
+    // Reset xterm's internal _isFocused flag: it stays true from before detach,
+    // and blur() on a textarea without real DOM focus is a no-op. focus() gives
+    // it real DOM focus, then blur() properly fires the event chain so the
+    // cursor renders as inactive (outline).
+    //
+    // Only for a terminal that has been shown before — that's the only way the
+    // flag goes stale. Doing it on a first reveal would steal DOM focus from
+    // whatever the user was typing in, since clicking a sidebar service row
+    // doesn't move focus on its own.
+    if (entry.attached) {
+      entry.term.focus();
+      entry.term.blur();
     }
+    entry.attached = true;
+    fitAddonRef.current = entry.fitAddon;
 
-    // Destroy old terminal if ptyId changed
-    if (existing) {
-      destroySvcTerm(serviceId);
-    }
-
-    // Create new terminal
-    const termDiv = document.createElement("div");
-    termDiv.style.width = "100%";
-    termDiv.style.height = "100%";
-    container.appendChild(termDiv);
-
-    const term = new Terminal({
-      theme: useThemeStore.getState().getTerminalTheme(),
-      fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
-      fontSize: useSettingsStore.getState().terminalFontSize,
-      lineHeight: 1.4,
-      cursorBlink: false,
-      cursorInactiveStyle: "outline",
-      allowProposedApi: true,
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(termDiv);
-    // Service logs use xterm's DOM renderer (no WebGL): a high-volume dev-server
-    // stream into a GPU terminal reliably crashes WKWebView's WebGL context,
-    // blanking the whole app. Log output doesn't need GPU acceleration.
-    fitAddon.fit();
-    fitAddonRef.current = fitAddon;
-
-    const entry: SvcTermEntry = {
-      term,
-      fitAddon,
-      termDiv,
-      ptyId,
-      unlisten: null,
-      onDataDisposable: null,
-      disposed: false,
-    };
-    svcTermStore.set(serviceId, entry);
-
-    // PTY output -> terminal (per-session event)
-    tauriListen<PtyDataEvent>(`pty-data-${ptyId}`, (payload) => {
-      if (payload.id === ptyId && !entry.disposed) {
-        term.write(payload.data);
+    // Defer fit until the browser has laid out the new container. For a
+    // terminal that buffered output while detached this is also its first fit
+    // ever: it was parked at 80x24, so revealing it reflows the buffer and
+    // resizes the PTY to the panel's real geometry.
+    requestAnimationFrame(() => {
+      if (!entry.disposed) {
+        entry.fitAddon.fit();
+        entry.term.scrollToBottom();
       }
-    }).then((unlisten) => {
-      if (entry.disposed) { unlisten(); return; }
-      entry.unlisten = unlisten;
     });
 
-    // Terminal input -> PTY
-    const onDataDisposable = term.onData((data) => {
-      api.writePty(ptyId, data);
-    });
-    entry.onDataDisposable = onDataDisposable;
-
-    // Terminal resize -> PTY
-    term.onResize(({ cols, rows }) => {
-      api.resizePty(ptyId, cols, rows);
-    });
-
-    // ResizeObserver
+    // ResizeObserver with debounced fit
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const observer = new ResizeObserver(() => {
       if (resizeTimeout) clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         if (!entry.disposed) {
-          fitAddon.fit();
-          term.scrollToBottom();
+          entry.fitAddon.fit();
+          entry.term.scrollToBottom();
         }
       }, 50);
     });
     observer.observe(container);
 
     return () => {
+      // Park it, don't destroy it — the terminal stays in svcTermStore and
+      // keeps consuming PTY output while the panel is closed.
       if (resizeTimeout) clearTimeout(resizeTimeout);
       observer.disconnect();
-      if (termDiv.parentNode === container) {
-        container.removeChild(termDiv);
+      if (entry.termDiv.parentNode === container) {
+        parkSvcTerm(entry);
       }
       fitAddonRef.current = null;
     };
