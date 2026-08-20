@@ -25,6 +25,10 @@ export interface SvcTermEntry {
    *  reset on attach, which is only needed for a terminal that really held
    *  focus at some point. */
   attached: boolean;
+  /** Whether the PTY behind this terminal is still alive. A stopped service
+   *  keeps its buffer on screen, but the session is gone from the backend, so
+   *  input and resizes have nowhere to go. */
+  live: boolean;
   unlisten: (() => void) | null;
   disposables: { dispose: () => void }[];
   disposed: boolean;
@@ -151,6 +155,7 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
     termDiv,
     ptyId,
     attached: false,
+    live: true,
     unlisten: null,
     disposables: [],
     disposed: false,
@@ -167,15 +172,32 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
     entry.unlisten = unlisten;
   });
 
-  // Terminal input -> PTY
+  // Terminal input -> PTY. Skipped once the process is gone: the backend drops
+  // the session on stop, so writing would reject with "PTY not found". The
+  // buffer stays readable either way, it just isn't interactive any more.
   entry.disposables.push(term.onData((data) => {
-    api.writePty(ptyId, data);
+    if (!entry.live) return;
+    api.writePty(ptyId, data).catch(() => {
+      // Raced with the process exiting — nothing to deliver the keystroke to.
+      entry.live = false;
+    });
   }));
 
-  // Terminal resize -> PTY
+  // Terminal resize -> PTY. xterm reflows its own buffer regardless, so a
+  // stopped service's log still rewraps when the panel is resized.
   entry.disposables.push(term.onResize(({ cols, rows }) => {
-    api.resizePty(ptyId, cols, rows);
+    if (!entry.live) return;
+    api.resizePty(ptyId, cols, rows).catch(() => {
+      entry.live = false;
+    });
   }));
 
   return entry;
+}
+
+/** Mark a service's PTY as gone, so its terminal stops writing to a dead
+ *  session while keeping the output on screen. */
+export function setSvcTermDead(serviceId: string) {
+  const entry = svcTermStore.get(serviceId);
+  if (entry && !entry.disposed) entry.live = false;
 }
