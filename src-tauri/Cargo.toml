@@ -1,6 +1,6 @@
 [package]
 name = "lever"
-version = "1.5.16"
+version = "1.5.17"
 edition = "2021"
 
 [dependencies]

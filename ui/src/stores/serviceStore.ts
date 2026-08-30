@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
+import { ensureSvcTerm, setSvcTermDead } from "../lib/svcTerminals";
 import type { AgentInfo, SvcExitEvent } from "../types";
 
 interface ServiceState {
@@ -63,16 +64,22 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     for (const s of result.statuses) {
       statuses[s.id] = s.status === "running" ? "running" : "stopped";
     }
+    // Adopt pty ids the backend still tracks (e.g. after a webview reload) so
+    // terminals reattach to live sessions.
+    const prevPtyIds = get().ptyIds;
+    const adopted: Array<[string, string]> = [];
+    for (const s of result.statuses) {
+      if (s.status === "running" && s.pty_id && prevPtyIds[s.id] !== s.pty_id) {
+        adopted.push([s.id, s.pty_id]);
+      }
+    }
+
     set((state) => {
-      // Adopt pty ids the backend still tracks (e.g. after a webview reload)
-      // so terminals reattach to live sessions. Keep the same references when
-      // nothing changed so subscribers don't churn.
+      // Keep the same references when nothing changed so subscribers don't churn.
       let ptyIds = state.ptyIds;
-      for (const s of result.statuses) {
-        if (s.status === "running" && s.pty_id && ptyIds[s.id] !== s.pty_id) {
-          if (ptyIds === state.ptyIds) ptyIds = { ...state.ptyIds };
-          ptyIds[s.id] = s.pty_id;
-        }
+      for (const [id, ptyId] of adopted) {
+        if (ptyIds === state.ptyIds) ptyIds = { ...state.ptyIds };
+        ptyIds[id] = ptyId;
       }
       return {
         statuses: statusesEqual(state.statuses, statuses) ? state.statuses : statuses,
@@ -82,6 +89,18 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
           : result.agents ?? {},
       };
     });
+
+    // Attach outside the updater — building a terminal is a side effect, and
+    // the panel may never be opened for these services.
+    for (const [id, ptyId] of adopted) {
+      ensureSvcTerm(id, ptyId);
+    }
+
+    // Backstop for a process that died without an svc-exit reaching us (killed
+    // externally, reaped by the backend's own scan): stop writing to its PTY.
+    for (const [id, status] of Object.entries(statuses)) {
+      if (status === "stopped") setSvcTermDead(id);
+    }
   },
 
   startService: async (id) => {
@@ -93,6 +112,13 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         statuses: { ...state.statuses, [id]: "running" },
         pending: clearPending(state.pending, id),
       }));
+      // Build the terminal now rather than when the log panel first opens, so
+      // output is captured whether or not anyone is watching. This runs after
+      // the state update on purpose: the process is already spawned and in the
+      // backend's `tracked` map, so letting a DOM failure here fall into the
+      // catch below would leave the UI calling a running service stopped, and
+      // the retry would come back "already running".
+      ensureSvcTerm(id, result.pty_id);
     } catch (e) {
       console.error("Failed to start service:", e);
       set((state) => ({ pending: clearPending(state.pending, id) }));
@@ -103,16 +129,16 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     set((state) => ({ pending: { ...state.pending, [id]: "stopping" } }));
     try {
       await api.stopService(id);
-      set((state) => {
-        const ptyIds = { ...state.ptyIds };
-        delete ptyIds[id];
-        return {
-          ptyIds,
-          statuses: { ...state.statuses, [id]: "stopped" },
-          pending: clearPending(state.pending, id),
-          activeServiceId: state.activeServiceId === id ? null : state.activeServiceId,
-        };
-      });
+      // The pty id is deliberately kept, and the panel deliberately left open:
+      // a stopped service's output stays readable until the service is started
+      // again, which is usually the moment you most want to read it. The next
+      // start comes back on a fresh pty id, and ensureSvcTerm drops this
+      // terminal and its buffer then.
+      setSvcTermDead(id);
+      set((state) => ({
+        statuses: { ...state.statuses, [id]: "stopped" },
+        pending: clearPending(state.pending, id),
+      }));
     } catch (e) {
       console.error("Failed to stop service:", e);
       set((state) => ({ pending: clearPending(state.pending, id) }));
@@ -128,18 +154,17 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
     // Mark as stopped immediately so the UI shows the play button.
     // Keep ptyId so the terminal output stays visible until next run.
     const unlisten = await tauriListen<SvcExitEvent>("svc-exit", (payload) => {
-      set((state) => {
-        // Find which service had this pty_id
-        for (const [svcId, ptyId] of Object.entries(state.ptyIds)) {
-          if (ptyId === payload.pty_id) {
-            return {
-              statuses: { ...state.statuses, [svcId]: "stopped" },
-              pending: clearPending(state.pending, svcId),
-            };
-          }
-        }
-        return {};
-      });
+      // Find which service had this pty_id
+      const hit = Object.entries(get().ptyIds).find(
+        ([, ptyId]) => ptyId === payload.pty_id
+      );
+      if (!hit) return;
+      const [svcId] = hit;
+      setSvcTermDead(svcId);
+      set((state) => ({
+        statuses: { ...state.statuses, [svcId]: "stopped" },
+        pending: clearPending(state.pending, svcId),
+      }));
     });
     return unlisten;
   },
