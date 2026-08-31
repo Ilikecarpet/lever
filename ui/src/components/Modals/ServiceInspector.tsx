@@ -15,8 +15,8 @@ import styles from "./ServiceInspector.module.css";
 
 interface FormState {
   label: string;
+  /** The whole command line, as it will be typed into the shell. */
   command: string;
-  args: string;
   cwd: string;
   serviceType: string;
   stopCommand: string;
@@ -28,7 +28,6 @@ interface FormState {
 const emptyForm: FormState = {
   label: "",
   command: "",
-  args: "",
   cwd: "",
   serviceType: "service",
   stopCommand: "",
@@ -49,11 +48,24 @@ function decodeTarget(target: string): { worktreeId: string | null; groupId: str
   return { worktreeId: prefix === "main" ? null : prefix, groupId: target.slice(idx + 1) };
 }
 
+/** Re-quote an argv token so a round-trip through the command line survives. */
+function quoteToken(t: string): string {
+  return /[\s'"\\]/.test(t) ? `'${t.replace(/'/g, "'\\''")}'` : t;
+}
+
+/**
+ * Command and args used to be separate fields. A config still holding args gets
+ * them folded back into the one line here, and the next save writes it flat.
+ */
+function commandLine(svc: ServiceDef): string {
+  if (!svc.args.length) return svc.command;
+  return [svc.command, ...svc.args.map(quoteToken)].join(" ");
+}
+
 function formFor(svc: ServiceDef, worktreeId: string | null, groupId: string): FormState {
   return {
     label: svc.label,
-    command: svc.command,
-    args: svc.args.join(" "),
+    command: commandLine(svc),
     cwd: svc.cwd,
     serviceType: svc.service_type,
     stopCommand: svc.stop_command.join(" "),
@@ -217,7 +229,7 @@ export default function ServiceInspector() {
     return {
       label: draft.label.trim(),
       command: draft.command.trim(),
-      args: draft.args.trim() ? draft.args.trim().split(/\s+/) : [],
+      args: [],
       cwd: draft.cwd.trim(),
       service_type: draft.serviceType,
       stop_command: draft.stopCommand.trim() ? draft.stopCommand.trim().split(/\s+/) : [],
@@ -351,7 +363,6 @@ export default function ServiceInspector() {
                 <span className={styles.runPrompt}>$</span>
                 <span className={styles.runCmd}>
                   {draft.command.trim() || <span className={styles.runEmpty}>command</span>}
-                  {draft.args.trim() && <em> {draft.args.trim()}</em>}
                 </span>
               </div>
               <div className={styles.runCwd}>
@@ -416,26 +427,17 @@ export default function ServiceInspector() {
                   <span className={shell.sectionName}>Execution</span>
                   <span className={shell.sectionRule} />
                 </div>
-                <div className={styles.fRow}>
-                  <div className={styles.f}>
-                    <label htmlFor="si-cmd">Command</label>
-                    <input
-                      id="si-cmd"
-                      className={styles.mono}
-                      value={draft.command}
-                      onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-                      placeholder="e.g. docker"
-                    />
-                  </div>
-                  <div className={styles.f}>
-                    <label htmlFor="si-args">Arguments</label>
-                    <input
-                      id="si-args"
-                      className={styles.mono}
-                      value={draft.args}
-                      onChange={(e) => setDraft({ ...draft, args: e.target.value })}
-                      placeholder="e.g. compose up"
-                    />
+                <div className={styles.f}>
+                  <label htmlFor="si-cmd">Command</label>
+                  <input
+                    id="si-cmd"
+                    className={styles.mono}
+                    value={draft.command}
+                    onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+                    placeholder="e.g. PORT=5001 npm run dev -- --host 0.0.0.0"
+                  />
+                  <div className={shell.hint}>
+                    Runs in zsh exactly as typed — env prefixes, quotes and pipes all work.
                   </div>
                 </div>
                 <div className={styles.f}>
