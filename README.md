@@ -143,16 +143,14 @@ Services are defined in JSON groups within each project:
         {
           "id": "api",
           "label": "API Server",
-          "command": "npm",
-          "args": ["run", "dev"],
+          "command": "PORT=5001 npm run dev",
           "cwd": "/path/to/api",
           "service_type": "service"
         },
         {
           "id": "db",
           "label": "Database",
-          "command": "docker",
-          "args": ["compose", "up"],
+          "command": "docker compose up",
           "cwd": "/path/to/project",
           "service_type": "service"
         }
@@ -161,6 +159,11 @@ Services are defined in JSON groups within each project:
   ]
 }
 ```
+
+`command` is a whole shell command line, run by zsh as typed — environment
+prefixes, quotes, pipes and redirection all work. (Older configs that split the
+line into `command` plus an `args` array still run; saving the service in the
+inspector rewrites them to the single field.)
 
 Each worktree can override these groups with its own service definitions, so feature branches can run different configurations without affecting the main workspace.
 

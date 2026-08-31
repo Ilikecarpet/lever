@@ -262,6 +262,25 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// The shell line a service is spawned with.
+///
+/// A service's `command` is a whole command line, pasted as you would type it —
+/// env prefixes, quotes, pipes and all — and is handed to zsh verbatim. `args`
+/// only survives for configs written before that field merge: when it is
+/// present the old command-plus-tokens pair is escaped and joined, so those
+/// definitions keep running until the inspector rewrites them.
+fn service_shell_line(def: &ServiceDef) -> String {
+    if def.args.is_empty() {
+        return def.command.trim().to_string();
+    }
+    let mut line = shell_escape(&def.command);
+    for arg in &def.args {
+        line.push(' ');
+        line.push_str(&shell_escape(arg));
+    }
+    line
+}
+
 fn get_shell_path() -> String {
     // Spawning an interactive login zsh sources the user's full rc files and
     // can take hundreds of ms — compute once and reuse.
@@ -1101,12 +1120,7 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
         ".".to_string()
     };
 
-    // Build shell command string
-    let mut shell_cmd = shell_escape(&def.command);
-    for arg in &def.args {
-        shell_cmd.push(' ');
-        shell_cmd.push_str(&shell_escape(arg));
-    }
+    let shell_cmd = service_shell_line(&def);
 
     let pty_system = NativePtySystem::default();
     let pair = pty_system

@@ -6,7 +6,9 @@ export interface ServiceDef {
   id: string;
   label: string;
   description: string;
+  /** A whole shell command line, run as typed (env prefixes, quotes, pipes). */
   command: string;
+  /** Legacy: separate argv tokens, only on configs written before the merge. */
   args: string[];
   cwd: string;
   service_type: string;
