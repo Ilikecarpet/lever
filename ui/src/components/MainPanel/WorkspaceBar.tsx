@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceNeedsAttention } from "../../hooks/useAgentActivity";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
@@ -191,6 +192,7 @@ export default function WorkspaceBar() {
           title={i < 9 ? `⌘${i + 1}` : undefined}
         >
           {i < 9 && <span className={styles.tabIndex}>{i + 1}</span>}
+          <AttentionDot workspaceId={ws.id} />
           {editingId === ws.id ? (
             <input
               ref={inputRef}
@@ -250,4 +252,12 @@ export default function WorkspaceBar() {
       )}
     </div>
   );
+}
+
+/** The worktree row says which worktree an agent is waiting in; this says which
+ *  workspace, once you are there. Same signal, the next level down. */
+function AttentionDot({ workspaceId }: { workspaceId: string }) {
+  const wantsYou = useWorkspaceNeedsAttention(workspaceId);
+  if (!wantsYou) return null;
+  return <span className={styles.attentionDot} title="An agent here finished and is waiting on you" />;
 }

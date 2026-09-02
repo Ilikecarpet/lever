@@ -10,10 +10,17 @@ import {
   SCROLLBACK_MIN,
   SCROLLBACK_MAX,
 } from "../../stores/settingsStore";
+import type { ContextWindow } from "../../stores/settingsStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import shell from "./Panel.module.css";
 import styles from "./SettingsPanel.module.css";
+
+const CONTEXT_WINDOW_OPTIONS: Array<{ value: ContextWindow; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: 200_000, label: "200k" },
+  { value: 1_000_000, label: "1M" },
+];
 
 /** Project- and app-level settings. Per-service settings live in the inspector. */
 export default function SettingsPanel() {
@@ -27,6 +34,13 @@ export default function SettingsPanel() {
   const scrollback = useSettingsStore((s) => s.terminalScrollback);
   const setScrollback = useSettingsStore((s) => s.setTerminalScrollback);
   const stopOnQuit = useSettingsStore((s) => s.stopServicesOnQuit);
+  const contextWindow = useSettingsStore((s) => s.agentContextWindow);
+  const setContextWindow = useSettingsStore((s) => s.setAgentContextWindow);
+  const bridge = useSettingsStore((s) => s.agentBridge);
+  const bridgeBusy = useSettingsStore((s) => s.agentBridgeBusy);
+  const bridgeError = useSettingsStore((s) => s.agentBridgeError);
+  const loadBridge = useSettingsStore((s) => s.loadAgentBridge);
+  const setBridge = useSettingsStore((s) => s.setAgentBridge);
   const setStopOnQuit = useSettingsStore((s) => s.setStopServicesOnQuit);
 
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
@@ -45,6 +59,9 @@ export default function SettingsPanel() {
     if (!open) return;
     setScrollbackText(String(useSettingsStore.getState().terminalScrollback));
     getVersion().then(setAppVersion).catch(() => setAppVersion(""));
+    // Lives in ~/.claude/settings.json, which anything can change — re-read it
+    // rather than trusting what the toggle last showed.
+    loadBridge();
     const projectId = api.getProjectId();
     if (!projectId) return;
     api.getRepoPath(projectId).then(setRepoPath).catch(() => setRepoPath(""));
@@ -177,6 +194,54 @@ export default function SettingsPanel() {
             </div>
           </section>
 
+          {/* ---- Agents ---- */}
+          <section className={styles.section}>
+            <div className={shell.sectionHead}>
+              <span className={shell.sectionName}>Agents</span>
+              <span className={shell.sectionRule} />
+            </div>
+            <div className={styles.row}>
+              <div className={styles.rowText}>
+                <div className={styles.rowLabel}>Context window</div>
+                <div className={styles.rowSub}>
+                  What the status bar meter measures a session against.
+                </div>
+              </div>
+              <div className={styles.segmented} role="group" aria-label="Context window">
+                {CONTEXT_WINDOW_OPTIONS.map((o) => (
+                  <button
+                    key={String(o.value)}
+                    className={`${styles.segment}${contextWindow === o.value ? ` ${styles.segmentOn}` : ""}`}
+                    aria-pressed={contextWindow === o.value}
+                    onClick={() => setContextWindow(o.value)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={shell.hint}>
+              Auto takes the real window from Claude Code when the bridge below
+              is on. Without it, nothing on disk says whether a session is on the
+              1M variant, so Auto starts at 200k and rescales only once a turn
+              proves it is larger.
+            </div>
+            <Toggle
+              label="Read the context window from Claude Code"
+              sub={
+                bridge?.foreignCommand
+                  ? `Adds a statusLine hook to ~/.claude/settings.json, ahead of your existing "${bridge.foreignCommand}" — which keeps running, and gets the slot back if you turn this off.`
+                  : "Adds a statusLine hook to ~/.claude/settings.json. This is global: it applies to every Claude Code session on this Mac, not only the ones in Lever."
+              }
+              on={!!bridge?.installed}
+              disabled={bridgeBusy || bridge === null}
+              onChange={setBridge}
+            />
+            {bridgeError && (
+              <div className={styles.settingError}>{bridgeError}</div>
+            )}
+          </section>
+
           {/* ---- Services ---- */}
           <section className={styles.section}>
             <div className={shell.sectionHead}>
@@ -303,11 +368,13 @@ interface ToggleProps {
   label: string;
   sub: string;
   on: boolean;
+  /** Held while a change is in flight, or before the real state is known. */
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }
 
 /** The sidebar's service lever, at settings scale. */
-function Toggle({ label, sub, on, onChange }: ToggleProps) {
+function Toggle({ label, sub, on, disabled, onChange }: ToggleProps) {
   return (
     <div className={styles.row}>
       <div className={styles.rowText}>
@@ -318,6 +385,7 @@ function Toggle({ label, sub, on, onChange }: ToggleProps) {
         role="switch"
         aria-checked={on}
         aria-label={label}
+        disabled={disabled}
         className={`${styles.lever}${on ? ` ${styles.leverOn}` : ""}`}
         onClick={() => onChange(!on)}
       >

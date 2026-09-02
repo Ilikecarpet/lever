@@ -350,3 +350,27 @@
   color: var(--accent);
   background: var(--accent-dim);
 }
+
+/* An agent under this worktree finished and has not been looked at. Pulses
+   rather than sits, because the point is to catch an eye that is elsewhere. */
+.attentionDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+  animation: attentionPulse 2s ease-in-out infinite;
+}
+
+@keyframes attentionPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Honours the OS "reduce motion" setting, like the rest of the app. */
+@media (prefers-reduced-motion: reduce) {
+  .attentionDot {
+    animation: none;
+  }
+}

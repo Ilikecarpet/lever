@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import type { WorktreeDef } from "../../types";
+import type { AgentInfo, WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
-import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useSettingsStore } from "../../stores/settingsStore";
+import type { ContextWindow } from "../../stores/settingsStore";
+import { useWorktreeAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
@@ -15,6 +17,21 @@ import styles from "./WorktreeSection.module.css";
 
 interface Props {
   worktree: WorktreeDef;
+}
+
+/** The sidebar has no room for a meter, but the row already carries a tooltip
+ *  for the agent — context pressure rides along with it. */
+function agentTitle(agent: AgentInfo, windowSetting: ContextWindow): string {
+  const state = agent.needsAttention
+    ? `${agent.name} finished and is waiting on you`
+    : `${agent.name} is ${agent.active ? "working" : "idle"}`;
+  const u = agent.usage;
+  if (!u) return state;
+  const limit =
+    windowSetting === "auto" ? u.contextLimit : Math.max(windowSetting, u.contextLimit);
+  if (limit <= 0) return state;
+  const pct = Math.round(Math.min(u.contextTokens / limit, 1) * 100);
+  return `${state} — ${pct}% of context used (${u.contextTokens.toLocaleString()} tokens)`;
 }
 
 interface ContextMenu {
@@ -29,6 +46,8 @@ export default function WorktreeSection({ worktree }: Props) {
     (s) => s.closeWorktreeWorkspaces
   );
   const agent = useWorktreeAgent(worktree.id);
+  const wantsYou = useWorktreeNeedsAttention(worktree.id);
+  const contextWindow = useSettingsStore((s) => s.agentContextWindow);
   const statuses = useServiceStore((s) => s.statuses);
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
@@ -146,10 +165,18 @@ export default function WorktreeSection({ worktree }: Props) {
         <span className={styles.worktreeText}>
           <span
             className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
-            title={agent ? `${agent.name} is ${agent.active ? "working" : "idle"}` : undefined}
+            title={agent ? agentTitle(agent, contextWindow) : undefined}
           >{worktree.branch}</span>
           <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
         </span>
+        {/* The agent here finished and nobody has been back. Sits before the
+            running count so a worktree that wants you reads first. */}
+        {wantsYou && (
+          <span
+            className={styles.attentionDot}
+            title={`${agent?.name ?? "The agent"} finished and is waiting on you`}
+          />
+        )}
         {!isActive && runningCount > 0 && (
           <span
             className={styles.runningBadge}

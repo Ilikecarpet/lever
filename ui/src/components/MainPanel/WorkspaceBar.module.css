@@ -156,3 +156,24 @@
 .contextMenuDanger:hover {
   background: var(--red-dim);
 }
+
+/* Matches the sidebar's worktree dot — same signal, one level down. */
+.attentionDot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tabAttentionPulse 2s ease-in-out infinite;
+}
+
+@keyframes tabAttentionPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attentionDot {
+    animation: none;
+  }
+}

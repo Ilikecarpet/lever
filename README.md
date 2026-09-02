@@ -26,12 +26,25 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Organize services into logical groups (e.g. "Backend", "Frontend", "Infrastructure")
 - Start/stop services individually or monitor real-time logs
 - Automatic log capture to `~/.lever/projects/<id>/logs/`
+- Listening ports collected in the status bar and clickable — no hunting for which port a dev server landed on
 
 **Terminal Workspaces**
 - Integrated terminal powered by xterm.js
 - Split panes vertically and horizontally
 - Multiple workspaces per project with quick switching
 - Auto-respawn shell on `exit`
+
+**Agent Usage**
+- Live context meter in the status bar for the Claude Code session in the focused pane
+- Breakdown of what fills the window — cached, newly written, fresh input, reply
+- Running session totals: turns, input/output tokens, cache reads and writes, subagent output
+- Read from Claude Code's own session files; nothing is attached to the process
+- Optional statusLine bridge for the exact context window (200k vs 1M), which is
+  otherwise not recorded anywhere on disk — off by default, and it chains to any
+  statusLine command you already use
+- Working/idle read from Claude Code's own record rather than guessed from terminal output
+- A pulse on the worktree and workspace when an agent finishes, so the one waiting on
+  you stands out across several running at once
 
 **Git Worktrees**
 - Create and manage Git worktrees directly from the sidebar
