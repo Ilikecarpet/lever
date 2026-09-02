@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { ensureSvcTerm, setSvcTermDead } from "../lib/svcTerminals";
-import type { AgentInfo, SvcExitEvent } from "../types";
+import type { AgentInfo, AgentUsage, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
@@ -13,6 +13,8 @@ interface ServiceState {
   ptyIds: Record<string, string>;
   /** pty_id -> AI agent CLI (e.g. "claude") detected in that terminal */
   agents: Record<string, AgentInfo>;
+  /** service id -> TCP ports it is listening on */
+  ports: Record<string, number[]>;
   activeServiceId: string | null;
 
   poll: () => Promise<void>;
@@ -22,11 +24,35 @@ interface ServiceState {
   initExitListener: () => Promise<() => void>;
 }
 
+/** Every counter that moves when the agent does something, so an unchanged
+ *  poll keeps the old object and subscribers don't re-render for nothing. */
+function usageSignature(u: AgentUsage | undefined): string {
+  if (!u) return "";
+  return [
+    u.sessionId, u.model, u.contextLimit, u.contextTokens, u.turns,
+    u.totalInputTokens, u.totalOutputTokens,
+    u.totalCacheReadTokens, u.totalCacheWriteTokens, u.sidechainOutputTokens,
+  ].join("/");
+}
+
 function agentsEqual(a: Record<string, AgentInfo>, b: Record<string, AgentInfo>): boolean {
   const aKeys = Object.keys(a);
   if (aKeys.length !== Object.keys(b).length) return false;
   return aKeys.every(
-    (k) => b[k] !== undefined && a[k].name === b[k].name && a[k].active === b[k].active
+    (k) =>
+      b[k] !== undefined &&
+      a[k].name === b[k].name &&
+      a[k].active === b[k].active &&
+      a[k].needsAttention === b[k].needsAttention &&
+      usageSignature(a[k].usage) === usageSignature(b[k].usage)
+  );
+}
+
+function portsEqual(a: Record<string, number[]>, b: Record<string, number[]>): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(
+    (k) => b[k] !== undefined && a[k].length === b[k].length && a[k].every((p, i) => p === b[k][i])
   );
 }
 
@@ -56,6 +82,7 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
   pending: {},
   ptyIds: {},
   agents: {},
+  ports: {},
   activeServiceId: null,
 
   poll: async () => {
@@ -87,6 +114,9 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         agents: agentsEqual(state.agents, result.agents ?? {})
           ? state.agents
           : result.agents ?? {},
+        ports: portsEqual(state.ports, result.ports ?? {})
+          ? state.ports
+          : result.ports ?? {},
       };
     });
 

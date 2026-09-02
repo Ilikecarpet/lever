@@ -12,6 +12,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Emitter, Manager, State};
 
+mod agent_status_bridge;
+mod agent_usage;
+use agent_usage::{AgentUsage, UsageTracker};
+
 
 // ---------------------------------------------------------------------------
 // Config: group-based
@@ -220,7 +224,46 @@ struct AppState {
 #[derive(Default)]
 struct AgentScanCache {
     last_scan: Option<std::time::Instant>,
-    agents: HashMap<String, String>, // pty_id -> agent CLI name
+    /// pty_id -> (agent CLI name, its pid). The pid is what lets us find the
+    /// agent's own session records on disk.
+    agents: HashMap<String, (String, u32)>,
+    /// service id -> the TCP ports it is listening on. Refreshed on the same
+    /// tick as the process scan, which is where the pids come from.
+    ports: HashMap<String, Vec<u16>>,
+    /// Usage is read from files the agent writes, so it refreshes on its own
+    /// clock — faster than the process-table scan, which is the expensive one.
+    last_usage_scan: Option<std::time::Instant>,
+    usage: HashMap<String, AgentUsage>,
+    usage_tracker: UsageTracker,
+    /// pty_id -> the agent's status as of the previous tick, so a change can be
+    /// spotted. A status on its own cannot: an agent idle for an hour and one
+    /// that just this second finished look identical.
+    last_status: HashMap<String, String>,
+    /// PTYs whose agent finished work that has not been acknowledged yet.
+    attention: std::collections::HashSet<String>,
+}
+
+impl AgentScanCache {
+    /// An agent going busy -> idle has just finished and is waiting on you.
+    /// Going busy again, or any input on its terminal, settles it.
+    fn note_status_changes(&mut self) {
+        for (pty_id, usage) in &self.usage {
+            let status = match usage.session_status.as_deref() {
+                Some(s) => s,
+                None => continue,
+            };
+            let was_busy = self.last_status.get(pty_id).map(|s| s == "busy").unwrap_or(false);
+            if status == "busy" {
+                self.attention.remove(pty_id);
+            } else if was_busy {
+                self.attention.insert(pty_id.clone());
+            }
+            self.last_status.insert(pty_id.clone(), status.to_string());
+        }
+        // Terminals that have gone away take their state with them.
+        self.last_status.retain(|pty_id, _| self.usage.contains_key(pty_id));
+        self.attention.retain(|pty_id| self.usage.contains_key(pty_id));
+    }
 }
 
 #[derive(Serialize)]
@@ -230,10 +273,18 @@ struct ServiceStatus {
     pty_id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AgentInfo {
     name: String,
     active: bool,
+    /// The agent finished a turn and nobody has been back to the terminal
+    /// since — what the sidebar marks so a worktree that wants you stands out.
+    needs_attention: bool,
+    /// Token stats, when the agent is one we can read them from (Claude Code
+    /// today). `None` for agents that keep nothing readable on disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<AgentUsage>,
 }
 
 #[derive(Serialize)]
@@ -241,6 +292,8 @@ struct PollResult {
     statuses: Vec<ServiceStatus>,
     logs: HashMap<String, Vec<String>>,
     agents: HashMap<String, AgentInfo>,
+    /// service id -> TCP ports it is listening on.
+    ports: HashMap<String, Vec<u16>>,
 }
 
 #[derive(Serialize)]
@@ -443,51 +496,167 @@ fn agent_name_for_command(tokens: &[&str]) -> Option<String> {
     None
 }
 
-/// Scan the process table once and return, for each (pty_id, shell_pid) root,
-/// the name of an AI agent CLI running anywhere under that shell.
-fn detect_agents(roots: &[(String, u32)]) -> HashMap<String, String> {
-    let mut result = HashMap::new();
-    if roots.is_empty() {
-        return result;
-    }
-    let output = match Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output() {
-        Ok(o) => o,
-        Err(_) => return result,
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
+/// One pass over the process table, reused for every process question a poll
+/// asks — which agent sits under a terminal, and which pids belong to a
+/// service. Scanning once and answering both beats two `ps` forks a second.
+#[derive(Default)]
+struct ProcessTable {
+    children: HashMap<u32, Vec<u32>>,
+    agents_by_pid: HashMap<u32, String>,
+}
 
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    let mut agents_by_pid: HashMap<u32, String> = HashMap::new();
-    for line in text.lines() {
-        let mut parts = line.split_whitespace();
-        let pid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
-            Some(p) => p,
-            None => continue,
+impl ProcessTable {
+    fn scan() -> Self {
+        let output = match Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output() {
+            Ok(o) => o,
+            Err(_) => return Self::default(),
         };
-        let ppid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
-            Some(p) => p,
-            None => continue,
-        };
-        let tokens: Vec<&str> = parts.collect();
-        children.entry(ppid).or_default().push(pid);
-        if let Some(name) = agent_name_for_command(&tokens) {
-            agents_by_pid.insert(pid, name);
-        }
+        Self::parse(&String::from_utf8_lossy(&output.stdout))
     }
 
-    for (pty_id, root) in roots {
-        let mut queue = vec![*root];
-        while let Some(pid) = queue.pop() {
-            if let Some(name) = agents_by_pid.get(&pid) {
-                result.insert(pty_id.clone(), name.clone());
-                break;
+    fn parse(text: &str) -> Self {
+        let mut table = Self::default();
+        for line in text.lines() {
+            let mut parts = line.split_whitespace();
+            let pid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+                Some(p) => p,
+                None => continue,
+            };
+            let ppid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
+                Some(p) => p,
+                None => continue,
+            };
+            let tokens: Vec<&str> = parts.collect();
+            table.children.entry(ppid).or_default().push(pid);
+            if let Some(name) = agent_name_for_command(&tokens) {
+                table.agents_by_pid.insert(pid, name);
             }
-            if let Some(kids) = children.get(&pid) {
+        }
+        table
+    }
+
+    /// `root` and every process beneath it. A service is started through a
+    /// shell, so the thing actually holding the port is usually a grandchild.
+    fn descendants(&self, root: u32) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut queue = vec![root];
+        while let Some(pid) = queue.pop() {
+            out.push(pid);
+            if let Some(kids) = self.children.get(&pid) {
                 queue.extend(kids);
             }
         }
+        out
     }
-    result
+
+    /// The name and pid of an AI agent CLI running anywhere under `root`.
+    fn agent_under(&self, root: u32) -> Option<(String, u32)> {
+        let mut queue = vec![root];
+        while let Some(pid) = queue.pop() {
+            if let Some(name) = self.agents_by_pid.get(&pid) {
+                return Some((name.clone(), pid));
+            }
+            if let Some(kids) = self.children.get(&pid) {
+                queue.extend(kids);
+            }
+        }
+        None
+    }
+}
+
+/// For each (pty_id, shell_pid) root, the name and pid of the agent under it.
+fn detect_agents(table: &ProcessTable, roots: &[(String, u32)]) -> HashMap<String, (String, u32)> {
+    roots
+        .iter()
+        .filter_map(|(pty_id, root)| table.agent_under(*root).map(|a| (pty_id.clone(), a)))
+        .collect()
+}
+
+/// pid -> the TCP ports it is listening on. Restricted to the pids we actually
+/// care about: asking about the whole machine costs ~95ms, asking about one
+/// service's process tree ~38ms, and asking about nothing costs nothing.
+/// `-F` is the machine-readable form: a `p<pid>` line opens a block and the
+/// `n<addr>` lines beneath it belong to that process.
+fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
+    if pids.is_empty() {
+        return HashMap::new();
+    }
+    let list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+    let output = match Command::new("lsof")
+        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &list, "-Fpn"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return HashMap::new(),
+    };
+    parse_listening_ports(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_listening_ports(text: &str) -> HashMap<u32, Vec<u16>> {
+    let mut out: HashMap<u32, Vec<u16>> = HashMap::new();
+    let mut current: Option<u32> = None;
+    for line in text.lines() {
+        let (tag, rest) = match line.split_at_checked(1) {
+            Some(v) => v,
+            None => continue,
+        };
+        match tag {
+            "p" => current = rest.parse::<u32>().ok(),
+            "n" => {
+                // "*:5173", "127.0.0.1:18281", "[::1]:8080" — the port is
+                // whatever follows the last colon.
+                if let (Some(pid), Some(port)) = (
+                    current,
+                    rest.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()),
+                ) {
+                    let ports = out.entry(pid).or_default();
+                    if !ports.contains(&port) {
+                        ports.push(port);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The ports each running service is listening on, keyed by service id. One
+/// `lsof` call covering every service's process tree, or none at all when
+/// nothing is running.
+fn service_ports(table: &ProcessTable, services: &[(String, u32)]) -> HashMap<String, Vec<u16>> {
+    if services.is_empty() {
+        return HashMap::new();
+    }
+    let trees: Vec<(&String, Vec<u32>)> = services
+        .iter()
+        .map(|(id, pid)| (id, table.descendants(*pid)))
+        .collect();
+    let mut all: Vec<u32> = trees.iter().flat_map(|(_, pids)| pids.iter().copied()).collect();
+    all.sort_unstable();
+    all.dedup();
+    ports_for_trees(&trees, &listening_ports(&all))
+}
+
+fn ports_for_trees(
+    trees: &[(&String, Vec<u32>)],
+    by_pid: &HashMap<u32, Vec<u16>>,
+) -> HashMap<String, Vec<u16>> {
+    let mut out = HashMap::new();
+    for (id, pids) in trees {
+        let mut ports: Vec<u16> = pids
+            .iter()
+            .filter_map(|p| by_pid.get(p))
+            .flatten()
+            .copied()
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        if !ports.is_empty() {
+            out.insert((*id).clone(), ports);
+        }
+    }
+    out
 }
 
 /// Find a service and return its worktree path (if it belongs to one).
@@ -1257,7 +1426,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
     // Snapshot everything we need under the projects lock, then drop it
     // before the (slow) process-table scan so write_pty — called on every
     // keystroke — never waits behind `ps`.
-    let (statuses, roots, last_outputs) = {
+    let (statuses, roots, service_pids, last_outputs) = {
         let mut projects = state.projects.lock().unwrap();
         let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
@@ -1291,41 +1460,104 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
         let roots: Vec<(String, u32)> = ps.pty_sessions.iter()
             .filter_map(|(id, s)| s.child_pid.map(|p| (id.clone(), p)))
             .collect();
+        let service_pids: Vec<(String, u32)> = ps.tracked.iter()
+            .map(|(id, t)| (id.clone(), t.pid))
+            .collect();
         let last_outputs: HashMap<String, u64> = ps.pty_sessions.iter()
             .map(|(id, s)| (id.clone(), s.last_output.load(Ordering::Relaxed)))
             .collect();
 
-        (statuses, roots, last_outputs)
+        (statuses, roots, service_pids, last_outputs)
     };
 
     // AI agent indicator: rescan the process table at most every 2s; poll
-    // itself runs every 300ms from the frontend.
-    let agent_names = {
+    // itself runs every 300ms from the frontend. Token stats come off the
+    // agent's own files rather than the process table, so they get their own
+    // (cheaper, more frequent) refresh.
+    const AGENT_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+    const USAGE_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
+    let (agent_names, usage, ports, attention) = {
         let mut cache = state.agent_cache.lock().unwrap();
-        let stale = cache.last_scan
-            .map_or(true, |t| t.elapsed() >= std::time::Duration::from_secs(2));
-        if stale {
-            cache.agents = detect_agents(&roots);
+        if cache.last_scan.map_or(true, |t| t.elapsed() >= AGENT_SCAN_INTERVAL) {
+            let table = ProcessTable::scan();
+            cache.agents = detect_agents(&table, &roots);
+            cache.ports = service_ports(&table, &service_pids);
             cache.last_scan = Some(std::time::Instant::now());
         }
-        cache.agents.clone()
+        if cache.last_usage_scan.map_or(true, |t| t.elapsed() >= USAGE_SCAN_INTERVAL) {
+            let live: Vec<(String, u32)> = cache.agents.iter()
+                .map(|(pty_id, (_, pid))| (pty_id.clone(), *pid))
+                .collect();
+            cache.usage = cache.usage_tracker.collect(&live);
+            cache.note_status_changes();
+            cache.last_usage_scan = Some(std::time::Instant::now());
+        }
+        (
+            cache.agents.clone(),
+            cache.usage.clone(),
+            cache.ports.clone(),
+            cache.attention.clone(),
+        )
     };
 
-    // An agent is "active" (doing inference / streaming output) if its PTY
-    // produced output recently — agent TUIs redraw their spinner continuously
-    // while working and go quiet at the input prompt.
+    // Whether the agent is working. Claude Code records this itself, and its
+    // answer is used when we have it; the fallback — output on the PTY in the
+    // last couple of seconds — cannot tell real work from a spinner redraw.
     const ACTIVE_WINDOW_MS: u64 = 2000;
     let now = now_millis();
+    let mut usage = usage;
     let agents: HashMap<String, AgentInfo> = agent_names.into_iter()
-        .filter_map(|(pty_id, name)| {
+        .filter_map(|(pty_id, (name, _pid))| {
             last_outputs.get(&pty_id).map(|last| {
-                let active = now.saturating_sub(*last) <= ACTIVE_WINDOW_MS;
-                (pty_id, AgentInfo { name, active })
+                let usage = usage.remove(&pty_id);
+                let active = match usage.as_ref().and_then(|u| u.session_status.as_deref()) {
+                    Some(status) => status == "busy",
+                    None => now.saturating_sub(*last) <= ACTIVE_WINDOW_MS,
+                };
+                let needs_attention = attention.contains(&pty_id);
+                (pty_id, AgentInfo { name, active, needs_attention, usage })
             })
         })
         .collect();
 
-    Ok(PollResult { statuses, logs: HashMap::new(), agents })
+    Ok(PollResult { statuses, logs: HashMap::new(), agents, ports })
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands: Claude Code statusLine bridge
+// ---------------------------------------------------------------------------
+
+/// Focusing a pane counts as having seen it, the same as typing into it.
+#[tauri::command]
+fn clear_agent_attention(pty_id: String, state: State<'_, AppState>) {
+    state.agent_cache.lock().unwrap().attention.remove(&pty_id);
+}
+
+#[tauri::command(async)]
+fn agent_bridge_state() -> Result<agent_status_bridge::BridgeState, String> {
+    agent_status_bridge::state()
+}
+
+#[tauri::command(async)]
+fn install_agent_bridge() -> Result<agent_status_bridge::BridgeState, String> {
+    debug_action("agent", "installing the Claude Code statusLine bridge");
+    let out = agent_status_bridge::install();
+    match &out {
+        Ok(_) => debug_log("agent", "info", "statusLine bridge installed"),
+        Err(e) => debug_log("agent", "error", e),
+    }
+    out
+}
+
+#[tauri::command(async)]
+fn uninstall_agent_bridge() -> Result<agent_status_bridge::BridgeState, String> {
+    debug_action("agent", "removing the Claude Code statusLine bridge");
+    let out = agent_status_bridge::uninstall();
+    match &out {
+        Ok(_) => debug_log("agent", "info", "statusLine bridge removed"),
+        Err(e) => debug_log("agent", "error", e),
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1400,6 +1632,9 @@ fn write_pty(project_id: String, id: String, data: String, state: State<'_, AppS
     let session = ps.pty_sessions.get_mut(&id).ok_or("PTY not found")?;
     session.last_input.store(now_millis(), Ordering::Relaxed);
     session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+    drop(projects);
+    // Getting back to the terminal is the acknowledgement.
+    state.agent_cache.lock().unwrap().attention.remove(&id);
     Ok(())
 }
 
@@ -2448,6 +2683,10 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            agent_bridge_state,
+            clear_agent_attention,
+            install_agent_bridge,
+            uninstall_agent_bridge,
             list_projects,
             create_project,
             delete_project,
@@ -2520,4 +2759,150 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+
+    #[test]
+    fn asking_about_no_pids_never_forks_lsof() {
+        assert!(listening_ports(&[]).is_empty());
+    }
+
+    #[test]
+    fn lsof_field_output_maps_pids_to_their_ports() {
+        // One `p` line opens a block; the `n` lines under it are that pid's.
+        let text = "p1034\nf16\nn*:50879\nf18\nn127.0.0.1:18281\np1550\nf12\nn[::1]:8080\n";
+        let ports = parse_listening_ports(text);
+        assert_eq!(ports.get(&1034), Some(&vec![50879, 18281]));
+        // An IPv6 address has colons of its own; the port is the last one.
+        assert_eq!(ports.get(&1550), Some(&vec![8080]));
+    }
+
+    #[test]
+    fn the_same_port_on_several_sockets_is_listed_once() {
+        let text = "p99\nf1\nn*:3000\nf2\nn127.0.0.1:3000\nf3\nn[::]:3000\n";
+        assert_eq!(parse_listening_ports(text).get(&99), Some(&vec![3000]));
+    }
+
+    #[test]
+    fn junk_lines_do_not_derail_the_parse() {
+        let text = "\ngarbage\npNOTAPID\nn*:1234\np42\nf1\nn*:notaport\nn*:7000\n";
+        let ports = parse_listening_ports(text);
+        assert_eq!(ports.get(&42), Some(&vec![7000]));
+        assert_eq!(ports.len(), 1);
+    }
+
+    /// `npm run dev` is a shell that spawns node; the port belongs to the
+    /// grandchild, so a service's ports have to come from its whole tree.
+    #[test]
+    fn a_services_ports_come_from_its_descendants() {
+        let table = ProcessTable::parse(
+            "100 1 /bin/sh -c npm run dev\n200 100 node /usr/local/bin/npm\n300 200 node vite\n             400 1 /bin/sh -c tail -f log\n999 1 unrelated\n",
+        );
+        let by_pid = HashMap::from([(300u32, vec![5173u16]), (999, vec![9999])]);
+        let web = "web".to_string();
+        let watcher = "watcher".to_string();
+        let ports = ports_for_trees(&[(&web, table.descendants(100))], &by_pid);
+        assert_eq!(ports.get("web"), Some(&vec![5173]));
+        // Another service's port is not picked up along the way.
+        assert!(!ports.get("web").unwrap().contains(&9999));
+        // A service listening on nothing is absent rather than empty.
+        let none = ports_for_trees(&[(&watcher, table.descendants(400))], &by_pid);
+        assert_eq!(none.get("watcher"), None);
+    }
+
+    #[test]
+    fn an_agent_is_found_anywhere_under_a_terminal() {
+        let table = ProcessTable::parse(
+            "10 1 -zsh\n11 10 node /opt/node_modules/.bin/claude\n20 1 -zsh\n",
+        );
+        assert_eq!(table.agent_under(10), Some(("claude".to_string(), 11)));
+        assert_eq!(table.agent_under(20), None);
+    }
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    fn cache_seeing(statuses: &[(&str, Option<&str>)]) -> AgentScanCache {
+        let mut c = AgentScanCache::default();
+        c.usage = statuses.iter()
+            .map(|(pty, s)| (pty.to_string(), AgentUsage::with_status(*s)))
+            .collect();
+        c
+    }
+
+    fn observe(cache: &mut AgentScanCache, statuses: &[(&str, Option<&str>)]) {
+        cache.usage = statuses.iter()
+            .map(|(pty, s)| (pty.to_string(), AgentUsage::with_status(*s)))
+            .collect();
+        cache.note_status_changes();
+    }
+
+    #[test]
+    fn finishing_a_turn_raises_the_flag() {
+        let mut c = cache_seeing(&[("a", Some("busy"))]);
+        c.note_status_changes();
+        assert!(!c.attention.contains("a"), "still working, nothing to see yet");
+
+        observe(&mut c, &[("a", Some("idle"))]);
+        assert!(c.attention.contains("a"), "busy -> idle is the moment it finished");
+    }
+
+    #[test]
+    fn an_agent_idle_all_along_never_raises_it() {
+        // Lever starting up next to a long-idle session must not claim it just
+        // finished something.
+        let mut c = cache_seeing(&[("a", Some("idle"))]);
+        c.note_status_changes();
+        assert!(!c.attention.contains("a"));
+        observe(&mut c, &[("a", Some("idle"))]);
+        assert!(!c.attention.contains("a"));
+    }
+
+    #[test]
+    fn going_back_to_work_settles_it() {
+        let mut c = cache_seeing(&[("a", Some("busy"))]);
+        c.note_status_changes();
+        observe(&mut c, &[("a", Some("idle"))]);
+        assert!(c.attention.contains("a"));
+
+        observe(&mut c, &[("a", Some("busy"))]);
+        assert!(!c.attention.contains("a"), "it is working again; the flag is stale");
+    }
+
+    #[test]
+    fn each_terminal_is_tracked_on_its_own() {
+        let mut c = cache_seeing(&[("a", Some("busy")), ("b", Some("busy"))]);
+        c.note_status_changes();
+        observe(&mut c, &[("a", Some("idle")), ("b", Some("busy"))]);
+        assert!(c.attention.contains("a"));
+        assert!(!c.attention.contains("b"));
+    }
+
+    #[test]
+    fn a_closed_terminal_takes_its_flag_with_it() {
+        let mut c = cache_seeing(&[("a", Some("busy"))]);
+        c.note_status_changes();
+        observe(&mut c, &[("a", Some("idle"))]);
+        assert!(c.attention.contains("a"));
+
+        observe(&mut c, &[]);
+        assert!(c.attention.is_empty(), "the pty is gone");
+        assert!(c.last_status.is_empty());
+    }
+
+    #[test]
+    fn an_agent_that_reports_no_status_is_left_alone() {
+        // codex, gemini and friends keep no such record; the flag is a
+        // Claude Code feature and must not be invented for them.
+        let mut c = cache_seeing(&[("a", None)]);
+        c.note_status_changes();
+        observe(&mut c, &[("a", None)]);
+        assert!(c.attention.is_empty());
+        assert!(c.last_status.is_empty());
+    }
 }

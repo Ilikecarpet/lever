@@ -189,3 +189,53 @@
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
 }
+
+/* Three mutually exclusive sizes — small enough to sit inline in a settings
+   row, where a dropdown would hide two of the three choices. */
+.segmented {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.segment {
+  background: none;
+  border: none;
+  padding: 3px 9px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+}
+.segment:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.segmentOn,
+.segmentOn:hover {
+  color: var(--accent-fg);
+  background: var(--accent);
+}
+
+/* Only shown when a settings change actually failed, so it carries the reason
+   rather than a generic "something went wrong". */
+.settingError {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--red-dim);
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.lever:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

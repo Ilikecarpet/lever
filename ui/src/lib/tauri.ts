@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AppConfig,
+  BridgeState,
   PollResult,
   PtyInfo,
   StartServiceResult,
@@ -157,6 +158,27 @@ export function getRepoPath(id: string): Promise<string> {
  *  the only side still running when the window close is handled. */
 export function setStopServicesOnQuit(enabled: boolean): Promise<void> {
   return invoke<void>("set_stop_services_on_quit", { enabled });
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code statusLine bridge (global, not project-scoped)
+// ---------------------------------------------------------------------------
+
+/** Focusing a pane counts as having seen its agent finish. */
+export function clearAgentAttention(ptyId: string): Promise<void> {
+  return invoke<void>("clear_agent_attention", { ptyId });
+}
+
+export function agentBridgeState(): Promise<BridgeState> {
+  return invoke<BridgeState>("agent_bridge_state");
+}
+
+export function installAgentBridge(): Promise<BridgeState> {
+  return invoke<BridgeState>("install_agent_bridge");
+}
+
+export function uninstallAgentBridge(): Promise<BridgeState> {
+  return invoke<BridgeState>("uninstall_agent_bridge");
 }
 
 // ---------------------------------------------------------------------------

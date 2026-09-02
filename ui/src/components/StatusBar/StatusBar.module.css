@@ -99,3 +99,67 @@
   background: var(--green);
   box-shadow: 0 0 0 3px var(--green-dim);
 }
+
+/* Sits with the service count: both answer "what is running right now", with
+   the same rule the pane controls use to hold themselves apart at the far end.
+   It arrives with the ports, since the section only renders when there are any. */
+.ports {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+}
+
+/* One service: its name once, then each of its ports. */
+.portGroup {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  white-space: nowrap;
+}
+
+/* The name is what you scan for, the port is what you click — so the name is
+   quieter of the two, and not a target itself. */
+.portLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-right: 3px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.port {
+  background: none;
+  border: none;
+  padding: 1px 4px;
+  height: 16px;
+  border-radius: 3px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+}
+.port:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+/* Hovering a port lights its name too, so the pair reads as one thing. */
+.portGroup:hover .portLabel {
+  color: var(--text-dim);
+}
+
+.portsMore {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: help;
+  padding: 0 2px;
+}

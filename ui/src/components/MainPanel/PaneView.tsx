@@ -4,6 +4,9 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
 import { usePty, focusPty } from "../../hooks/usePty";
+import { useServiceStore } from "../../stores/serviceStore";
+import { findNode } from "../../lib/paneTree";
+import * as api from "../../lib/tauri";
 import Divider from "./Divider";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./PaneView.module.css";
@@ -16,6 +19,16 @@ function LeafPane({ id, isActive, visible, worktreeId }: { id: string; isActive:
   const cwd = worktree?.path || repoPath || undefined;
   const { fit } = usePty(id, containerRef, cwd);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
+  const ptyId = useWorkspaceStore((s) => {
+    for (const w of s.workspaces) {
+      const node = findNode(w.root, id);
+      if (node?.type === "leaf") return node.ptyId;
+    }
+    return null;
+  });
+  const needsAttention = useServiceStore(
+    (s) => !!(ptyId && s.agents[ptyId]?.needsAttention)
+  );
 
   useEffect(() => {
     if (visible && isActive) {
@@ -25,6 +38,15 @@ function LeafPane({ id, isActive, visible, worktreeId }: { id: string; isActive:
       focusPty(id);
     }
   }, [id, isActive, visible, fit]);
+
+  // Looking at the pane counts as having seen the agent finish, the same as
+  // typing into it — otherwise the sidebar keeps flagging a worktree you are
+  // already sitting in.
+  useEffect(() => {
+    if (visible && isActive && needsAttention && ptyId) {
+      api.clearAgentAttention(ptyId).catch(() => {});
+    }
+  }, [visible, isActive, needsAttention, ptyId]);
 
   const handleClick = useCallback(() => {
     setActivePane(id);
