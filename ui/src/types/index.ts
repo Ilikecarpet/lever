@@ -90,6 +90,25 @@ export interface AgentUsage {
   catchingUp: boolean;
 }
 
+/** One of the Claude account's rolling usage windows, as Claude Code last
+ *  reported it through the statusLine bridge. */
+export interface RateLimitWindow {
+  /** 0–100, rounded by Claude Code. */
+  usedPercentage: number;
+  /** Unix seconds at which the window rolls over. */
+  resetsAt: number;
+  /** Unix seconds when the figure was last written. Payloads only refresh
+   *  while some session is rendering, so this can fall behind. */
+  reportedAt: number;
+}
+
+/** Plan usage for the whole account — one figure, not one per session. Either
+ *  window may be missing: Claude Code omits one it has no data for. */
+export interface RateLimits {
+  fiveHour: RateLimitWindow | null;
+  sevenDay: RateLimitWindow | null;
+}
+
 /** Whether Lever's statusLine hook is installed in ~/.claude/settings.json. */
 export interface BridgeState {
   installed: boolean;
@@ -116,6 +135,8 @@ export interface PollResult {
   agents: Record<string, AgentInfo>;
   /** service id -> TCP ports it is listening on */
   ports: Record<string, number[]>;
+  /** The Claude account's plan usage, when the bridge has reported it. */
+  rateLimits: RateLimits | null;
 }
 
 // ---------------------------------------------------------------------------

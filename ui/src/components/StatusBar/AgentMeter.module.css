@@ -181,6 +181,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* One plan window: a labelled row over a full-width bar. Used, not left,
+   fills the bar — the same direction as the context stack above, so the two
+   read alike. */
+.plan + .plan {
+  margin-top: 6px;
+}
+.planReset {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.planTrack {
+  display: block;
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+.rowValue.medium {
+  color: var(--yellow);
+}
+.rowValue.high {
+  color: var(--red);
+}
+
 .swatch {
   width: 7px;
   height: 7px;

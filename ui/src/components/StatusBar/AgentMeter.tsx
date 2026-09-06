@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useFocusedPaneAgent } from "../../hooks/useAgentActivity";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { AgentUsage } from "../../types";
+import { useServiceStore } from "../../stores/serviceStore";
+import type { AgentUsage, RateLimitWindow } from "../../types";
 import styles from "./AgentMeter.module.css";
 
 /** 92089 -> "92.1k", 1627530 -> "1.63M", 1239805640 -> "1.24B". Exact below a
@@ -41,6 +42,52 @@ function segmentsOf(u: AgentUsage) {
     { key: "input", label: "Input", value: u.freshInputTokens, cls: styles.swInput },
     { key: "reply", label: "Reply", value: u.replyTokens, cls: styles.swReply },
   ];
+}
+
+/** A duration in the two largest useful units: "2h 14m", "4d 3h", "under a
+ *  minute". Reset times are read at a glance, so seconds would only jitter. */
+function spanLabel(ms: number): string {
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "under a minute";
+  const days = Math.floor(mins / 1_440);
+  const hours = Math.floor((mins % 1_440) / 60);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  const rem = mins % 60;
+  if (hours > 0) return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
+  return `${rem}m`;
+}
+
+/** Only a figure that has fallen behind says how old it is; a fresh one is
+ *  simply current. Claude Code writes the payload while a session is drawing,
+ *  so with every session idle the number sits still. */
+const STALE_AFTER_MS = 5 * 60_000;
+
+/** One rolling window of the plan: what has gone, and when it comes back. A
+ *  window whose reset has already passed is shown as reset rather than at its
+ *  last known figure, which is now wrong by construction. */
+function PlanWindow({ label, win, now }: { label: string; win: RateLimitWindow; now: number }) {
+  const resetAt = win.resetsAt * 1000;
+  const rolledOver = resetAt <= now;
+  const fraction = rolledOver ? 0 : Math.min(win.usedPercentage / 100, 1);
+  return (
+    <div className={styles.plan}>
+      <div className={styles.row}>
+        <span className={styles.rowLabel}>{label}</span>
+        <span className={styles.planReset}>
+          {rolledOver ? "reset · awaiting a new report" : `resets in ${spanLabel(resetAt - now)}`}
+        </span>
+        <span className={`${styles.rowValue} ${pressure(fraction)}`}>
+          {rolledOver ? "—" : `${Math.round(win.usedPercentage)}%`}
+        </span>
+      </div>
+      <span className={styles.planTrack}>
+        <span
+          className={`${styles.fill} ${pressure(fraction)}`}
+          style={{ width: `${fraction * 100}%` }}
+        />
+      </span>
+    </div>
+  );
 }
 
 /** A session total: compact in the column, exact on hover. `hint` explains a
@@ -85,6 +132,17 @@ export default function AgentMeter() {
 
   const usage = agent?.usage;
   const hasUsage = !!usage;
+  const limits = useServiceStore((s) => s.rateLimits);
+
+  // The reset countdowns are minutes, so a slow tick keeps them honest while
+  // the popover is open without re-rendering on every poll.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [open]);
 
   // Close rather than strand an open popover when focus moves to a pane whose
   // terminal has no agent in it.
@@ -103,6 +161,15 @@ export default function AgentMeter() {
   const fraction = limit > 0 ? Math.min(usage.contextTokens / limit, 1) : 0;
   const percent = Math.round(fraction * 100);
   const segments = segmentsOf(usage);
+
+  // The headline is what is left on the tighter window — the one that runs out
+  // first is the one you plan around. The weekly window stands in when Claude
+  // Code has not sent an hourly one.
+  const lead = limits?.fiveHour ?? limits?.sevenDay ?? null;
+  const leadLeft =
+    lead && lead.resetsAt * 1000 > now ? Math.max(0, Math.round(100 - lead.usedPercentage)) : null;
+  const newestReport = Math.max(limits?.fiveHour?.reportedAt ?? 0, limits?.sevenDay?.reportedAt ?? 0) * 1000;
+  const reportAge = newestReport > 0 ? now - newestReport : 0;
 
   return (
     <div className={styles.wrap} ref={ref}>
@@ -171,9 +238,32 @@ export default function AgentMeter() {
             <p className={styles.note}>
               Measured at the last reply — tool output since then is not counted.
               {usage.contextLimitSource === "inferred" &&
-                " Window size assumed; turn on the Claude Code bridge in Settings to read the real one."}
+                " Window size assumed; turn on the Claude Code bridge in Settings to read the real one, along with your plan's remaining usage."}
             </p>
           </div>
+
+          {limits && (
+            <div className={styles.section}>
+              <div className={styles.sectionHead}>
+                <span>Plan</span>
+                <span className={styles.sectionValue}>
+                  {leadLeft === null ? "—" : (
+                    <>
+                      <span className={`${styles.pct} ${pressure(1 - leadLeft / 100)}`}>{leadLeft}%</span>
+                      left
+                    </>
+                  )}
+                </span>
+              </div>
+              {limits.fiveHour && <PlanWindow label="5 hour" win={limits.fiveHour} now={now} />}
+              {limits.sevenDay && <PlanWindow label="7 day" win={limits.sevenDay} now={now} />}
+              <p className={styles.note}>
+                Your account's usage as Claude Code reports it, across every session.
+                {reportAge > STALE_AFTER_MS &&
+                  ` Last reported ${spanLabel(reportAge)} ago — it only refreshes while a session is drawing.`}
+              </p>
+            </div>
+          )}
 
           <div className={styles.section}>
             <div className={styles.sectionHead}>

@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager, State};
 
 mod agent_status_bridge;
 mod agent_usage;
-use agent_usage::{AgentUsage, UsageTracker};
+use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
 // ---------------------------------------------------------------------------
@@ -235,6 +235,9 @@ struct AgentScanCache {
     last_usage_scan: Option<std::time::Instant>,
     usage: HashMap<String, AgentUsage>,
     usage_tracker: UsageTracker,
+    /// The account's plan usage, off the same bridge payloads. One figure for
+    /// the whole app, not one per terminal.
+    rate_limits: Option<RateLimits>,
     /// pty_id -> the agent's status as of the previous tick, so a change can be
     /// spotted. A status on its own cannot: an agent idle for an hour and one
     /// that just this second finished look identical.
@@ -294,6 +297,10 @@ struct PollResult {
     agents: HashMap<String, AgentInfo>,
     /// service id -> TCP ports it is listening on.
     ports: HashMap<String, Vec<u16>>,
+    /// Plan usage for the Claude account, when the statusLine bridge has
+    /// reported it. Not tied to any one agent.
+    #[serde(rename = "rateLimits")]
+    rate_limits: Option<RateLimits>,
 }
 
 #[derive(Serialize)]
@@ -1476,7 +1483,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
     // (cheaper, more frequent) refresh.
     const AGENT_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
     const USAGE_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
-    let (agent_names, usage, ports, attention) = {
+    let (agent_names, usage, ports, attention, rate_limits) = {
         let mut cache = state.agent_cache.lock().unwrap();
         if cache.last_scan.map_or(true, |t| t.elapsed() >= AGENT_SCAN_INTERVAL) {
             let table = ProcessTable::scan();
@@ -1489,6 +1496,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
                 .map(|(pty_id, (_, pid))| (pty_id.clone(), *pid))
                 .collect();
             cache.usage = cache.usage_tracker.collect(&live);
+            cache.rate_limits = agent_usage::read_rate_limits();
             cache.note_status_changes();
             cache.last_usage_scan = Some(std::time::Instant::now());
         }
@@ -1497,6 +1505,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
             cache.usage.clone(),
             cache.ports.clone(),
             cache.attention.clone(),
+            cache.rate_limits,
         )
     };
 
@@ -1520,7 +1529,7 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
         })
         .collect();
 
-    Ok(PollResult { statuses, logs: HashMap::new(), agents, ports })
+    Ok(PollResult { statuses, logs: HashMap::new(), agents, ports, rate_limits })
 }
 
 // ---------------------------------------------------------------------------

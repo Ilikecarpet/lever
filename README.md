@@ -42,6 +42,9 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Optional statusLine bridge for the exact context window (200k vs 1M), which is
   otherwise not recorded anywhere on disk — off by default, and it chains to any
   statusLine command you already use
+- With the bridge on, the plan's 5-hour and 7-day usage as Claude Code reports it,
+  with the time to each reset — account-wide, so it is one figure however many
+  sessions are open
 - Working/idle read from Claude Code's own record rather than guessed from terminal output
 - A pulse on the worktree and workspace when an agent finishes, so the one waiting on
   you stands out across several running at once

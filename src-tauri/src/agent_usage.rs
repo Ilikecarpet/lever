@@ -10,6 +10,11 @@
 //! key into the first file; the second gives the per-turn `usage` blocks the
 //! API returned. Transcripts run to megabytes, so each one is read once and
 //! then only from wherever the last read stopped.
+//!
+//! Plan usage — how much of the account's 5-hour and 7-day allowance has gone —
+//! is not on disk anywhere Claude Code writes by default. It arrives only via
+//! the statusLine bridge (`agent_status_bridge`), whose payloads this also
+//! reads; see `read_rate_limits`.
 
 use crate::agent_status_bridge;
 use serde::Serialize;
@@ -355,6 +360,97 @@ impl TranscriptReader {
     }
 }
 
+/// One of the account's rolling usage windows, as Claude Code last reported it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindow {
+    /// 0–100. Claude Code rounds this; a fraction is not a precision claim.
+    pub used_percentage: f64,
+    /// Unix seconds at which the window rolls over and usage drops to zero.
+    pub resets_at: u64,
+    /// Unix seconds when Claude Code last wrote this figure. Payloads only
+    /// refresh while a session is rendering, so the UI can say how old it is.
+    pub reported_at: u64,
+}
+
+/// The account's plan usage. Account-wide, so it is one figure for the whole
+/// app rather than one per session. Either window may be absent — Claude Code
+/// omits one it has no data for, and older CLIs send only the weekly one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimits {
+    pub five_hour: Option<RateLimitWindow>,
+    pub seven_day: Option<RateLimitWindow>,
+}
+
+impl RateLimits {
+    fn is_empty(&self) -> bool {
+        self.five_hour.is_none() && self.seven_day.is_none()
+    }
+}
+
+/// The freshest plan usage across every payload the bridge has stashed.
+///
+/// Each window is taken from whichever payload wrote it most recently, not the
+/// focused session's: the limit is per account, so a busy session in another
+/// pane has the newer number. `None` when the bridge is off or nothing has
+/// reported yet.
+pub fn read_rate_limits() -> Option<RateLimits> {
+    read_rate_limits_in(&agent_status_bridge::sessions_dir().ok()?)
+}
+
+fn read_rate_limits_in(dir: &std::path::Path) -> Option<RateLimits> {
+    let mut out = RateLimits::default();
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        // Skip the bridge script's in-flight temp files and anything else
+        // that is not a stashed payload.
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || !name.ends_with(".json") {
+            continue;
+        }
+        let reported_at = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        let reported_at = match reported_at {
+            Some(t) => t,
+            None => continue,
+        };
+        let raw = match fs::read_to_string(&path) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let v: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let limits = match v.get("rate_limits") {
+            Some(l) if l.is_object() => l,
+            _ => continue,
+        };
+        let window = |key: &str| -> Option<RateLimitWindow> {
+            let w = limits.get(key)?;
+            Some(RateLimitWindow {
+                used_percentage: w.get("used_percentage")?.as_f64()?.clamp(0.0, 100.0),
+                resets_at: w.get("resets_at")?.as_u64()?,
+                reported_at,
+            })
+        };
+        let newer = |cur: Option<RateLimitWindow>, cand: Option<RateLimitWindow>| match (cur, cand) {
+            (Some(c), Some(n)) if n.reported_at >= c.reported_at => Some(n),
+            (None, Some(n)) => Some(n),
+            (c, _) => c,
+        };
+        out.five_hour = newer(out.five_hour, window("five_hour"));
+        out.seven_day = newer(out.seven_day, window("seven_day"));
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
 /// What the statusLine bridge stashed for a session, when it is installed.
 struct ReportedStatus {
     context_window_size: Option<u64>,
@@ -668,5 +764,68 @@ mod tests {
     fn slug_matches_claude_codes_project_directory_naming() {
         assert_eq!(project_slug("/Users/onil/Repos/Personal/lever"), "-Users-onil-Repos-Personal-lever");
         assert_eq!(project_slug("/a/b.c_d"), "-a-b-c-d");
+    }
+
+    /// A scratch payload directory, one per test.
+    struct PayloadDir(PathBuf);
+    impl PayloadDir {
+        fn new(tag: &str) -> Self {
+            let p = std::env::temp_dir()
+                .join(format!("lever-limits-{}-{}", tag, std::process::id()));
+            let _ = fs::remove_dir_all(&p);
+            fs::create_dir_all(&p).unwrap();
+            PayloadDir(p)
+        }
+        fn write(&self, name: &str, body: &str, mtime_offset_secs: i64) {
+            let path = self.0.join(name);
+            fs::write(&path, body).unwrap();
+            // Ordering is by mtime, so each file is stamped explicitly — two
+            // writes in one test would otherwise land on the same second.
+            let t = std::time::SystemTime::now()
+                .checked_sub(std::time::Duration::from_secs((-mtime_offset_secs).max(0) as u64))
+                .unwrap();
+            fs::File::open(&path).unwrap().set_modified(t).unwrap();
+        }
+    }
+    impl Drop for PayloadDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn each_window_comes_from_the_freshest_payload_that_has_it() {
+        let d = PayloadDir::new("freshest");
+        // An old session that saw both windows...
+        d.write(
+            "old.json",
+            r#"{"session_id":"old","rate_limits":{"five_hour":{"used_percentage":40,"resets_at":100},"seven_day":{"used_percentage":9,"resets_at":900}}}"#,
+            -600,
+        );
+        // ...and a newer one that only reported the weekly window.
+        d.write(
+            "new.json",
+            r#"{"session_id":"new","rate_limits":{"seven_day":{"used_percentage":12,"resets_at":900}}}"#,
+            -5,
+        );
+        let l = read_rate_limits_in(&d.0).unwrap();
+        assert_eq!(l.five_hour.unwrap().used_percentage, 40.0);
+        assert_eq!(l.seven_day.unwrap().used_percentage, 12.0);
+        assert!(l.seven_day.unwrap().reported_at > l.five_hour.unwrap().reported_at);
+    }
+
+    #[test]
+    fn payloads_without_limits_and_stray_files_are_ignored() {
+        let d = PayloadDir::new("ignore");
+        d.write("a.json", r#"{"session_id":"a","rate_limits":null}"#, -1);
+        d.write("b.json", r#"{"session_id":"b"}"#, -1);
+        d.write("c.json", "{ not json", -1);
+        d.write(".sid.123.tmp", r#"{"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1}}}"#, 0);
+        assert!(read_rate_limits_in(&d.0).is_none());
+    }
+
+    #[test]
+    fn a_missing_directory_yields_nothing() {
+        assert!(read_rate_limits_in(std::path::Path::new("/nonexistent/lever-limits")).is_none());
     }
 }
