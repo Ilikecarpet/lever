@@ -20,12 +20,17 @@ interface Props {
 }
 
 /** The sidebar has no room for a meter, but the row already carries a tooltip
- *  for the agent — context pressure rides along with it. */
+ *  for the agent — context pressure rides along with it. With the bridge on
+ *  the agent is named by model and conversation, which is what tells two
+ *  Claude sessions apart. */
 function agentTitle(agent: AgentInfo, windowSetting: ContextWindow): string {
-  const state = agent.needsAttention
-    ? `${agent.name} finished and is waiting on you`
-    : `${agent.name} is ${agent.active ? "working" : "idle"}`;
   const u = agent.usage;
+  const who = u?.reported?.modelName ?? agent.name;
+  const conversation = u?.reported?.title ?? u?.sessionName;
+  const subject = conversation ? `${who} · ${conversation}` : who;
+  const state = agent.needsAttention
+    ? `${subject} finished and is waiting on you`
+    : `${subject} is ${agent.active ? "working" : "idle"}`;
   if (!u) return state;
   const limit =
     windowSetting === "auto" ? u.contextLimit : Math.max(windowSetting, u.contextLimit);

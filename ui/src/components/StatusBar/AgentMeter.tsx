@@ -265,7 +265,7 @@ export default function AgentMeter() {
   return (
     <div className={styles.wrap} ref={ref}>
       <button
-        className={`${styles.meter}${open ? ` ${styles.meterOpen}` : ""}`}
+        className={`${styles.meter}${open ? ` ${styles.meterOpen}` : ""}${leadUsed >= 0.9 ? ` ${styles.meterWarn}` : ""}`}
         // Reading the numbers should not cost the terminal its keyboard focus.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((v) => !v)}
@@ -293,7 +293,7 @@ export default function AgentMeter() {
                 style={{ width: `${leadLive ? Math.max(leadUsed * 100, 2) : 0}%` }}
               />
             </span>
-            <span className={styles.percent}>{leadLeft === null ? "—" : `${leadLeft}%`}</span>
+            <span className={`${styles.percent} ${pressure(leadUsed)}`}>{leadLeft === null ? "—" : `${leadLeft}%`}</span>
           </span>
         )}
       </button>

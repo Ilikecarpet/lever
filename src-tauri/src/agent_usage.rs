@@ -500,6 +500,10 @@ fn read_rate_limits_in(dir: &std::path::Path) -> Option<RateLimits> {
 struct ReportedStatus {
     context_window_size: Option<u64>,
     model: Option<String>,
+    /// Where Claude Code says the transcript is. Beats guessing the project
+    /// slug from the cwd, which goes wrong for a conversation resumed from a
+    /// different directory.
+    transcript_path: Option<PathBuf>,
     details: ReportedDetails,
 }
 
@@ -531,6 +535,7 @@ fn read_reported_in(dir: &std::path::Path, session_id: &str) -> Option<ReportedS
     Some(ReportedStatus {
         context_window_size: u64_(&["context_window", "context_window_size"]),
         model: string(&["model", "id"]),
+        transcript_path: string(&["transcript_path"]).map(PathBuf::from),
         details: ReportedDetails {
             title: string(&["session_name"]).filter(|t| !t.trim().is_empty()),
             model_name: string(&["model", "display_name"]),
@@ -611,7 +616,13 @@ pub struct UsageTracker {
     /// Keyed by session id. Not pruned with `readers`: the point is to
     /// outlive the process, which a session that was quit and resumed does.
     cache_memos: HashMap<String, CacheMemo>,
+    /// When the bridge's payload directory was last swept of stale files.
+    last_prune: Option<std::time::Instant>,
 }
+
+/// How often to sweep the bridge's payload directory. The plan-usage reader
+/// walks every file in it once a second, so it should stay small.
+const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 impl UsageTracker {
     /// Records a payload's cache report, or fills one in from memory when the
@@ -647,17 +658,29 @@ impl UsageTracker {
         let mut out = HashMap::new();
         let mut live: HashSet<String> = HashSet::new();
 
+        if self.last_prune.map_or(true, |t| t.elapsed() >= PRUNE_INTERVAL) {
+            agent_status_bridge::prune_stale_payloads();
+            self.last_prune = Some(std::time::Instant::now());
+        }
+
         for (pty_id, pid) in agents {
             let meta = match read_session_meta(*pid) {
                 Some(m) => m,
                 None => continue,
             };
             live.insert(meta.session_id.clone());
+            let reported = read_reported(&meta.session_id);
 
             let reader = match self.readers.entry(meta.session_id.clone()) {
                 std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                 std::collections::hash_map::Entry::Vacant(e) => {
-                    let path = match transcript_path(&meta.cwd, &meta.session_id) {
+                    // The bridge names the file outright; otherwise it is
+                    // found from the cwd.
+                    let named = reported
+                        .as_ref()
+                        .and_then(|r| r.transcript_path.clone())
+                        .filter(|p| p.is_file());
+                    let path = match named.or_else(|| transcript_path(&meta.cwd, &meta.session_id)) {
                         Some(p) => p,
                         None => continue,
                     };
@@ -669,7 +692,7 @@ impl UsageTracker {
             if reader.path.exists() {
                 reader.refresh();
             }
-            let mut snapshot = reader.snapshot(&meta, read_reported(&meta.session_id).as_ref());
+            let mut snapshot = reader.snapshot(&meta, reported.as_ref());
             if let Some(details) = snapshot.reported.as_mut() {
                 self.carry_cache(&meta.session_id, details);
             }
@@ -959,7 +982,7 @@ mod tests {
         let d = PayloadDir::new("reported");
         d.write(
             "sid-1.json",
-            r#"{"session_id":"sid-1","session_name":"Usage display","effort":{"level":"high"},
+            r#"{"session_id":"sid-1","session_name":"Usage display","effort":{"level":"high"},"transcript_path":"/tmp/x/sid-1.jsonl",
                 "model":{"id":"claude-fable-5-1[1m]","display_name":"Fable 5.1"},
                 "cost":{"total_cost_usd":0.4377,"total_duration_ms":118239,"total_api_duration_ms":38721,"total_lines_added":12,"total_lines_removed":3},
                 "context_window":{"context_window_size":1000000},
@@ -970,6 +993,7 @@ mod tests {
         let r = read_reported_in(&d.0, "sid-1").unwrap();
         assert_eq!(r.context_window_size, Some(1_000_000));
         assert_eq!(r.model.as_deref(), Some("claude-fable-5-1[1m]"));
+        assert_eq!(r.transcript_path.as_deref(), Some(std::path::Path::new("/tmp/x/sid-1.jsonl")));
         let x = r.details;
         assert_eq!(x.title.as_deref(), Some("Usage display"));
         assert_eq!(x.model_name.as_deref(), Some("Fable 5.1"));

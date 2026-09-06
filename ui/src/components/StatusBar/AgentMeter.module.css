@@ -29,6 +29,24 @@
   background: var(--surface-hover);
 }
 
+/* The plan window is nearly spent: Claude Code will refuse turns soon, which is
+   worth catching before it happens. A tint on the whole chip, not another
+   dot — the red percentage beside it already says what. */
+.meterWarn {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.meterWarn:hover,
+.meterWarn.meterOpen {
+  background: color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+.percent.medium {
+  color: var(--yellow);
+}
+.percent.high {
+  color: var(--red);
+}
+
 .name {
   font-weight: 500;
 }
