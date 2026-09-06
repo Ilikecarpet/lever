@@ -117,6 +117,12 @@ pub struct ReportedDetails {
     pub cache_expires_at: Option<u64>,
     pub cache_hit_ratio: Option<f64>,
     pub cache_recache_tokens: Option<u64>,
+    /// True when the cache fields above came from an earlier payload for this
+    /// conversation rather than the current one. A resumed session's process
+    /// writes no cache block until its first request, but the cache itself is
+    /// server-side and outlives the process — so the last report still says
+    /// whether it is warm.
+    pub cache_carried: bool,
     /// Unix seconds the payload was written. It refreshes only while the
     /// session is drawing, so the figures above can lag an idle session.
     pub reported_at: u64,
@@ -541,6 +547,7 @@ fn read_reported_in(dir: &std::path::Path, session_id: &str) -> Option<ReportedS
             cache_expires_at: u64_(&["prompt_cache", "expires_at"]),
             cache_hit_ratio: f64_(&["prompt_cache", "hit_ratio"]),
             cache_recache_tokens: u64_(&["prompt_cache", "recache_tokens_if_cold"]),
+            cache_carried: false,
             reported_at,
         },
     })
@@ -576,10 +583,61 @@ impl AgentUsage {
     }
 }
 
+/// The last prompt-cache report seen for a conversation, kept so a resumed
+/// session can be told whether its cache is still warm before Claude Code
+/// says so itself.
+#[derive(Clone)]
+struct CacheMemo {
+    ttl: Option<String>,
+    expires_at: u64,
+    recache_tokens: Option<u64>,
+}
+
+/// A memo whose expiry is this far past can only ever say "cold", which the
+/// first turn will say anyway; drop it rather than grow without bound.
+const CACHE_MEMO_KEEP_SECS: u64 = 24 * 60 * 60;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Keeps one reader per session across polls so transcripts are parsed once.
 #[derive(Default)]
 pub struct UsageTracker {
     readers: HashMap<String, TranscriptReader>,
+    /// Keyed by session id. Not pruned with `readers`: the point is to
+    /// outlive the process, which a session that was quit and resumed does.
+    cache_memos: HashMap<String, CacheMemo>,
+}
+
+impl UsageTracker {
+    /// Records a payload's cache report, or fills one in from memory when the
+    /// payload has none. Either way `details` leaves consistent.
+    fn carry_cache(&mut self, session_id: &str, details: &mut ReportedDetails) {
+        match details.cache_expires_at {
+            Some(expires_at) => {
+                self.cache_memos.insert(session_id.to_string(), CacheMemo {
+                    ttl: details.cache_ttl.clone(),
+                    expires_at,
+                    recache_tokens: details.cache_recache_tokens,
+                });
+            }
+            None => {
+                if let Some(memo) = self.cache_memos.get(session_id) {
+                    details.cache_warm = Some(memo.expires_at > now_secs());
+                    details.cache_ttl = memo.ttl.clone();
+                    details.cache_expires_at = Some(memo.expires_at);
+                    details.cache_recache_tokens = memo.recache_tokens;
+                    details.cache_carried = true;
+                }
+            }
+        }
+        let cutoff = now_secs().saturating_sub(CACHE_MEMO_KEEP_SECS);
+        self.cache_memos.retain(|_, m| m.expires_at >= cutoff);
+    }
 }
 
 impl UsageTracker {
@@ -611,7 +669,11 @@ impl UsageTracker {
             if reader.path.exists() {
                 reader.refresh();
             }
-            out.insert(pty_id.clone(), reader.snapshot(&meta, read_reported(&meta.session_id).as_ref()));
+            let mut snapshot = reader.snapshot(&meta, read_reported(&meta.session_id).as_ref());
+            if let Some(details) = snapshot.reported.as_mut() {
+                self.carry_cache(&meta.session_id, details);
+            }
+            out.insert(pty_id.clone(), snapshot);
         }
 
         self.readers.retain(|session_id, _| live.contains(session_id));
@@ -934,6 +996,47 @@ mod tests {
         assert!(r.details.title.is_none());
         assert!(r.details.cost_usd.is_none());
         assert!(read_reported_in(&d.0, "sid-missing").is_none());
+    }
+
+    #[test]
+    fn a_resumed_session_keeps_the_last_cache_report_until_it_gets_a_new_one() {
+        let mut t = UsageTracker::default();
+        let future = now_secs() + 1_800;
+
+        // The original process reported a warm cache...
+        let mut first = ReportedDetails {
+            cache_warm: Some(true),
+            cache_ttl: Some("1h".into()),
+            cache_expires_at: Some(future),
+            cache_recache_tokens: Some(42_000),
+            ..ReportedDetails::default()
+        };
+        t.carry_cache("sid", &mut first);
+        assert!(!first.cache_carried);
+
+        // ...then the session was resumed and the new process has not made a
+        // request yet, so its payload has no cache block.
+        let mut resumed = ReportedDetails::default();
+        t.carry_cache("sid", &mut resumed);
+        assert_eq!(resumed.cache_warm, Some(true));
+        assert_eq!(resumed.cache_expires_at, Some(future));
+        assert_eq!(resumed.cache_ttl.as_deref(), Some("1h"));
+        assert_eq!(resumed.cache_recache_tokens, Some(42_000));
+        assert!(resumed.cache_carried);
+
+        // A memo whose expiry has passed is reported as cold, not dropped.
+        let mut stale = ReportedDetails { cache_expires_at: Some(now_secs() - 60), ..ReportedDetails::default() };
+        t.carry_cache("other", &mut stale);
+        let mut resumed_cold = ReportedDetails::default();
+        t.carry_cache("other", &mut resumed_cold);
+        assert_eq!(resumed_cold.cache_warm, Some(false));
+        assert!(resumed_cold.cache_carried);
+
+        // A conversation never seen has nothing to carry.
+        let mut unknown = ReportedDetails::default();
+        t.carry_cache("nobody", &mut unknown);
+        assert!(unknown.cache_warm.is_none());
+        assert!(!unknown.cache_carried);
     }
 
     #[test]

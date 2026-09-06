@@ -116,6 +116,10 @@ export interface ReportedDetails {
   cacheHitRatio: number | null;
   /** Tokens a cold resume would re-read. */
   cacheRecacheTokens: number | null;
+  /** The cache fields came from an earlier payload for this conversation: a
+   *  resumed session reports nothing about its cache until its first turn,
+   *  but the cache itself outlives the process. */
+  cacheCarried: boolean;
   /** Unix seconds the payload was written. */
   reportedAt: number;
 }

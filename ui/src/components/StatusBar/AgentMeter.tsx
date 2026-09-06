@@ -395,7 +395,7 @@ export default function AgentMeter() {
                 label="Cost"
                 value={costLabel(reported.costUsd)}
                 title={`$${reported.costUsd.toFixed(4)}`}
-                hint="At API list price, as Claude Code tallies it. On a subscription this is what the session would have cost, not what you pay."
+                hint="At API list price, as Claude Code tallies it since this process started — a resumed conversation starts again from zero. On a subscription this is what the session would have cost, not what you pay."
               />
             )}
             {reported && (reported.linesAdded != null || reported.linesRemoved != null) && (
@@ -410,20 +410,32 @@ export default function AgentMeter() {
                 }
               />
             )}
-            {reported?.cacheWarm != null && (
+            {/* Three states, not two: Claude Code says nothing about the cache
+                until this process's first request, and a resumed conversation
+                spends a while in that gap. A dash with a reason beats a row
+                that comes and goes. */}
+            {reported && (
               <TextRow
                 label="Prompt cache"
                 value={
-                  cacheLive
-                    ? `warm · ${spanLabel(cacheExpiry! - now)} left`
-                    : "cold"
+                  reported.cacheWarm == null
+                    ? "—"
+                    : cacheLive
+                      ? `warm · ${spanLabel(cacheExpiry! - now)} left`
+                      : "cold"
                 }
+                title={reported.cacheWarm == null ? "Reported after this session's first turn" : undefined}
                 hint={
-                  `Claude keeps the conversation cached server-side for ${reported.cacheTtl ?? "a while"} after each turn; ` +
-                  `a turn sent while it is warm re-reads almost nothing.` +
-                  (reported.cacheRecacheTokens
-                    ? ` Once it lapses, the next turn re-reads ${exact(reported.cacheRecacheTokens)} tokens.`
-                    : "")
+                  reported.cacheWarm == null
+                    ? "Claude Code reports the cache only once this process has made a request. Until then there is nothing to show."
+                    : `Claude keeps the conversation cached server-side for ${reported.cacheTtl ?? "a while"} after each turn; ` +
+                      `a turn sent while it is warm re-reads almost nothing.` +
+                      (reported.cacheRecacheTokens
+                        ? ` Once it lapses, the next turn re-reads ${exact(reported.cacheRecacheTokens)} tokens.`
+                        : "") +
+                      (reported.cacheCarried
+                        ? " Carried over from before this conversation was resumed; Claude Code reports afresh after the first turn."
+                        : "")
                 }
               />
             )}
