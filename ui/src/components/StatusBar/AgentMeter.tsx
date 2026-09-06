@@ -128,11 +128,15 @@ function TextRow({ label, value, hint, title }: { label: string; value: ReactNod
 
 /** A popover section that folds to its header. The header keeps its summary
  *  figure either way, so a collapsed section still answers the quick question
- *  and only hides the breakdown. Which are folded is remembered. */
-function Section({ id, title, value, children }: {
+ *  and only hides the breakdown. Folded, it also gains a small bar for the
+ *  section's one figure that is a percentage — the glance the breakdown was
+ *  giving. Which sections are folded is remembered. */
+function Section({ id, title, value, bar, children }: {
   id: MeterSection;
   title: string;
   value: ReactNode;
+  /** 0–1, with an optional pressure class; omitted when nothing is a percentage. */
+  bar?: { fraction: number; cls?: string };
   children: ReactNode;
 }) {
   const collapsed = useSettingsStore((s) => s.agentMeterCollapsed.includes(id));
@@ -149,6 +153,14 @@ function Section({ id, title, value, children }: {
           <span className={styles.chevron} aria-hidden>›</span>
           {title}
         </span>
+        {collapsed && bar && (
+          <span className={styles.headTrack}>
+            <span
+              className={`${styles.fill} ${bar.cls ?? ""}`}
+              style={{ width: `${Math.max(Math.min(bar.fraction, 1) * 100, 2)}%` }}
+            />
+          </span>
+        )}
         <span className={styles.sectionValue}>{value}</span>
       </button>
       {!collapsed && children}
@@ -169,6 +181,7 @@ function chipsOf(r: ReportedDetails): string[] {
 export default function AgentMeter() {
   const agent = useFocusedPaneAgent();
   const windowSetting = useSettingsStore((s) => s.agentContextWindow);
+  const sessionCollapsed = useSettingsStore((s) => s.agentMeterCollapsed.includes("session"));
   const limits = useServiceStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -239,6 +252,7 @@ export default function AgentMeter() {
   const chips = reported ? chipsOf(reported) : [];
 
   const cacheExpiry = reported?.cacheExpiresAt ? reported.cacheExpiresAt * 1000 : null;
+  const hitRatio = reported?.cacheHitRatio ?? null;
   const cacheLive = reported?.cacheWarm === true && cacheExpiry !== null && cacheExpiry > now;
 
   const tooltip = [
@@ -300,6 +314,7 @@ export default function AgentMeter() {
           <Section
             id="context"
             title="Context"
+            bar={{ fraction, cls: pressure(fraction) }}
             value={
               <>
                 {short(usage.contextTokens)} / {windowLabel(limit)}
@@ -339,6 +354,7 @@ export default function AgentMeter() {
             <Section
               id="plan"
               title="Plan"
+              bar={{ fraction: leadUsed, cls: pressure(leadUsed) }}
               value={
                 leadLeft === null ? "—" : (
                   <>
@@ -358,13 +374,20 @@ export default function AgentMeter() {
             </Section>
           )}
 
+          {/* Nothing in Session is a share of a whole except the cache hit
+              rate — how much of each turn was served from cache — so that is
+              the folded bar, and the folded line names it. */}
           <Section
             id="session"
             title="Session"
+            bar={hitRatio !== null ? { fraction: hitRatio } : undefined}
             value={
-              reported?.costUsd != null
-                ? `${costLabel(reported.costUsd)} · ${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}`
-                : `${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}`
+              <>
+                {reported?.costUsd != null && `${costLabel(reported.costUsd)} · `}
+                {sessionCollapsed && hitRatio !== null
+                  ? `${Math.round(hitRatio * 100)}% cached`
+                  : `${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}`}
+              </>
             }
           >
             {reported?.costUsd != null && (

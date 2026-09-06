@@ -175,6 +175,17 @@
   align-items: center;
   gap: 4px;
 }
+/* The folded section's bar: sits between title and figure, taking the slack. */
+.headTrack {
+  flex: 1;
+  max-width: 96px;
+  height: 4px;
+  margin: 0 10px;
+  align-self: center;
+  border-radius: 2px;
+  background: var(--surface-hover);
+  overflow: hidden;
+}
 .chevron {
   display: inline-block;
   width: 8px;

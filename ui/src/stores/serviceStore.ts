@@ -39,6 +39,7 @@ function usageSignature(u: AgentUsage | undefined): string {
     // on every redraw Claude Code makes, which would churn for nothing.
     r?.title, r?.modelName, r?.effort, r?.fastMode, r?.thinking,
     r?.costUsd, r?.linesAdded, r?.linesRemoved, r?.cacheWarm, r?.cacheExpiresAt,
+    r?.cacheHitRatio,
   ].join("/");
 }
 
