@@ -35,8 +35,10 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Auto-respawn shell on `exit`
 
 **Agent Usage**
-- Live context meter in the status bar for the Claude Code session in the focused pane
+- Live meter in the status bar for the Claude Code session in the focused pane:
+  model, context used, and plan usage left, side by side
 - Breakdown of what fills the window — cached, newly written, fresh input, reply
+- Popover sections fold to their one-line summary, and stay folded
 - Running session totals: turns, input/output tokens, cache reads and writes, subagent output
 - Read from Claude Code's own session files; nothing is attached to the process
 - Optional statusLine bridge for the exact context window (200k vs 1M), which is
@@ -45,6 +47,9 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - With the bridge on, the plan's 5-hour and 7-day usage as Claude Code reports it,
   with the time to each reset — account-wide, so it is one figure however many
   sessions are open
+- Also from the bridge: the conversation's title and model name, running cost at
+  API list price, lines changed, effort and fast-mode flags, and whether the
+  prompt cache is still warm
 - Working/idle read from Claude Code's own record rather than guessed from terminal output
 - A pulse on the worktree and workspace when an agent finishes, so the one waiting on
   you stands out across several running at once

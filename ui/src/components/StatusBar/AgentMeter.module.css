@@ -38,6 +38,21 @@
   color: var(--accent);
 }
 
+/* One labelled bar in the footer chip: "ctx ▮▮▯▯ 6%", "5h ▮▯▯▯ 89%". */
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.gaugeLabel {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+.meter:hover .gaugeLabel,
+.meterOpen .gaugeLabel {
+  opacity: 1;
+}
+
 .track {
   width: 42px;
   height: 4px;
@@ -98,12 +113,30 @@
   color: var(--text);
 }
 .headMeta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.headModel {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+/* Session flags: effort, fast mode, thinking off. Small and flat — facts,
+   not alerts. */
+.chip {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
 }
 
 .section {
@@ -117,11 +150,42 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.sectionHead:hover .sectionTitle {
+  color: var(--text-dim);
+}
+/* Folded, the header is the whole section; drop the gap it would leave. */
+.sectionCollapsed {
+  margin-bottom: 0;
+}
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chevron {
+  display: inline-block;
+  width: 8px;
+  font-size: 12px;
+  line-height: 1;
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+  color: var(--text-muted);
+}
+.sectionCollapsed .chevron {
+  transform: rotate(0deg);
 }
 .sectionValue {
   display: flex;
@@ -204,6 +268,12 @@
   color: var(--yellow);
 }
 .rowValue.high {
+  color: var(--red);
+}
+.added {
+  color: var(--green);
+}
+.removed {
   color: var(--red);
 }
 

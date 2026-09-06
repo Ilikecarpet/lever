@@ -82,6 +82,44 @@ pub struct AgentUsage {
     /// poll, so the totals climb toward the real figure over a few seconds —
     /// the UI says so rather than presenting a number that is still moving.
     pub catching_up: bool,
+    /// What Claude Code itself says about the session, via the statusLine
+    /// bridge: none of it is recoverable from the transcript. Absent with the
+    /// bridge off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported: Option<ReportedDetails>,
+}
+
+/// The per-session extras in a statusLine payload worth surfacing. Every field
+/// is optional because the payload has grown release by release and an older
+/// CLI sends a subset.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportedDetails {
+    /// The conversation's title — what `/rename` sets, or Claude Code's own
+    /// summary of it. Distinct from the derived label in the sessions file.
+    pub title: Option<String>,
+    /// "Fable 5.1" rather than `claude-fable-5-1`.
+    pub model_name: Option<String>,
+    pub effort: Option<String>,
+    pub fast_mode: Option<bool>,
+    pub thinking: Option<bool>,
+    /// Running cost at API list price. Nominal on a subscription plan.
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+    pub api_duration_ms: Option<u64>,
+    pub lines_added: Option<u64>,
+    pub lines_removed: Option<u64>,
+    /// Prompt cache: whether the conversation is still cached server-side,
+    /// how long entries live, when the current one lapses, and what a cold
+    /// resume would have to re-read.
+    pub cache_warm: Option<bool>,
+    pub cache_ttl: Option<String>,
+    pub cache_expires_at: Option<u64>,
+    pub cache_hit_ratio: Option<f64>,
+    pub cache_recache_tokens: Option<u64>,
+    /// Unix seconds the payload was written. It refreshes only while the
+    /// session is drawing, so the figures above can lag an idle session.
+    pub reported_at: u64,
 }
 
 /// The bits of ~/.claude/sessions/<pid>.json we use.
@@ -356,6 +394,7 @@ impl TranscriptReader {
             turns: self.turns,
             session_status: meta.status.clone(),
             catching_up: self.pending_bytes > 0,
+            reported: reported.map(|r| r.details.clone()),
         }
     }
 }
@@ -455,6 +494,7 @@ fn read_rate_limits_in(dir: &std::path::Path) -> Option<RateLimits> {
 struct ReportedStatus {
     context_window_size: Option<u64>,
     model: Option<String>,
+    details: ReportedDetails,
 }
 
 /// Reads ~/.lever/agent-status/sessions/<id>.json, which the bridge script
@@ -464,18 +504,45 @@ fn read_reported(session_id: &str) -> Option<ReportedStatus> {
 }
 
 fn read_reported_in(dir: &std::path::Path, session_id: &str) -> Option<ReportedStatus> {
-    let raw = fs::read_to_string(dir.join(format!("{}.json", session_id))).ok()?;
+    let path = dir.join(format!("{}.json", session_id));
+    let reported_at = fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let raw = fs::read_to_string(&path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+
+    let at = |path: &[&str]| -> Option<&serde_json::Value> {
+        path.iter().try_fold(&v, |cur, key| cur.get(key))
+    };
+    let string = |path: &[&str]| at(path).and_then(|x| x.as_str()).map(str::to_string);
+    let u64_ = |path: &[&str]| at(path).and_then(|x| x.as_u64());
+    let f64_ = |path: &[&str]| at(path).and_then(|x| x.as_f64());
+    let bool_ = |path: &[&str]| at(path).and_then(|x| x.as_bool());
+
     Some(ReportedStatus {
-        context_window_size: v
-            .get("context_window")
-            .and_then(|c| c.get("context_window_size"))
-            .and_then(|n| n.as_u64()),
-        model: v
-            .get("model")
-            .and_then(|m| m.get("id"))
-            .and_then(|s| s.as_str())
-            .map(str::to_string),
+        context_window_size: u64_(&["context_window", "context_window_size"]),
+        model: string(&["model", "id"]),
+        details: ReportedDetails {
+            title: string(&["session_name"]).filter(|t| !t.trim().is_empty()),
+            model_name: string(&["model", "display_name"]),
+            effort: string(&["effort", "level"]),
+            fast_mode: bool_(&["fast_mode"]),
+            thinking: bool_(&["thinking", "enabled"]),
+            cost_usd: f64_(&["cost", "total_cost_usd"]),
+            duration_ms: u64_(&["cost", "total_duration_ms"]),
+            api_duration_ms: u64_(&["cost", "total_api_duration_ms"]),
+            lines_added: u64_(&["cost", "total_lines_added"]),
+            lines_removed: u64_(&["cost", "total_lines_removed"]),
+            cache_warm: bool_(&["prompt_cache", "warm"]),
+            cache_ttl: string(&["prompt_cache", "ttl"]),
+            cache_expires_at: u64_(&["prompt_cache", "expires_at"]),
+            cache_hit_ratio: f64_(&["prompt_cache", "hit_ratio"]),
+            cache_recache_tokens: u64_(&["prompt_cache", "recache_tokens_if_cold"]),
+            reported_at,
+        },
     })
 }
 
@@ -504,6 +571,7 @@ impl AgentUsage {
             turns: 0,
             session_status: status.map(str::to_string),
             catching_up: false,
+            reported: None,
         }
     }
 }
@@ -822,6 +890,50 @@ mod tests {
         d.write("c.json", "{ not json", -1);
         d.write(".sid.123.tmp", r#"{"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1}}}"#, 0);
         assert!(read_rate_limits_in(&d.0).is_none());
+    }
+
+    #[test]
+    fn a_full_payload_yields_every_reported_detail() {
+        let d = PayloadDir::new("reported");
+        d.write(
+            "sid-1.json",
+            r#"{"session_id":"sid-1","session_name":"Usage display","effort":{"level":"high"},
+                "model":{"id":"claude-fable-5-1[1m]","display_name":"Fable 5.1"},
+                "cost":{"total_cost_usd":0.4377,"total_duration_ms":118239,"total_api_duration_ms":38721,"total_lines_added":12,"total_lines_removed":3},
+                "context_window":{"context_window_size":1000000},
+                "prompt_cache":{"warm":true,"ttl":"1h","expires_at":1788735617,"hit_ratio":0.91,"recache_tokens_if_cold":42474},
+                "fast_mode":false,"thinking":{"enabled":true}}"#,
+            -2,
+        );
+        let r = read_reported_in(&d.0, "sid-1").unwrap();
+        assert_eq!(r.context_window_size, Some(1_000_000));
+        assert_eq!(r.model.as_deref(), Some("claude-fable-5-1[1m]"));
+        let x = r.details;
+        assert_eq!(x.title.as_deref(), Some("Usage display"));
+        assert_eq!(x.model_name.as_deref(), Some("Fable 5.1"));
+        assert_eq!(x.effort.as_deref(), Some("high"));
+        assert_eq!(x.fast_mode, Some(false));
+        assert_eq!(x.thinking, Some(true));
+        assert_eq!(x.cost_usd, Some(0.4377));
+        assert_eq!(x.lines_added, Some(12));
+        assert_eq!(x.lines_removed, Some(3));
+        assert_eq!(x.cache_warm, Some(true));
+        assert_eq!(x.cache_ttl.as_deref(), Some("1h"));
+        assert_eq!(x.cache_expires_at, Some(1_788_735_617));
+        assert_eq!(x.cache_recache_tokens, Some(42_474));
+        assert!(x.reported_at > 0);
+    }
+
+    #[test]
+    fn a_sparse_payload_leaves_the_rest_none() {
+        let d = PayloadDir::new("sparse");
+        d.write("sid-2.json", r#"{"session_id":"sid-2","session_name":"  ","model":{"id":"claude-opus-5"}}"#, -1);
+        let r = read_reported_in(&d.0, "sid-2").unwrap();
+        assert!(r.context_window_size.is_none());
+        // A blank title is no title.
+        assert!(r.details.title.is_none());
+        assert!(r.details.cost_usd.is_none());
+        assert!(read_reported_in(&d.0, "sid-missing").is_none());
     }
 
     #[test]

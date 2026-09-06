@@ -88,6 +88,36 @@ export interface AgentUsage {
   /** True while the reader is still working through a long transcript's
    *  backlog, so the session totals are still climbing toward the real figure. */
   catchingUp: boolean;
+  /** What Claude Code itself reports about the session through the statusLine
+   *  bridge. Absent with the bridge off. */
+  reported?: ReportedDetails;
+}
+
+/** Per-session extras from the statusLine payload. Each is optional: the
+ *  payload has grown release by release, and an older CLI sends a subset. */
+export interface ReportedDetails {
+  /** The conversation's title, as opposed to the derived session label. */
+  title: string | null;
+  /** "Fable 5.1" rather than the raw model id. */
+  modelName: string | null;
+  effort: string | null;
+  fastMode: boolean | null;
+  thinking: boolean | null;
+  /** Running cost at API list price — nominal on a subscription. */
+  costUsd: number | null;
+  durationMs: number | null;
+  apiDurationMs: number | null;
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  cacheWarm: boolean | null;
+  cacheTtl: string | null;
+  /** Unix seconds when the server-side prompt cache lapses. */
+  cacheExpiresAt: number | null;
+  cacheHitRatio: number | null;
+  /** Tokens a cold resume would re-read. */
+  cacheRecacheTokens: number | null;
+  /** Unix seconds the payload was written. */
+  reportedAt: number;
 }
 
 /** One of the Claude account's rolling usage windows, as Claude Code last

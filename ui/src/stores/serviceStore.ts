@@ -30,10 +30,15 @@ interface ServiceState {
  *  poll keeps the old object and subscribers don't re-render for nothing. */
 function usageSignature(u: AgentUsage | undefined): string {
   if (!u) return "";
+  const r = u.reported;
   return [
     u.sessionId, u.model, u.contextLimit, u.contextTokens, u.turns,
     u.totalInputTokens, u.totalOutputTokens,
     u.totalCacheReadTokens, u.totalCacheWriteTokens, u.sidechainOutputTokens,
+    // Reported details that are displayed. Not the write timestamp: it moves
+    // on every redraw Claude Code makes, which would churn for nothing.
+    r?.title, r?.modelName, r?.effort, r?.fastMode, r?.thinking,
+    r?.costUsd, r?.linesAdded, r?.linesRemoved, r?.cacheWarm, r?.cacheExpiresAt,
   ].join("/");
 }
 

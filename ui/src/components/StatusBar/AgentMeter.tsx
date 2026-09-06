@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { useFocusedPaneAgent } from "../../hooks/useAgentActivity";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useSettingsStore, type MeterSection } from "../../stores/settingsStore";
 import { useServiceStore } from "../../stores/serviceStore";
-import type { AgentUsage, RateLimitWindow } from "../../types";
+import type { AgentUsage, RateLimitWindow, ReportedDetails } from "../../types";
 import styles from "./AgentMeter.module.css";
 
 /** 92089 -> "92.1k", 1627530 -> "1.63M", 1239805640 -> "1.24B". Exact below a
@@ -57,6 +57,11 @@ function spanLabel(ms: number): string {
   return `${rem}m`;
 }
 
+/** Cents matter on a short session and clutter a long one. */
+function costLabel(usd: number): string {
+  return usd >= 10 ? `$${usd.toFixed(0)}` : `$${usd.toFixed(2)}`;
+}
+
 /** Only a figure that has fallen behind says how old it is; a fresh one is
  *  simply current. Claude Code writes the payload while a session is drawing,
  *  so with every session idle the number sits still. */
@@ -106,9 +111,65 @@ function TotalRow({ label, value, hint }: { label: string; value: number; hint?:
   );
 }
 
+/** A row whose value is already a string — a price, a pair of line counts. */
+function TextRow({ label, value, hint, title }: { label: string; value: ReactNode; hint?: string; title?: string }) {
+  return (
+    <div className={styles.row}>
+      <span className={styles.rowLabel} title={hint}>
+        {label}
+        {hint && <span className={styles.hintMark}>?</span>}
+      </span>
+      <span className={styles.rowValue} title={title}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** A popover section that folds to its header. The header keeps its summary
+ *  figure either way, so a collapsed section still answers the quick question
+ *  and only hides the breakdown. Which are folded is remembered. */
+function Section({ id, title, value, children }: {
+  id: MeterSection;
+  title: string;
+  value: ReactNode;
+  children: ReactNode;
+}) {
+  const collapsed = useSettingsStore((s) => s.agentMeterCollapsed.includes(id));
+  const toggle = useSettingsStore((s) => s.toggleAgentMeterSection);
+  return (
+    <div className={styles.section}>
+      <button
+        className={`${styles.sectionHead}${collapsed ? ` ${styles.sectionCollapsed}` : ""}`}
+        onClick={() => toggle(id)}
+        aria-expanded={!collapsed}
+        title={collapsed ? "Show details" : "Hide details"}
+      >
+        <span className={styles.sectionTitle}>
+          <span className={styles.chevron} aria-hidden>›</span>
+          {title}
+        </span>
+        <span className={styles.sectionValue}>{value}</span>
+      </button>
+      {!collapsed && children}
+    </div>
+  );
+}
+
+/** The flags that change how a session behaves — and what it costs. Effort
+ *  always shows; the others only when they depart from the default. */
+function chipsOf(r: ReportedDetails): string[] {
+  const out: string[] = [];
+  if (r.effort) out.push(`${r.effort} effort`);
+  if (r.fastMode) out.push("fast");
+  if (r.thinking === false) out.push("no thinking");
+  return out;
+}
+
 export default function AgentMeter() {
   const agent = useFocusedPaneAgent();
   const windowSetting = useSettingsStore((s) => s.agentContextWindow);
+  const limits = useServiceStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -130,19 +191,16 @@ export default function AgentMeter() {
     };
   }, [open]);
 
-  const usage = agent?.usage;
-  const hasUsage = !!usage;
-  const limits = useServiceStore((s) => s.rateLimits);
-
-  // The reset countdowns are minutes, so a slow tick keeps them honest while
-  // the popover is open without re-rendering on every poll.
+  // Countdowns are in minutes, so a slow tick keeps them honest without
+  // re-rendering on every poll. The footer shows one too, so it always runs.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!open) return;
-    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
-  }, [open]);
+  }, []);
+
+  const usage = agent?.usage;
+  const hasUsage = !!usage;
 
   // Close rather than strand an open popover when focus moves to a pane whose
   // terminal has no agent in it.
@@ -161,15 +219,34 @@ export default function AgentMeter() {
   const fraction = limit > 0 ? Math.min(usage.contextTokens / limit, 1) : 0;
   const percent = Math.round(fraction * 100);
   const segments = segmentsOf(usage);
+  const reported = usage.reported;
 
-  // The headline is what is left on the tighter window — the one that runs out
-  // first is the one you plan around. The weekly window stands in when Claude
-  // Code has not sent an hourly one.
+  // The plan headline is the tighter window — the one that runs out first is
+  // the one you plan around. The weekly window stands in when Claude Code has
+  // not sent an hourly one.
+  const leadKey = limits?.fiveHour ? "5h" : limits?.sevenDay ? "7d" : null;
   const lead = limits?.fiveHour ?? limits?.sevenDay ?? null;
-  const leadLeft =
-    lead && lead.resetsAt * 1000 > now ? Math.max(0, Math.round(100 - lead.usedPercentage)) : null;
+  const leadLive = !!lead && lead.resetsAt * 1000 > now;
+  const leadUsed = leadLive ? Math.min(lead!.usedPercentage / 100, 1) : 0;
+  const leadLeft = leadLive ? Math.max(0, Math.round(100 - lead!.usedPercentage)) : null;
   const newestReport = Math.max(limits?.fiveHour?.reportedAt ?? 0, limits?.sevenDay?.reportedAt ?? 0) * 1000;
   const reportAge = newestReport > 0 ? now - newestReport : 0;
+
+  // The footer names the model when the bridge says which, else the CLI.
+  const shortName = reported?.modelName ?? agent.name;
+  const headName = reported?.title ?? usage.sessionName ?? agent.name;
+  const modelLabel = reported?.modelName ?? usage.model ?? "unknown model";
+  const chips = reported ? chipsOf(reported) : [];
+
+  const cacheExpiry = reported?.cacheExpiresAt ? reported.cacheExpiresAt * 1000 : null;
+  const cacheLive = reported?.cacheWarm === true && cacheExpiry !== null && cacheExpiry > now;
+
+  const tooltip = [
+    `${headName} — ${exact(usage.contextTokens)} of ${windowLabel(limit)} context tokens`,
+    leadLeft !== null && lead
+      ? `Plan: ${leadLeft}% of the ${leadKey === "5h" ? "5-hour" : "7-day"} window left, resets in ${spanLabel(lead.resetsAt * 1000 - now)}`
+      : null,
+  ].filter(Boolean).join("\n");
 
   return (
     <div className={styles.wrap} ref={ref}>
@@ -178,42 +255,58 @@ export default function AgentMeter() {
         // Reading the numbers should not cost the terminal its keyboard focus.
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((v) => !v)}
-        title={`${agent.name} — ${exact(usage.contextTokens)} of ${windowLabel(
-          limit
-        )} context tokens`}
+        title={tooltip}
       >
         <span className={`${styles.name}${agent.active ? ` ${styles.nameActive}` : ""}`}>
-          {agent.name}
+          {shortName}
         </span>
-        <span className={styles.track}>
-          <span
-            className={`${styles.fill} ${pressure(fraction)}`}
-            style={{ width: `${Math.max(fraction * 100, 2)}%` }}
-          />
+        <span className={styles.gauge}>
+          <span className={styles.gaugeLabel}>ctx</span>
+          <span className={styles.track}>
+            <span
+              className={`${styles.fill} ${pressure(fraction)}`}
+              style={{ width: `${Math.max(fraction * 100, 2)}%` }}
+            />
+          </span>
+          <span className={styles.percent}>{percent}%</span>
         </span>
-        <span className={styles.percent}>{percent}%</span>
+        {lead && (
+          <span className={styles.gauge}>
+            <span className={styles.gaugeLabel}>{leadKey}</span>
+            <span className={styles.track}>
+              <span
+                className={`${styles.fill} ${pressure(leadUsed)}`}
+                style={{ width: `${leadLive ? Math.max(leadUsed * 100, 2) : 0}%` }}
+              />
+            </span>
+            <span className={styles.percent}>{leadLeft === null ? "—" : `${leadLeft}%`}</span>
+          </span>
+        )}
       </button>
 
       {open && (
         <div className={styles.popover}>
           <div className={styles.head}>
-            <span className={styles.headName}>
-              {usage.sessionName ?? agent.name}
-            </span>
+            <span className={styles.headName} title={headName}>{headName}</span>
             <span className={styles.headMeta}>
-              {usage.model ?? "unknown model"}
+              <span className={styles.headModel} title={usage.model ?? undefined}>{modelLabel}</span>
               {usage.cliVersion ? ` · v${usage.cliVersion}` : ""}
+              {chips.map((c) => (
+                <span key={c} className={styles.chip}>{c}</span>
+              ))}
             </span>
           </div>
 
-          <div className={styles.section}>
-            <div className={styles.sectionHead}>
-              <span>Context</span>
-              <span className={styles.sectionValue}>
+          <Section
+            id="context"
+            title="Context"
+            value={
+              <>
                 {short(usage.contextTokens)} / {windowLabel(limit)}
                 <span className={`${styles.pct} ${pressure(fraction)}`}>{percent}%</span>
-              </span>
-            </div>
+              </>
+            }
+          >
             <div className={styles.stack}>
               {segments.map((s) => (
                 <span
@@ -240,21 +333,21 @@ export default function AgentMeter() {
               {usage.contextLimitSource === "inferred" &&
                 " Window size assumed; turn on the Claude Code bridge in Settings to read the real one, along with your plan's remaining usage."}
             </p>
-          </div>
+          </Section>
 
           {limits && (
-            <div className={styles.section}>
-              <div className={styles.sectionHead}>
-                <span>Plan</span>
-                <span className={styles.sectionValue}>
-                  {leadLeft === null ? "—" : (
-                    <>
-                      <span className={`${styles.pct} ${pressure(1 - leadLeft / 100)}`}>{leadLeft}%</span>
-                      left
-                    </>
-                  )}
-                </span>
-              </div>
+            <Section
+              id="plan"
+              title="Plan"
+              value={
+                leadLeft === null ? "—" : (
+                  <>
+                    <span className={`${styles.pct} ${pressure(leadUsed)}`}>{leadLeft}%</span>
+                    left
+                  </>
+                )
+              }
+            >
               {limits.fiveHour && <PlanWindow label="5 hour" win={limits.fiveHour} now={now} />}
               {limits.sevenDay && <PlanWindow label="7 day" win={limits.sevenDay} now={now} />}
               <p className={styles.note}>
@@ -262,16 +355,55 @@ export default function AgentMeter() {
                 {reportAge > STALE_AFTER_MS &&
                   ` Last reported ${spanLabel(reportAge)} ago — it only refreshes while a session is drawing.`}
               </p>
-            </div>
+            </Section>
           )}
 
-          <div className={styles.section}>
-            <div className={styles.sectionHead}>
-              <span>Session</span>
-              <span className={styles.sectionValue}>
-                {usage.turns} {usage.turns === 1 ? "turn" : "turns"}
-              </span>
-            </div>
+          <Section
+            id="session"
+            title="Session"
+            value={
+              reported?.costUsd != null
+                ? `${costLabel(reported.costUsd)} · ${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}`
+                : `${usage.turns} ${usage.turns === 1 ? "turn" : "turns"}`
+            }
+          >
+            {reported?.costUsd != null && (
+              <TextRow
+                label="Cost"
+                value={costLabel(reported.costUsd)}
+                title={`$${reported.costUsd.toFixed(4)}`}
+                hint="At API list price, as Claude Code tallies it. On a subscription this is what the session would have cost, not what you pay."
+              />
+            )}
+            {reported && (reported.linesAdded != null || reported.linesRemoved != null) && (
+              <TextRow
+                label="Lines changed"
+                value={
+                  <>
+                    <span className={styles.added}>+{exact(reported.linesAdded ?? 0)}</span>
+                    {" "}
+                    <span className={styles.removed}>−{exact(reported.linesRemoved ?? 0)}</span>
+                  </>
+                }
+              />
+            )}
+            {reported?.cacheWarm != null && (
+              <TextRow
+                label="Prompt cache"
+                value={
+                  cacheLive
+                    ? `warm · ${spanLabel(cacheExpiry! - now)} left`
+                    : "cold"
+                }
+                hint={
+                  `Claude keeps the conversation cached server-side for ${reported.cacheTtl ?? "a while"} after each turn; ` +
+                  `a turn sent while it is warm re-reads almost nothing.` +
+                  (reported.cacheRecacheTokens
+                    ? ` Once it lapses, the next turn re-reads ${exact(reported.cacheRecacheTokens)} tokens.`
+                    : "")
+                }
+              />
+            )}
             <TotalRow
               label="Input"
               value={usage.totalInputTokens}
@@ -297,7 +429,7 @@ export default function AgentMeter() {
                 the real figure.
               </p>
             )}
-          </div>
+          </Section>
         </div>
       )}
     </div>
