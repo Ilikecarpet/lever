@@ -1,0 +1,32 @@
+.subtitle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.path {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A title is prose, so it reads in the UI face; the line counts keep the mono
+   register and never give up their width to it. */
+.conversation {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lines {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.added {
+  color: var(--green);
+}
+.removed {
+  color: var(--red);
+}

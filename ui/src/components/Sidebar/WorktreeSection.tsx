@@ -6,7 +6,11 @@ import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { ContextWindow } from "../../stores/settingsStore";
-import { useWorktreeAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
+import {
+  useWorktreeAgent,
+  useWorktreeFocusedAgent,
+  useWorktreeNeedsAttention,
+} from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
@@ -14,6 +18,7 @@ import { useConfigStore } from "../../stores/configStore";
 import { IconBranch, IconChevron, IconPlus } from "../Icons";
 import GroupItem from "./GroupItem";
 import styles from "./WorktreeSection.module.css";
+import ContextSubtitle from "./ContextSubtitle";
 
 interface Props {
   worktree: WorktreeDef;
@@ -51,6 +56,7 @@ export default function WorktreeSection({ worktree }: Props) {
     (s) => s.closeWorktreeWorkspaces
   );
   const agent = useWorktreeAgent(worktree.id);
+  const focused = useWorktreeFocusedAgent(worktree.id);
   const wantsYou = useWorktreeNeedsAttention(worktree.id);
   const contextWindow = useSettingsStore((s) => s.agentContextWindow);
   const statuses = useServiceStore((s) => s.statuses);
@@ -151,7 +157,6 @@ export default function WorktreeSection({ worktree }: Props) {
     }
   };
 
-  const shortPath = worktree.path.replace(/^\/Users\/[^/]+/, "~");
 
   return (
     <>
@@ -172,7 +177,7 @@ export default function WorktreeSection({ worktree }: Props) {
             className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
             title={agent ? agentTitle(agent, contextWindow) : undefined}
           >{worktree.branch}</span>
-          <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+          <ContextSubtitle path={worktree.path} agent={focused} />
         </span>
         {/* The agent here finished and nobody has been back. Sits before the
             running count so a worktree that wants you reads first. */}

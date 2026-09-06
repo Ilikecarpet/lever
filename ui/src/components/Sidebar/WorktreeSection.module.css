@@ -149,15 +149,6 @@
   to { background-position: -50% 0; }
 }
 
-.worktreePath {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 400;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .contextMenu {
   position: fixed;

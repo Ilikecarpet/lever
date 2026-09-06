@@ -10,7 +10,7 @@ import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/u
 import { useThemeStore, themes, type ThemeDef } from "../../stores/themeStore";
 import { usePanelStore } from "../../stores/panelStore";
 import { useUpdateStore } from "../../stores/updateStore";
-import { useWorktreeAgent } from "../../hooks/useAgentActivity";
+import { useWorktreeAgent, useWorktreeFocusedAgent } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
@@ -26,6 +26,7 @@ import {
 } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
+import ContextSubtitle from "./ContextSubtitle";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
 import styles from "./Sidebar.module.css";
 
@@ -63,6 +64,7 @@ export default function Sidebar() {
   const statuses = useServiceStore((s) => s.statuses);
 
   const mainAgent = useWorktreeAgent(null);
+  const mainFocusedAgent = useWorktreeFocusedAgent(null);
 
   const isMainActive = activeWorktreeId === null;
 
@@ -354,9 +356,7 @@ export default function Sidebar() {
               >
                 {gitInfo?.current_branch ?? "..."}
               </span>
-              <span className={styles.mainContextPath} title={repoPath}>
-                {repoPath.replace(/^\/Users\/[^/]+/, "~")}
-              </span>
+              <ContextSubtitle path={repoPath} agent={mainFocusedAgent} />
             </span>
             {!isMainActive && mainRunningCount > 0 && (
               <span

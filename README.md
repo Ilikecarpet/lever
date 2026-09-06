@@ -53,6 +53,8 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Working/idle read from Claude Code's own record rather than guessed from terminal output
 - A pulse on the worktree and workspace when an agent finishes, so the one waiting on
   you stands out across several running at once
+- The branch row's subtitle names the conversation in the focused pane, with the lines
+  it has changed, in place of the path — which moves to the tooltip
 
 **Git Worktrees**
 - Create and manage Git worktrees directly from the sidebar
