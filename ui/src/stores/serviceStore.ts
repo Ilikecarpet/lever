@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { ensureSvcTerm, setSvcTermDead } from "../lib/svcTerminals";
-import type { AgentInfo, AgentUsage, SvcExitEvent } from "../types";
+import type { AgentInfo, AgentUsage, RateLimits, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
@@ -15,6 +15,8 @@ interface ServiceState {
   agents: Record<string, AgentInfo>;
   /** service id -> TCP ports it is listening on */
   ports: Record<string, number[]>;
+  /** Plan usage for the Claude account; null until the bridge reports it. */
+  rateLimits: RateLimits | null;
   activeServiceId: string | null;
 
   poll: () => Promise<void>;
@@ -28,10 +30,16 @@ interface ServiceState {
  *  poll keeps the old object and subscribers don't re-render for nothing. */
 function usageSignature(u: AgentUsage | undefined): string {
   if (!u) return "";
+  const r = u.reported;
   return [
     u.sessionId, u.model, u.contextLimit, u.contextTokens, u.turns,
     u.totalInputTokens, u.totalOutputTokens,
     u.totalCacheReadTokens, u.totalCacheWriteTokens, u.sidechainOutputTokens,
+    // Reported details that are displayed. Not the write timestamp: it moves
+    // on every redraw Claude Code makes, which would churn for nothing.
+    r?.title, r?.modelName, r?.effort, r?.fastMode, r?.thinking,
+    r?.costUsd, r?.linesAdded, r?.linesRemoved, r?.cacheWarm, r?.cacheExpiresAt,
+    r?.cacheHitRatio,
   ].join("/");
 }
 
@@ -54,6 +62,18 @@ function portsEqual(a: Record<string, number[]>, b: Record<string, number[]>): b
   return aKeys.every(
     (k) => b[k] !== undefined && a[k].length === b[k].length && a[k].every((p, i) => p === b[k][i])
   );
+}
+
+function rateLimitsEqual(a: RateLimits | null, b: RateLimits | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const win = (x: RateLimits["fiveHour"], y: RateLimits["fiveHour"]) =>
+    x === y ||
+    (!!x && !!y &&
+      x.usedPercentage === y.usedPercentage &&
+      x.resetsAt === y.resetsAt &&
+      x.reportedAt === y.reportedAt);
+  return win(a.fiveHour, b.fiveHour) && win(a.sevenDay, b.sevenDay);
 }
 
 function statusesEqual(
@@ -83,6 +103,7 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
   ptyIds: {},
   agents: {},
   ports: {},
+  rateLimits: null,
   activeServiceId: null,
 
   poll: async () => {
@@ -117,6 +138,9 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
         ports: portsEqual(state.ports, result.ports ?? {})
           ? state.ports
           : result.ports ?? {},
+        rateLimits: rateLimitsEqual(state.rateLimits, result.rateLimits ?? null)
+          ? state.rateLimits
+          : result.rateLimits ?? null,
       };
     });
 

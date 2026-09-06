@@ -224,10 +224,11 @@ export default function SettingsPanel() {
               Auto takes the real window from Claude Code when the bridge below
               is on. Without it, nothing on disk says whether a session is on the
               1M variant, so Auto starts at 200k and rescales only once a turn
-              proves it is larger.
+              proves it is larger. The bridge is also the only source for your
+              plan's 5-hour and 7-day usage, shown in the meter's popover.
             </div>
             <Toggle
-              label="Read the context window from Claude Code"
+              label="Read the context window and plan usage from Claude Code"
               sub={
                 bridge?.foreignCommand
                   ? `Adds a statusLine hook to ~/.claude/settings.json, ahead of your existing "${bridge.foreignCommand}" — which keeps running, and gets the slot back if you turn this off.`

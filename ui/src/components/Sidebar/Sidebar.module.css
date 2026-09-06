@@ -446,16 +446,6 @@
   white-space: nowrap;
 }
 
-.mainContextPath {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 400;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* A real circle, not a ● glyph — glyph metrics vary by font, so it never sat
    on the same centre line as the service and running dots next to it. */
 .mainContextDirty {

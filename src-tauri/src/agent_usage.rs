@@ -10,6 +10,11 @@
 //! key into the first file; the second gives the per-turn `usage` blocks the
 //! API returned. Transcripts run to megabytes, so each one is read once and
 //! then only from wherever the last read stopped.
+//!
+//! Plan usage — how much of the account's 5-hour and 7-day allowance has gone —
+//! is not on disk anywhere Claude Code writes by default. It arrives only via
+//! the statusLine bridge (`agent_status_bridge`), whose payloads this also
+//! reads; see `read_rate_limits`.
 
 use crate::agent_status_bridge;
 use serde::Serialize;
@@ -77,6 +82,50 @@ pub struct AgentUsage {
     /// poll, so the totals climb toward the real figure over a few seconds —
     /// the UI says so rather than presenting a number that is still moving.
     pub catching_up: bool,
+    /// What Claude Code itself says about the session, via the statusLine
+    /// bridge: none of it is recoverable from the transcript. Absent with the
+    /// bridge off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported: Option<ReportedDetails>,
+}
+
+/// The per-session extras in a statusLine payload worth surfacing. Every field
+/// is optional because the payload has grown release by release and an older
+/// CLI sends a subset.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportedDetails {
+    /// The conversation's title — what `/rename` sets, or Claude Code's own
+    /// summary of it. Distinct from the derived label in the sessions file.
+    pub title: Option<String>,
+    /// "Fable 5.1" rather than `claude-fable-5-1`.
+    pub model_name: Option<String>,
+    pub effort: Option<String>,
+    pub fast_mode: Option<bool>,
+    pub thinking: Option<bool>,
+    /// Running cost at API list price. Nominal on a subscription plan.
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+    pub api_duration_ms: Option<u64>,
+    pub lines_added: Option<u64>,
+    pub lines_removed: Option<u64>,
+    /// Prompt cache: whether the conversation is still cached server-side,
+    /// how long entries live, when the current one lapses, and what a cold
+    /// resume would have to re-read.
+    pub cache_warm: Option<bool>,
+    pub cache_ttl: Option<String>,
+    pub cache_expires_at: Option<u64>,
+    pub cache_hit_ratio: Option<f64>,
+    pub cache_recache_tokens: Option<u64>,
+    /// True when the cache fields above came from an earlier payload for this
+    /// conversation rather than the current one. A resumed session's process
+    /// writes no cache block until its first request, but the cache itself is
+    /// server-side and outlives the process — so the last report still says
+    /// whether it is warm.
+    pub cache_carried: bool,
+    /// Unix seconds the payload was written. It refreshes only while the
+    /// session is drawing, so the figures above can lag an idle session.
+    pub reported_at: u64,
 }
 
 /// The bits of ~/.claude/sessions/<pid>.json we use.
@@ -351,14 +400,111 @@ impl TranscriptReader {
             turns: self.turns,
             session_status: meta.status.clone(),
             catching_up: self.pending_bytes > 0,
+            reported: reported.map(|r| r.details.clone()),
         }
     }
+}
+
+/// One of the account's rolling usage windows, as Claude Code last reported it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindow {
+    /// 0–100. Claude Code rounds this; a fraction is not a precision claim.
+    pub used_percentage: f64,
+    /// Unix seconds at which the window rolls over and usage drops to zero.
+    pub resets_at: u64,
+    /// Unix seconds when Claude Code last wrote this figure. Payloads only
+    /// refresh while a session is rendering, so the UI can say how old it is.
+    pub reported_at: u64,
+}
+
+/// The account's plan usage. Account-wide, so it is one figure for the whole
+/// app rather than one per session. Either window may be absent — Claude Code
+/// omits one it has no data for, and older CLIs send only the weekly one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimits {
+    pub five_hour: Option<RateLimitWindow>,
+    pub seven_day: Option<RateLimitWindow>,
+}
+
+impl RateLimits {
+    fn is_empty(&self) -> bool {
+        self.five_hour.is_none() && self.seven_day.is_none()
+    }
+}
+
+/// The freshest plan usage across every payload the bridge has stashed.
+///
+/// Each window is taken from whichever payload wrote it most recently, not the
+/// focused session's: the limit is per account, so a busy session in another
+/// pane has the newer number. `None` when the bridge is off or nothing has
+/// reported yet.
+pub fn read_rate_limits() -> Option<RateLimits> {
+    read_rate_limits_in(&agent_status_bridge::sessions_dir().ok()?)
+}
+
+fn read_rate_limits_in(dir: &std::path::Path) -> Option<RateLimits> {
+    let mut out = RateLimits::default();
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        // Skip the bridge script's in-flight temp files and anything else
+        // that is not a stashed payload.
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || !name.ends_with(".json") {
+            continue;
+        }
+        let reported_at = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        let reported_at = match reported_at {
+            Some(t) => t,
+            None => continue,
+        };
+        let raw = match fs::read_to_string(&path) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let v: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let limits = match v.get("rate_limits") {
+            Some(l) if l.is_object() => l,
+            _ => continue,
+        };
+        let window = |key: &str| -> Option<RateLimitWindow> {
+            let w = limits.get(key)?;
+            Some(RateLimitWindow {
+                used_percentage: w.get("used_percentage")?.as_f64()?.clamp(0.0, 100.0),
+                resets_at: w.get("resets_at")?.as_u64()?,
+                reported_at,
+            })
+        };
+        let newer = |cur: Option<RateLimitWindow>, cand: Option<RateLimitWindow>| match (cur, cand) {
+            (Some(c), Some(n)) if n.reported_at >= c.reported_at => Some(n),
+            (None, Some(n)) => Some(n),
+            (c, _) => c,
+        };
+        out.five_hour = newer(out.five_hour, window("five_hour"));
+        out.seven_day = newer(out.seven_day, window("seven_day"));
+    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 /// What the statusLine bridge stashed for a session, when it is installed.
 struct ReportedStatus {
     context_window_size: Option<u64>,
     model: Option<String>,
+    /// Where Claude Code says the transcript is. Beats guessing the project
+    /// slug from the cwd, which goes wrong for a conversation resumed from a
+    /// different directory.
+    transcript_path: Option<PathBuf>,
+    details: ReportedDetails,
 }
 
 /// Reads ~/.lever/agent-status/sessions/<id>.json, which the bridge script
@@ -368,18 +514,47 @@ fn read_reported(session_id: &str) -> Option<ReportedStatus> {
 }
 
 fn read_reported_in(dir: &std::path::Path, session_id: &str) -> Option<ReportedStatus> {
-    let raw = fs::read_to_string(dir.join(format!("{}.json", session_id))).ok()?;
+    let path = dir.join(format!("{}.json", session_id));
+    let reported_at = fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let raw = fs::read_to_string(&path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+
+    let at = |path: &[&str]| -> Option<&serde_json::Value> {
+        path.iter().try_fold(&v, |cur, key| cur.get(key))
+    };
+    let string = |path: &[&str]| at(path).and_then(|x| x.as_str()).map(str::to_string);
+    let u64_ = |path: &[&str]| at(path).and_then(|x| x.as_u64());
+    let f64_ = |path: &[&str]| at(path).and_then(|x| x.as_f64());
+    let bool_ = |path: &[&str]| at(path).and_then(|x| x.as_bool());
+
     Some(ReportedStatus {
-        context_window_size: v
-            .get("context_window")
-            .and_then(|c| c.get("context_window_size"))
-            .and_then(|n| n.as_u64()),
-        model: v
-            .get("model")
-            .and_then(|m| m.get("id"))
-            .and_then(|s| s.as_str())
-            .map(str::to_string),
+        context_window_size: u64_(&["context_window", "context_window_size"]),
+        model: string(&["model", "id"]),
+        transcript_path: string(&["transcript_path"]).map(PathBuf::from),
+        details: ReportedDetails {
+            title: string(&["session_name"]).filter(|t| !t.trim().is_empty()),
+            model_name: string(&["model", "display_name"]),
+            effort: string(&["effort", "level"]),
+            fast_mode: bool_(&["fast_mode"]),
+            thinking: bool_(&["thinking", "enabled"]),
+            cost_usd: f64_(&["cost", "total_cost_usd"]),
+            duration_ms: u64_(&["cost", "total_duration_ms"]),
+            api_duration_ms: u64_(&["cost", "total_api_duration_ms"]),
+            lines_added: u64_(&["cost", "total_lines_added"]),
+            lines_removed: u64_(&["cost", "total_lines_removed"]),
+            cache_warm: bool_(&["prompt_cache", "warm"]),
+            cache_ttl: string(&["prompt_cache", "ttl"]),
+            cache_expires_at: u64_(&["prompt_cache", "expires_at"]),
+            cache_hit_ratio: f64_(&["prompt_cache", "hit_ratio"]),
+            cache_recache_tokens: u64_(&["prompt_cache", "recache_tokens_if_cold"]),
+            cache_carried: false,
+            reported_at,
+        },
     })
 }
 
@@ -408,14 +583,72 @@ impl AgentUsage {
             turns: 0,
             session_status: status.map(str::to_string),
             catching_up: false,
+            reported: None,
         }
     }
+}
+
+/// The last prompt-cache report seen for a conversation, kept so a resumed
+/// session can be told whether its cache is still warm before Claude Code
+/// says so itself.
+#[derive(Clone)]
+struct CacheMemo {
+    ttl: Option<String>,
+    expires_at: u64,
+    recache_tokens: Option<u64>,
+}
+
+/// A memo whose expiry is this far past can only ever say "cold", which the
+/// first turn will say anyway; drop it rather than grow without bound.
+const CACHE_MEMO_KEEP_SECS: u64 = 24 * 60 * 60;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Keeps one reader per session across polls so transcripts are parsed once.
 #[derive(Default)]
 pub struct UsageTracker {
     readers: HashMap<String, TranscriptReader>,
+    /// Keyed by session id. Not pruned with `readers`: the point is to
+    /// outlive the process, which a session that was quit and resumed does.
+    cache_memos: HashMap<String, CacheMemo>,
+    /// When the bridge's payload directory was last swept of stale files.
+    last_prune: Option<std::time::Instant>,
+}
+
+/// How often to sweep the bridge's payload directory. The plan-usage reader
+/// walks every file in it once a second, so it should stay small.
+const PRUNE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+impl UsageTracker {
+    /// Records a payload's cache report, or fills one in from memory when the
+    /// payload has none. Either way `details` leaves consistent.
+    fn carry_cache(&mut self, session_id: &str, details: &mut ReportedDetails) {
+        match details.cache_expires_at {
+            Some(expires_at) => {
+                self.cache_memos.insert(session_id.to_string(), CacheMemo {
+                    ttl: details.cache_ttl.clone(),
+                    expires_at,
+                    recache_tokens: details.cache_recache_tokens,
+                });
+            }
+            None => {
+                if let Some(memo) = self.cache_memos.get(session_id) {
+                    details.cache_warm = Some(memo.expires_at > now_secs());
+                    details.cache_ttl = memo.ttl.clone();
+                    details.cache_expires_at = Some(memo.expires_at);
+                    details.cache_recache_tokens = memo.recache_tokens;
+                    details.cache_carried = true;
+                }
+            }
+        }
+        let cutoff = now_secs().saturating_sub(CACHE_MEMO_KEEP_SECS);
+        self.cache_memos.retain(|_, m| m.expires_at >= cutoff);
+    }
 }
 
 impl UsageTracker {
@@ -425,17 +658,29 @@ impl UsageTracker {
         let mut out = HashMap::new();
         let mut live: HashSet<String> = HashSet::new();
 
+        if self.last_prune.map_or(true, |t| t.elapsed() >= PRUNE_INTERVAL) {
+            agent_status_bridge::prune_stale_payloads();
+            self.last_prune = Some(std::time::Instant::now());
+        }
+
         for (pty_id, pid) in agents {
             let meta = match read_session_meta(*pid) {
                 Some(m) => m,
                 None => continue,
             };
             live.insert(meta.session_id.clone());
+            let reported = read_reported(&meta.session_id);
 
             let reader = match self.readers.entry(meta.session_id.clone()) {
                 std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                 std::collections::hash_map::Entry::Vacant(e) => {
-                    let path = match transcript_path(&meta.cwd, &meta.session_id) {
+                    // The bridge names the file outright; otherwise it is
+                    // found from the cwd.
+                    let named = reported
+                        .as_ref()
+                        .and_then(|r| r.transcript_path.clone())
+                        .filter(|p| p.is_file());
+                    let path = match named.or_else(|| transcript_path(&meta.cwd, &meta.session_id)) {
                         Some(p) => p,
                         None => continue,
                     };
@@ -447,7 +692,11 @@ impl UsageTracker {
             if reader.path.exists() {
                 reader.refresh();
             }
-            out.insert(pty_id.clone(), reader.snapshot(&meta, read_reported(&meta.session_id).as_ref()));
+            let mut snapshot = reader.snapshot(&meta, reported.as_ref());
+            if let Some(details) = snapshot.reported.as_mut() {
+                self.carry_cache(&meta.session_id, details);
+            }
+            out.insert(pty_id.clone(), snapshot);
         }
 
         self.readers.retain(|session_id, _| live.contains(session_id));
@@ -668,5 +917,154 @@ mod tests {
     fn slug_matches_claude_codes_project_directory_naming() {
         assert_eq!(project_slug("/Users/onil/Repos/Personal/lever"), "-Users-onil-Repos-Personal-lever");
         assert_eq!(project_slug("/a/b.c_d"), "-a-b-c-d");
+    }
+
+    /// A scratch payload directory, one per test.
+    struct PayloadDir(PathBuf);
+    impl PayloadDir {
+        fn new(tag: &str) -> Self {
+            let p = std::env::temp_dir()
+                .join(format!("lever-limits-{}-{}", tag, std::process::id()));
+            let _ = fs::remove_dir_all(&p);
+            fs::create_dir_all(&p).unwrap();
+            PayloadDir(p)
+        }
+        fn write(&self, name: &str, body: &str, mtime_offset_secs: i64) {
+            let path = self.0.join(name);
+            fs::write(&path, body).unwrap();
+            // Ordering is by mtime, so each file is stamped explicitly — two
+            // writes in one test would otherwise land on the same second.
+            let t = std::time::SystemTime::now()
+                .checked_sub(std::time::Duration::from_secs((-mtime_offset_secs).max(0) as u64))
+                .unwrap();
+            fs::File::open(&path).unwrap().set_modified(t).unwrap();
+        }
+    }
+    impl Drop for PayloadDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn each_window_comes_from_the_freshest_payload_that_has_it() {
+        let d = PayloadDir::new("freshest");
+        // An old session that saw both windows...
+        d.write(
+            "old.json",
+            r#"{"session_id":"old","rate_limits":{"five_hour":{"used_percentage":40,"resets_at":100},"seven_day":{"used_percentage":9,"resets_at":900}}}"#,
+            -600,
+        );
+        // ...and a newer one that only reported the weekly window.
+        d.write(
+            "new.json",
+            r#"{"session_id":"new","rate_limits":{"seven_day":{"used_percentage":12,"resets_at":900}}}"#,
+            -5,
+        );
+        let l = read_rate_limits_in(&d.0).unwrap();
+        assert_eq!(l.five_hour.unwrap().used_percentage, 40.0);
+        assert_eq!(l.seven_day.unwrap().used_percentage, 12.0);
+        assert!(l.seven_day.unwrap().reported_at > l.five_hour.unwrap().reported_at);
+    }
+
+    #[test]
+    fn payloads_without_limits_and_stray_files_are_ignored() {
+        let d = PayloadDir::new("ignore");
+        d.write("a.json", r#"{"session_id":"a","rate_limits":null}"#, -1);
+        d.write("b.json", r#"{"session_id":"b"}"#, -1);
+        d.write("c.json", "{ not json", -1);
+        d.write(".sid.123.tmp", r#"{"rate_limits":{"five_hour":{"used_percentage":99,"resets_at":1}}}"#, 0);
+        assert!(read_rate_limits_in(&d.0).is_none());
+    }
+
+    #[test]
+    fn a_full_payload_yields_every_reported_detail() {
+        let d = PayloadDir::new("reported");
+        d.write(
+            "sid-1.json",
+            r#"{"session_id":"sid-1","session_name":"Usage display","effort":{"level":"high"},"transcript_path":"/tmp/x/sid-1.jsonl",
+                "model":{"id":"claude-fable-5-1[1m]","display_name":"Fable 5.1"},
+                "cost":{"total_cost_usd":0.4377,"total_duration_ms":118239,"total_api_duration_ms":38721,"total_lines_added":12,"total_lines_removed":3},
+                "context_window":{"context_window_size":1000000},
+                "prompt_cache":{"warm":true,"ttl":"1h","expires_at":1788735617,"hit_ratio":0.91,"recache_tokens_if_cold":42474},
+                "fast_mode":false,"thinking":{"enabled":true}}"#,
+            -2,
+        );
+        let r = read_reported_in(&d.0, "sid-1").unwrap();
+        assert_eq!(r.context_window_size, Some(1_000_000));
+        assert_eq!(r.model.as_deref(), Some("claude-fable-5-1[1m]"));
+        assert_eq!(r.transcript_path.as_deref(), Some(std::path::Path::new("/tmp/x/sid-1.jsonl")));
+        let x = r.details;
+        assert_eq!(x.title.as_deref(), Some("Usage display"));
+        assert_eq!(x.model_name.as_deref(), Some("Fable 5.1"));
+        assert_eq!(x.effort.as_deref(), Some("high"));
+        assert_eq!(x.fast_mode, Some(false));
+        assert_eq!(x.thinking, Some(true));
+        assert_eq!(x.cost_usd, Some(0.4377));
+        assert_eq!(x.lines_added, Some(12));
+        assert_eq!(x.lines_removed, Some(3));
+        assert_eq!(x.cache_warm, Some(true));
+        assert_eq!(x.cache_ttl.as_deref(), Some("1h"));
+        assert_eq!(x.cache_expires_at, Some(1_788_735_617));
+        assert_eq!(x.cache_recache_tokens, Some(42_474));
+        assert!(x.reported_at > 0);
+    }
+
+    #[test]
+    fn a_sparse_payload_leaves_the_rest_none() {
+        let d = PayloadDir::new("sparse");
+        d.write("sid-2.json", r#"{"session_id":"sid-2","session_name":"  ","model":{"id":"claude-opus-5"}}"#, -1);
+        let r = read_reported_in(&d.0, "sid-2").unwrap();
+        assert!(r.context_window_size.is_none());
+        // A blank title is no title.
+        assert!(r.details.title.is_none());
+        assert!(r.details.cost_usd.is_none());
+        assert!(read_reported_in(&d.0, "sid-missing").is_none());
+    }
+
+    #[test]
+    fn a_resumed_session_keeps_the_last_cache_report_until_it_gets_a_new_one() {
+        let mut t = UsageTracker::default();
+        let future = now_secs() + 1_800;
+
+        // The original process reported a warm cache...
+        let mut first = ReportedDetails {
+            cache_warm: Some(true),
+            cache_ttl: Some("1h".into()),
+            cache_expires_at: Some(future),
+            cache_recache_tokens: Some(42_000),
+            ..ReportedDetails::default()
+        };
+        t.carry_cache("sid", &mut first);
+        assert!(!first.cache_carried);
+
+        // ...then the session was resumed and the new process has not made a
+        // request yet, so its payload has no cache block.
+        let mut resumed = ReportedDetails::default();
+        t.carry_cache("sid", &mut resumed);
+        assert_eq!(resumed.cache_warm, Some(true));
+        assert_eq!(resumed.cache_expires_at, Some(future));
+        assert_eq!(resumed.cache_ttl.as_deref(), Some("1h"));
+        assert_eq!(resumed.cache_recache_tokens, Some(42_000));
+        assert!(resumed.cache_carried);
+
+        // A memo whose expiry has passed is reported as cold, not dropped.
+        let mut stale = ReportedDetails { cache_expires_at: Some(now_secs() - 60), ..ReportedDetails::default() };
+        t.carry_cache("other", &mut stale);
+        let mut resumed_cold = ReportedDetails::default();
+        t.carry_cache("other", &mut resumed_cold);
+        assert_eq!(resumed_cold.cache_warm, Some(false));
+        assert!(resumed_cold.cache_carried);
+
+        // A conversation never seen has nothing to carry.
+        let mut unknown = ReportedDetails::default();
+        t.carry_cache("nobody", &mut unknown);
+        assert!(unknown.cache_warm.is_none());
+        assert!(!unknown.cache_carried);
+    }
+
+    #[test]
+    fn a_missing_directory_yields_nothing() {
+        assert!(read_rate_limits_in(std::path::Path::new("/nonexistent/lever-limits")).is_none());
     }
 }

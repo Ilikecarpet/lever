@@ -1,7 +1,7 @@
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useServiceStore } from "../stores/serviceStore";
 import type { AgentInfo } from "../types";
-import type { PaneNode } from "../types/pane";
+import type { PaneNode, Workspace } from "../types/pane";
 import { findNode } from "../lib/paneTree";
 
 function collectPtyIds(node: PaneNode, out: string[]): void {
@@ -13,6 +13,27 @@ function collectPtyIds(node: PaneNode, out: string[]): void {
   }
 }
 
+function anyWorktreeAgent(
+  agents: Record<string, AgentInfo>,
+  workspaces: Workspace[],
+  worktreeId: string | null
+): AgentInfo | null {
+  let found: AgentInfo | null = null;
+  for (const w of workspaces) {
+    if (w.worktreeId !== worktreeId) continue;
+    const ptyIds: string[] = [];
+    collectPtyIds(w.root, ptyIds);
+    for (const id of ptyIds) {
+      const agent = agents[id];
+      if (agent) {
+        if (agent.active) return agent;
+        found = found ?? agent;
+      }
+    }
+  }
+  return found;
+}
+
 /**
  * The AI agent CLI (e.g. "claude") running in any terminal pane belonging to
  * this worktree, or null. Pass null for the main repo context. Prefers an
@@ -20,21 +41,28 @@ function collectPtyIds(node: PaneNode, out: string[]): void {
  */
 export function useWorktreeAgent(worktreeId: string | null): AgentInfo | null {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  return useServiceStore((s) => anyWorktreeAgent(s.agents, workspaces, worktreeId));
+}
+
+/**
+ * The agent the user is looking at in this worktree: the one in the focused
+ * pane, when the active workspace belongs here. A worktree can hold several
+ * conversations, and a row that names one should name the one in front of
+ * you — so this follows focus, and only falls back to `useWorktreeAgent`'s
+ * pick when focus is elsewhere.
+ */
+export function useWorktreeFocusedAgent(worktreeId: string | null): AgentInfo | null {
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   return useServiceStore((s) => {
-    let found: AgentInfo | null = null;
-    for (const w of workspaces) {
-      if (w.worktreeId !== worktreeId) continue;
-      const ptyIds: string[] = [];
-      collectPtyIds(w.root, ptyIds);
-      for (const id of ptyIds) {
-        const agent = s.agents[id];
-        if (agent) {
-          if (agent.active) return agent;
-          found = found ?? agent;
-        }
-      }
+    const active = workspaces.find((w) => w.id === activeWorkspaceId);
+    if (active && active.worktreeId === worktreeId) {
+      const pane = findNode(active.root, active.activePaneId);
+      const ptyId = pane?.type === "leaf" ? pane.ptyId : null;
+      const agent = ptyId ? s.agents[ptyId] : undefined;
+      if (agent) return agent;
     }
-    return found;
+    return anyWorktreeAgent(s.agents, workspaces, worktreeId);
   });
 }
 

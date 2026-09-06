@@ -88,6 +88,59 @@ export interface AgentUsage {
   /** True while the reader is still working through a long transcript's
    *  backlog, so the session totals are still climbing toward the real figure. */
   catchingUp: boolean;
+  /** What Claude Code itself reports about the session through the statusLine
+   *  bridge. Absent with the bridge off. */
+  reported?: ReportedDetails;
+}
+
+/** Per-session extras from the statusLine payload. Each is optional: the
+ *  payload has grown release by release, and an older CLI sends a subset. */
+export interface ReportedDetails {
+  /** The conversation's title, as opposed to the derived session label. */
+  title: string | null;
+  /** "Fable 5.1" rather than the raw model id. */
+  modelName: string | null;
+  effort: string | null;
+  fastMode: boolean | null;
+  thinking: boolean | null;
+  /** Running cost at API list price — nominal on a subscription. */
+  costUsd: number | null;
+  durationMs: number | null;
+  apiDurationMs: number | null;
+  linesAdded: number | null;
+  linesRemoved: number | null;
+  cacheWarm: boolean | null;
+  cacheTtl: string | null;
+  /** Unix seconds when the server-side prompt cache lapses. */
+  cacheExpiresAt: number | null;
+  cacheHitRatio: number | null;
+  /** Tokens a cold resume would re-read. */
+  cacheRecacheTokens: number | null;
+  /** The cache fields came from an earlier payload for this conversation: a
+   *  resumed session reports nothing about its cache until its first turn,
+   *  but the cache itself outlives the process. */
+  cacheCarried: boolean;
+  /** Unix seconds the payload was written. */
+  reportedAt: number;
+}
+
+/** One of the Claude account's rolling usage windows, as Claude Code last
+ *  reported it through the statusLine bridge. */
+export interface RateLimitWindow {
+  /** 0–100, rounded by Claude Code. */
+  usedPercentage: number;
+  /** Unix seconds at which the window rolls over. */
+  resetsAt: number;
+  /** Unix seconds when the figure was last written. Payloads only refresh
+   *  while some session is rendering, so this can fall behind. */
+  reportedAt: number;
+}
+
+/** Plan usage for the whole account — one figure, not one per session. Either
+ *  window may be missing: Claude Code omits one it has no data for. */
+export interface RateLimits {
+  fiveHour: RateLimitWindow | null;
+  sevenDay: RateLimitWindow | null;
 }
 
 /** Whether Lever's statusLine hook is installed in ~/.claude/settings.json. */
@@ -116,6 +169,8 @@ export interface PollResult {
   agents: Record<string, AgentInfo>;
   /** service id -> TCP ports it is listening on */
   ports: Record<string, number[]>;
+  /** The Claude account's plan usage, when the bridge has reported it. */
+  rateLimits: RateLimits | null;
 }
 
 // ---------------------------------------------------------------------------

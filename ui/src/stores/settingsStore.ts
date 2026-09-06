@@ -9,6 +9,7 @@ const FONT_SIZE_KEY = "lever-terminal-font-size";
 const SCROLLBACK_KEY = "lever-terminal-scrollback";
 const STOP_ON_QUIT_KEY = "lever-stop-services-on-quit";
 const CONTEXT_WINDOW_KEY = "lever-agent-context-window";
+const METER_COLLAPSED_KEY = "lever-agent-meter-collapsed";
 
 export const FONT_SIZE_MIN = 9;
 export const FONT_SIZE_MAX = 22;
@@ -32,6 +33,19 @@ function readContextWindow(): ContextWindow {
     if (v === "1000000") return 1_000_000;
   } catch {}
   return "auto";
+}
+
+/** The agent meter's popover sections a user has folded away. */
+export type MeterSection = "context" | "plan" | "session";
+
+function readCollapsed(): MeterSection[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(METER_COLLAPSED_KEY) ?? "[]");
+    if (Array.isArray(v)) {
+      return v.filter((x): x is MeterSection => x === "context" || x === "plan" || x === "session");
+    }
+  } catch {}
+  return [];
 }
 
 function readBool(key: string, fallback: boolean): boolean {
@@ -84,6 +98,10 @@ interface SettingsState {
   agentContextWindow: ContextWindow;
   setAgentContextWindow: (v: ContextWindow) => void;
 
+  /** Popover sections folded to their one-line summary. */
+  agentMeterCollapsed: MeterSection[];
+  toggleAgentMeterSection: (s: MeterSection) => void;
+
   /** Whether Lever's statusLine hook is in ~/.claude/settings.json. Lives in
    *  that file rather than localStorage, so it is read back from the backend
    *  instead of remembered here. null until first read. */
@@ -105,6 +123,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ),
   stopServicesOnQuit: readBool(STOP_ON_QUIT_KEY, true),
   agentContextWindow: readContextWindow(),
+  agentMeterCollapsed: readCollapsed(),
   agentBridge: null,
   agentBridgeBusy: false,
   agentBridgeError: null,
@@ -130,6 +149,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setAgentContextWindow: (v) => {
     write(CONTEXT_WINDOW_KEY, String(v));
     set({ agentContextWindow: v });
+  },
+
+  toggleAgentMeterSection: (s) => {
+    const cur = get().agentMeterCollapsed;
+    const next = cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s];
+    write(METER_COLLAPSED_KEY, JSON.stringify(next));
+    set({ agentMeterCollapsed: next });
   },
 
   loadAgentBridge: async () => {

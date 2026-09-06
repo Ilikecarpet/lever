@@ -6,7 +6,11 @@ import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { ContextWindow } from "../../stores/settingsStore";
-import { useWorktreeAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
+import {
+  useWorktreeAgent,
+  useWorktreeFocusedAgent,
+  useWorktreeNeedsAttention,
+} from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
@@ -14,18 +18,24 @@ import { useConfigStore } from "../../stores/configStore";
 import { IconBranch, IconChevron, IconPlus } from "../Icons";
 import GroupItem from "./GroupItem";
 import styles from "./WorktreeSection.module.css";
+import ContextSubtitle from "./ContextSubtitle";
 
 interface Props {
   worktree: WorktreeDef;
 }
 
 /** The sidebar has no room for a meter, but the row already carries a tooltip
- *  for the agent — context pressure rides along with it. */
+ *  for the agent — context pressure rides along with it. With the bridge on
+ *  the agent is named by model and conversation, which is what tells two
+ *  Claude sessions apart. */
 function agentTitle(agent: AgentInfo, windowSetting: ContextWindow): string {
-  const state = agent.needsAttention
-    ? `${agent.name} finished and is waiting on you`
-    : `${agent.name} is ${agent.active ? "working" : "idle"}`;
   const u = agent.usage;
+  const who = u?.reported?.modelName ?? agent.name;
+  const conversation = u?.reported?.title ?? u?.sessionName;
+  const subject = conversation ? `${who} · ${conversation}` : who;
+  const state = agent.needsAttention
+    ? `${subject} finished and is waiting on you`
+    : `${subject} is ${agent.active ? "working" : "idle"}`;
   if (!u) return state;
   const limit =
     windowSetting === "auto" ? u.contextLimit : Math.max(windowSetting, u.contextLimit);
@@ -46,6 +56,7 @@ export default function WorktreeSection({ worktree }: Props) {
     (s) => s.closeWorktreeWorkspaces
   );
   const agent = useWorktreeAgent(worktree.id);
+  const focused = useWorktreeFocusedAgent(worktree.id);
   const wantsYou = useWorktreeNeedsAttention(worktree.id);
   const contextWindow = useSettingsStore((s) => s.agentContextWindow);
   const statuses = useServiceStore((s) => s.statuses);
@@ -146,7 +157,6 @@ export default function WorktreeSection({ worktree }: Props) {
     }
   };
 
-  const shortPath = worktree.path.replace(/^\/Users\/[^/]+/, "~");
 
   return (
     <>
@@ -167,7 +177,7 @@ export default function WorktreeSection({ worktree }: Props) {
             className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
             title={agent ? agentTitle(agent, contextWindow) : undefined}
           >{worktree.branch}</span>
-          <span className={styles.worktreePath} title={worktree.path}>{shortPath}</span>
+          <ContextSubtitle path={worktree.path} agent={focused} />
         </span>
         {/* The agent here finished and nobody has been back. Sits before the
             running count so a worktree that wants you reads first. */}

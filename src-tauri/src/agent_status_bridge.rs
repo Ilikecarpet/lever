@@ -257,7 +257,15 @@ fn uninstall_in(home: &Path) -> Result<BridgeState, String> {
 }
 
 /// Payloads outlive the sessions that wrote them; a session whose id no longer
-/// matches a live process is never read again.
+/// matches a live process is never read again. Runs at install and then on
+/// `agent_usage`'s clock, since with the bridge left on the directory would
+/// otherwise grow by one file per conversation for good.
+pub fn prune_stale_payloads() {
+    if let Ok(home) = home() {
+        prune_stale_payloads_in(&home);
+    }
+}
+
 fn prune_stale_payloads_in(home: &Path) {
     let dir = sessions_dir_in(home);
     let entries = match fs::read_dir(&dir) {
