@@ -346,6 +346,9 @@ export default function Sidebar() {
             >
               <IconChevron size={10} />
             </span>
+            <span className={styles.branchIcon}>
+              <IconBranch size={13} />
+            </span>
             <span className={styles.mainContextText}>
               <span
                 className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
