@@ -3,7 +3,7 @@
 
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
@@ -626,15 +626,6 @@ fn parse_listening_ports(text: &str) -> HashMap<u32, Vec<u16>> {
         }
     }
     out
-}
-
-/// The scan covers every loaded project, so a window is handed back only the
-/// services it actually owns.
-fn scope_ports_to(
-    ports: HashMap<String, Vec<u16>>,
-    own: &HashSet<String>,
-) -> HashMap<String, Vec<u16>> {
-    ports.into_iter().filter(|(id, _)| own.contains(id)).collect()
 }
 
 /// The ports each running service is listening on, keyed by service id. One
@@ -1442,12 +1433,9 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
     // Snapshot everything we need under the projects lock, then drop it
     // before the (slow) process-table scan so write_pty — called on every
     // keystroke — never waits behind `ps`.
-    let (statuses, roots, service_pids, own_service_ids, last_outputs) = {
+    let (statuses, roots, service_pids, last_outputs) = {
         let mut projects = state.projects.lock().unwrap();
-        if !projects.contains_key(&project_id) {
-            return Err("Project not loaded".to_string());
-        }
-        let ps = projects.get_mut(&project_id).unwrap();
+        let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
         let dead: Vec<String> = ps.tracked.iter()
             .filter(|(_, t)| !is_pid_alive(t.pid))
@@ -1476,31 +1464,17 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
             }
         }).collect();
 
-        // Only this project's terminals, so the response is scoped to the
-        // window that asked.
+        let roots: Vec<(String, u32)> = ps.pty_sessions.iter()
+            .filter_map(|(id, s)| s.child_pid.map(|p| (id.clone(), p)))
+            .collect();
+        let service_pids: Vec<(String, u32)> = ps.tracked.iter()
+            .map(|(id, t)| (id.clone(), t.pid))
+            .collect();
         let last_outputs: HashMap<String, u64> = ps.pty_sessions.iter()
             .map(|(id, s)| (id.clone(), s.last_output.load(Ordering::Relaxed)))
             .collect();
-        let own_service_ids: HashSet<String> = ps.tracked.keys().cloned().collect();
 
-        // The scan itself covers every loaded project. One AgentScanCache is
-        // shared by all of them, and each window polls on its own 300ms timer:
-        // scanning only the caller's pids would let whichever window crossed
-        // the interval first replace the cache with its own terminals, leaving
-        // every other window to read a cache its pty ids are not in. Pty and
-        // service ids are unique app-wide (`pty_counter` lives on AppState),
-        // so the merged maps cannot collide, and this stays one `ps` and one
-        // `lsof` for the whole app rather than one per project.
-        let roots: Vec<(String, u32)> = projects.values()
-            .flat_map(|p| p.pty_sessions.iter())
-            .filter_map(|(id, s)| s.child_pid.map(|pid| (id.clone(), pid)))
-            .collect();
-        let service_pids: Vec<(String, u32)> = projects.values()
-            .flat_map(|p| p.tracked.iter())
-            .map(|(id, t)| (id.clone(), t.pid))
-            .collect();
-
-        (statuses, roots, service_pids, own_service_ids, last_outputs)
+        (statuses, roots, service_pids, last_outputs)
     };
 
     // AI agent indicator: rescan the process table at most every 2s; poll
@@ -1554,10 +1528,6 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
             })
         })
         .collect();
-
-    // `agents` was already narrowed to this window by the join above; ports
-    // are keyed by service id, so they need the same trim.
-    let ports = scope_ports_to(ports, &own_service_ids);
 
     Ok(PollResult { statuses, logs: HashMap::new(), agents, ports, rate_limits })
 }
@@ -2943,92 +2913,5 @@ mod attention_tests {
         observe(&mut c, &[("a", None)]);
         assert!(c.attention.is_empty());
         assert!(c.last_status.is_empty());
-    }
-}
-
-/// One `AgentScanCache` is shared by every project window, and each window
-/// polls on its own timer. These pin down the two halves of keeping that safe:
-/// the scan has to cover every project, and the response has to be trimmed
-/// back to the one that asked.
-#[cfg(test)]
-mod multi_project_tests {
-    use super::*;
-
-    /// Two projects, a terminal running claude in each. Scanning only the
-    /// polling window's roots used to replace the cache with its own
-    /// terminals, so whichever window crossed the interval first won and the
-    /// rest read a cache their pty ids were not in.
-    #[test]
-    fn a_scan_covering_two_projects_finds_the_agent_in_both() {
-        let table = ProcessTable::parse(
-            "10 1 -zsh\n11 10 claude\n20 1 -zsh\n21 20 node /opt/.bin/claude\n",
-        );
-        let roots = vec![("pty-1".to_string(), 10u32), ("pty-2".to_string(), 20u32)];
-        let agents = detect_agents(&table, &roots);
-        assert_eq!(agents.get("pty-1"), Some(&("claude".to_string(), 11)));
-        assert_eq!(agents.get("pty-2"), Some(&("claude".to_string(), 21)));
-    }
-
-    #[test]
-    fn ports_from_every_project_land_in_one_pass() {
-        let table = ProcessTable::parse(
-            "100 1 /bin/sh -c npm run dev\n101 100 node vite\n200 1 /bin/sh -c uvicorn\n201 200 python api\n",
-        );
-        let by_pid = HashMap::from([(101u32, vec![5173u16]), (201, vec![8000])]);
-        let web = "svc-web".to_string();
-        let api = "svc-api".to_string();
-        let ports = ports_for_trees(
-            &[(&web, table.descendants(100)), (&api, table.descendants(200))],
-            &by_pid,
-        );
-        assert_eq!(ports.get("svc-web"), Some(&vec![5173]));
-        assert_eq!(ports.get("svc-api"), Some(&vec![8000]));
-    }
-
-    #[test]
-    fn a_window_is_handed_only_its_own_services() {
-        let ports = HashMap::from([
-            ("svc-web".to_string(), vec![5173u16]),
-            ("svc-api".to_string(), vec![8000]),
-        ]);
-        let own = HashSet::from(["svc-web".to_string()]);
-        let scoped = scope_ports_to(ports, &own);
-        assert_eq!(scoped.get("svc-web"), Some(&vec![5173]));
-        assert_eq!(scoped.get("svc-api"), None, "another project's service");
-    }
-
-    /// A window with nothing running gets an empty map, not the other
-    /// project's ports.
-    #[test]
-    fn a_window_with_no_services_is_handed_nothing() {
-        let ports = HashMap::from([("svc-api".to_string(), vec![8000u16])]);
-        assert!(scope_ports_to(ports, &HashSet::new()).is_empty());
-    }
-
-    /// Both projects' terminals are in the cache together, so neither
-    /// project's "waiting on you" flag is retained away by the other's tick —
-    /// which is what an incomplete scan caused.
-    #[test]
-    fn each_projects_attention_survives_the_others_tick() {
-        let mut c = AgentScanCache::default();
-        for statuses in [
-            [("pty-1", "busy"), ("pty-2", "busy")],
-            [("pty-1", "idle"), ("pty-2", "busy")],
-        ] {
-            c.usage = statuses.iter()
-                .map(|(pty, s)| (pty.to_string(), AgentUsage::with_status(Some(s))))
-                .collect();
-            c.note_status_changes();
-        }
-        assert!(c.attention.contains("pty-1"), "finished in project one");
-        assert!(!c.attention.contains("pty-2"), "still working in project two");
-
-        // Project two finishes on a later tick; project one's flag is intact.
-        c.usage = [("pty-1", "idle"), ("pty-2", "idle")].iter()
-            .map(|(pty, s)| (pty.to_string(), AgentUsage::with_status(Some(s))))
-            .collect();
-        c.note_status_changes();
-        assert!(c.attention.contains("pty-1"));
-        assert!(c.attention.contains("pty-2"));
     }
 }

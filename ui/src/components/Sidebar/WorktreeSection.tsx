@@ -171,6 +171,7 @@ export default function WorktreeSection({ worktree }: Props) {
         >
           <IconChevron size={10} />
         </span>
+        <span className={styles.branchIcon}><IconBranch size={13} /></span>
         <span className={styles.worktreeText}>
           <span
             className={`${styles.branchName}${agent?.active ? ` ${styles.agentBarActive}` : ""}`}
