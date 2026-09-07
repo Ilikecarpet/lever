@@ -23,7 +23,6 @@
 .sectionDividerActive {
   background: var(--accent-subtle);
 }
-.sectionDividerActive .branchIcon,
 .sectionDividerActive .branchName {
   color: var(--accent-hover);
 }
@@ -35,7 +34,6 @@
    the row itself, so the running badge stays at full strength. It is the one
    thing a collapsed row exists to report. */
 .sectionDividerInactive .contextChevron,
-.sectionDividerInactive .branchIcon,
 .sectionDividerInactive .worktreeText {
   /* Lighter touch than before — colour already separates the selected row, so
      this only has to push the rest back a step. */
@@ -43,14 +41,8 @@
   transition: opacity 0.15s;
 }
 .sectionDividerInactive:hover .contextChevron,
-.sectionDividerInactive:hover .branchIcon,
 .sectionDividerInactive:hover .worktreeText {
   opacity: 1;
-}
-
-.branchIcon {
-  display: flex;
-  align-items: center;
 }
 
 /* Chevron marking whether this worktree's groups are showing */
