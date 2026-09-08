@@ -413,8 +413,9 @@ pub struct RateLimitWindow {
     pub used_percentage: f64,
     /// Unix seconds at which the window rolls over and usage drops to zero.
     pub resets_at: u64,
-    /// Unix seconds when Claude Code last wrote this figure. Payloads only
-    /// refresh while a session is rendering, so the UI can say how old it is.
+    /// Unix seconds the payload carrying this figure was written. It is the
+    /// age of the reading itself, not of the last redraw, so the UI can say
+    /// how far behind the number it is showing has fallen.
     pub reported_at: u64,
 }
 
@@ -434,12 +435,46 @@ impl RateLimits {
     }
 }
 
-/// The freshest plan usage across every payload the bridge has stashed.
+/// Which of two readings of the same window to believe. See `read_rate_limits`
+/// for why this is not just the newer one.
+fn leading(cur: Option<RateLimitWindow>, cand: Option<RateLimitWindow>) -> Option<RateLimitWindow> {
+    let (c, n) = match (cur, cand) {
+        (Some(c), Some(n)) => (c, n),
+        (None, cand) => return cand,
+        (cur, None) => return cur,
+    };
+    let believe_new = match n.resets_at.cmp(&c.resets_at) {
+        // A session cannot report a window it has not reached yet, so the
+        // furthest-out reset is the current window. A nearer one belongs to a
+        // window that has already rolled and is still being re-stamped.
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        // The same window, so the readings are comparable: usage only climbs
+        // within one, which makes the highest reading the latest. On an exact
+        // tie the fresher stamp wins, purely to keep the reported age honest.
+        std::cmp::Ordering::Equal => {
+            n.used_percentage > c.used_percentage
+                || (n.used_percentage == c.used_percentage && n.reported_at > c.reported_at)
+        }
+    };
+    Some(if believe_new { n } else { c })
+}
+
+/// The account's plan usage: a high-water mark over every payload the bridge
+/// has stashed.
 ///
-/// Each window is taken from whichever payload wrote it most recently, not the
-/// focused session's: the limit is per account, so a busy session in another
-/// pane has the newer number. `None` when the bridge is off or nothing has
-/// reported yet.
+/// The limit is per account, so this is not the focused session's figure — but
+/// neither is it simply the most recently written one. Claude Code fills
+/// `rate_limits` from the last API response *that session* received, while the
+/// bridge rewrites a payload on every status-line render: an idle session keeps
+/// re-stamping an hours-old reading with a fresh mtime. Ranking by mtime lets
+/// that stale reading win, and since usage only climbs until the window rolls,
+/// it can only ever fail downward — the meter would claim headroom the account
+/// does not have.
+///
+/// So `leading` decides instead: the largest `resets_at` picks the window, and
+/// within that window the largest `used_percentage` wins. `None` when the
+/// bridge is off or nothing has reported yet.
 pub fn read_rate_limits() -> Option<RateLimits> {
     read_rate_limits_in(&agent_status_bridge::sessions_dir().ok()?)
 }
@@ -485,13 +520,8 @@ fn read_rate_limits_in(dir: &std::path::Path) -> Option<RateLimits> {
                 reported_at,
             })
         };
-        let newer = |cur: Option<RateLimitWindow>, cand: Option<RateLimitWindow>| match (cur, cand) {
-            (Some(c), Some(n)) if n.reported_at >= c.reported_at => Some(n),
-            (None, Some(n)) => Some(n),
-            (c, _) => c,
-        };
-        out.five_hour = newer(out.five_hour, window("five_hour"));
-        out.seven_day = newer(out.seven_day, window("seven_day"));
+        out.five_hour = leading(out.five_hour, window("five_hour"));
+        out.seven_day = leading(out.seven_day, window("seven_day"));
     }
     if out.is_empty() { None } else { Some(out) }
 }
@@ -947,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn each_window_comes_from_the_freshest_payload_that_has_it() {
+    fn each_window_is_taken_from_whichever_payloads_carry_it() {
         let d = PayloadDir::new("freshest");
         // An old session that saw both windows...
         d.write(
@@ -955,7 +985,8 @@ mod tests {
             r#"{"session_id":"old","rate_limits":{"five_hour":{"used_percentage":40,"resets_at":100},"seven_day":{"used_percentage":9,"resets_at":900}}}"#,
             -600,
         );
-        // ...and a newer one that only reported the weekly window.
+        // ...and a newer one that only reported the weekly window. The hourly
+        // figure still stands: the windows are tracked independently.
         d.write(
             "new.json",
             r#"{"session_id":"new","rate_limits":{"seven_day":{"used_percentage":12,"resets_at":900}}}"#,
@@ -965,6 +996,50 @@ mod tests {
         assert_eq!(l.five_hour.unwrap().used_percentage, 40.0);
         assert_eq!(l.seven_day.unwrap().used_percentage, 12.0);
         assert!(l.seven_day.unwrap().reported_at > l.five_hour.unwrap().reported_at);
+    }
+
+    #[test]
+    fn an_idle_session_restamping_an_old_figure_cannot_lower_the_window() {
+        let d = PayloadDir::new("highwater");
+        // The session doing the work, as of a minute ago.
+        d.write(
+            "busy.json",
+            r#"{"session_id":"busy","rate_limits":{"five_hour":{"used_percentage":85,"resets_at":900}}}"#,
+            -60,
+        );
+        // One sitting at the prompt, redrawing this second but carrying the
+        // figure from its last request — the same window, hours earlier.
+        d.write(
+            "idle.json",
+            r#"{"session_id":"idle","rate_limits":{"five_hour":{"used_percentage":30,"resets_at":900}}}"#,
+            0,
+        );
+        let w = read_rate_limits_in(&d.0).unwrap().five_hour.unwrap();
+        assert_eq!(w.used_percentage, 85.0);
+        // And the age shown is the winning reading's, not the newest file's.
+        assert!(w.reported_at <= now_secs() - 30);
+    }
+
+    #[test]
+    fn a_rolled_over_window_beats_the_previous_windows_high() {
+        let d = PayloadDir::new("rollover");
+        // Last window ran to 85% and the session that saw it is still idle,
+        // so its payload outlives the window it describes.
+        d.write(
+            "stale.json",
+            r#"{"session_id":"stale","rate_limits":{"five_hour":{"used_percentage":85,"resets_at":900}}}"#,
+            0,
+        );
+        // A session that has made a request since the reset reports the new
+        // window, which is barely used.
+        d.write(
+            "fresh.json",
+            r#"{"session_id":"fresh","rate_limits":{"five_hour":{"used_percentage":3,"resets_at":18900}}}"#,
+            -30,
+        );
+        let w = read_rate_limits_in(&d.0).unwrap().five_hour.unwrap();
+        assert_eq!(w.used_percentage, 3.0);
+        assert_eq!(w.resets_at, 18900);
     }
 
     #[test]

@@ -63,13 +63,14 @@ function costLabel(usd: number): string {
 }
 
 /** Only a figure that has fallen behind says how old it is; a fresh one is
- *  simply current. Claude Code writes the payload while a session is drawing,
- *  so with every session idle the number sits still. */
+ *  simply current. A session's plan figure advances only when it gets an API
+ *  response back, so with nothing running the number sits still. */
 const STALE_AFTER_MS = 5 * 60_000;
 
 /** One rolling window of the plan: what has gone, and when it comes back. A
  *  window whose reset has already passed is shown as reset rather than at its
- *  last known figure, which is now wrong by construction. */
+ *  last known figure, which is now wrong by construction — it means no session
+ *  has made a request since the rollover, so nothing has reported the new one. */
 function PlanWindow({ label, win, now }: { label: string; win: RateLimitWindow; now: number }) {
   const resetAt = win.resetsAt * 1000;
   const rolledOver = resetAt <= now;
@@ -242,8 +243,13 @@ export default function AgentMeter() {
   const leadLive = !!lead && lead.resetsAt * 1000 > now;
   const leadUsed = leadLive ? Math.min(lead!.usedPercentage / 100, 1) : 0;
   const leadLeft = leadLive ? Math.max(0, Math.round(100 - lead!.usedPercentage)) : null;
-  const newestReport = Math.max(limits?.fiveHour?.reportedAt ?? 0, limits?.sevenDay?.reportedAt ?? 0) * 1000;
-  const reportAge = newestReport > 0 ? now - newestReport : 0;
+  // Each window ages from when its reading was seen, and the two can have been
+  // seen at different moments. The note below is a caveat, so it takes the more
+  // lagged of them — averaging or taking the fresher would bury the caveat.
+  const reportStamps = [limits?.fiveHour?.reportedAt, limits?.sevenDay?.reportedAt]
+    .filter((t): t is number => !!t);
+  const oldestReport = reportStamps.length > 0 ? Math.min(...reportStamps) * 1000 : 0;
+  const reportAge = oldestReport > 0 ? now - oldestReport : 0;
 
   // The footer names the model when the bridge says which, else the CLI.
   const shortName = reported?.modelName ?? agent.name;
@@ -367,9 +373,10 @@ export default function AgentMeter() {
               {limits.fiveHour && <PlanWindow label="5 hour" win={limits.fiveHour} now={now} />}
               {limits.sevenDay && <PlanWindow label="7 day" win={limits.sevenDay} now={now} />}
               <p className={styles.note}>
-                Your account's usage as Claude Code reports it, across every session.
+                Your account's usage as Claude Code reports it — the highest reading across
+                every session, since an idle one keeps repeating the figure it last saw.
                 {reportAge > STALE_AFTER_MS &&
-                  ` Last reported ${spanLabel(reportAge)} ago — it only refreshes while a session is drawing.`}
+                  ` Read ${spanLabel(reportAge)} ago; a session has to make a request to refresh it.`}
               </p>
             </Section>
           )}
