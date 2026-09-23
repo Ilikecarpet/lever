@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AppConfig,
   BridgeState,
+  McpState,
   PollResult,
   PtyInfo,
   StartServiceResult,
@@ -179,6 +180,30 @@ export function installAgentBridge(): Promise<BridgeState> {
 
 export function uninstallAgentBridge(): Promise<BridgeState> {
   return invoke<BridgeState>("uninstall_agent_bridge");
+}
+
+// ---------------------------------------------------------------------------
+// MCP server (global, not project-scoped)
+// ---------------------------------------------------------------------------
+
+export function mcpState(): Promise<McpState> {
+  return invoke<McpState>("mcp_state");
+}
+
+export function enableMcp(): Promise<McpState> {
+  return invoke<McpState>("enable_mcp");
+}
+
+export function disableMcp(): Promise<McpState> {
+  return invoke<McpState>("disable_mcp");
+}
+
+export function mcpLogsReply(
+  requestId: number,
+  lines: string[] | null,
+  error: string | null,
+): Promise<void> {
+  return invoke<void>("mcp_logs_reply", { requestId, lines, error });
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ use tauri::{Emitter, Manager, State};
 
 mod agent_status_bridge;
 mod agent_usage;
+mod mcp;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
@@ -208,6 +209,22 @@ struct ProjectState {
     repo_path: String,
     tracked: HashMap<String, TrackedService>,
     pty_sessions: HashMap<String, PtySession>,
+    /// service id -> how its most recent run ended. Kept after the run is
+    /// gone from `tracked`, which is the point: a task that has finished is
+    /// exactly when someone wants to know whether it passed.
+    last_exit: HashMap<String, LastExit>,
+}
+
+#[derive(Clone)]
+struct LastExit {
+    /// The run this belongs to, so a stale result is never read as the
+    /// outcome of a newer one.
+    pty_id: String,
+    /// None when the status could not be collected (the process closed its
+    /// terminal but outlived it).
+    code: Option<i32>,
+    signal: Option<String>,
+    at: i64,
 }
 
 struct AppState {
@@ -363,14 +380,61 @@ fn get_shell_path() -> String {
         .clone()
 }
 
+/// Wait statuses reaped by `is_pid_alive`. A service's own exit handler
+/// reaps it too, and whichever gets there second finds nothing to wait for —
+/// so the poll's reap leaves the status here for the handler to pick up.
+static REAPED: OnceLock<Mutex<HashMap<u32, i32>>> = OnceLock::new();
+
+fn reaped() -> &'static Mutex<HashMap<u32, i32>> {
+    REAPED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn is_pid_alive(pid: u32) -> bool {
     unsafe {
         let mut status: i32 = 0;
         let ret = libc::waitpid(pid as i32, &mut status, libc::WNOHANG);
         if ret == pid as i32 {
+            reaped().lock().unwrap().insert(pid, status);
             return false;
         }
         libc::kill(pid as i32, 0) == 0
+    }
+}
+
+/// How a service's shell ended: its exit code, or the signal that ended it.
+///
+/// The PTY reaches EOF as the process exits, but a process that closed its
+/// terminal and carried on would block a plain `wait` forever, so this gives
+/// up after a couple of seconds and reports nothing.
+fn collect_exit(child: &mut Box<dyn portable_pty::Child + Send + Sync>, pid: u32) -> (Option<i32>, Option<String>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // portable-pty keeps the signal name private and folds it into
+                // code 1; its Display is the only way back to it.
+                let text = status.to_string();
+                return match text.strip_prefix("Terminated by ") {
+                    Some(sig) if !status.success() => (None, Some(sig.to_string())),
+                    _ => (Some(status.exit_code() as i32), None),
+                };
+            }
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => return (None, None),
+            // Already reaped by the poll's liveness check.
+            Err(_) => {
+                let raw = reaped().lock().unwrap().remove(&pid);
+                return match raw {
+                    Some(raw) if libc::WIFEXITED(raw) => (Some(libc::WEXITSTATUS(raw)), None),
+                    Some(raw) if libc::WIFSIGNALED(raw) => {
+                        (None, Some(format!("signal {}", libc::WTERMSIG(raw))))
+                    }
+                    _ => (None, None),
+                };
+            }
+        }
     }
 }
 
@@ -1151,6 +1215,7 @@ fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> R
             repo_path: String::new(),
             tracked: HashMap::new(),
             pty_sessions: HashMap::new(),
+            last_exit: HashMap::new(),
         });
     }
 
@@ -1218,6 +1283,7 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
             repo_path: repo_path.clone(),
             tracked,
             pty_sessions: HashMap::new(),
+            last_exit: HashMap::new(),
         });
     }
 
@@ -1283,6 +1349,14 @@ fn save_config(project_id: String, config: AppConfig, state: State<'_, AppState>
 
 #[tauri::command(async)]
 fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<StartServiceResult, String> {
+    start_service_in(&app, &state, &project_id, &id, window.label())
+}
+
+/// Spawns a service into a PTY whose output goes to `window_label`. Split from
+/// the command so the MCP server can start services for a window it is not.
+fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, id: &str, window_label: &str) -> Result<StartServiceResult, String> {
+    let project_id = project_id.to_string();
+    let id = id.to_string();
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
@@ -1320,7 +1394,7 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
 
     debug_action("service", &format!("start '{}': {}  (in {})", def.label, shell_cmd, cwd));
 
-    let child = pair.slave.spawn_command(cmd)
+    let mut child = pair.slave.spawn_command(cmd)
         .map_err(|e| {
             debug_log("service", "error", &format!("failed to spawn {}: {}", def.label, e));
             format!("Failed to spawn {}: {}", def.label, e)
@@ -1353,7 +1427,7 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
     let id_clone = id.clone();
     let pty_id_clone = pty_id.clone();
     let app_handle = app.clone();
-    let window_label = window.label().to_string();
+    let window_label = window_label.to_string();
 
     drop(projects);
 
@@ -1363,8 +1437,28 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
             // PTY exited — emit svc-exit event and clean up
             let _ = app.emit_to(exit_window.as_str(), "svc-exit", SvcExitEvent {
                 id: id_clone.clone(),
-                pty_id: pty_id_clone,
+                pty_id: pty_id_clone.clone(),
             });
+
+            // Record how the run ended, and drop it from `tracked` now rather
+            // than on the next poll — the MCP server asks between polls.
+            let (code, signal) = collect_exit(&mut child, pid);
+            {
+                let state = app.state::<AppState>();
+                let mut projects = state.projects.lock().unwrap();
+                if let Some(ps) = projects.get_mut(&proj_id) {
+                    ps.last_exit.insert(id_clone.clone(), LastExit {
+                        pty_id: pty_id_clone.clone(),
+                        code,
+                        signal,
+                        at: now_unix(),
+                    });
+                    if ps.tracked.get(&id_clone).and_then(|t| t.pty_id.as_deref()) == Some(pty_id_clone.as_str()) {
+                        ps.tracked.remove(&id_clone);
+                        ps.pty_sessions.remove(&pty_id_clone);
+                    }
+                }
+            }
 
             // Clean up persistent state
             let sp = project_state_file_path(&projects_dir, &proj_id);
@@ -1383,6 +1477,12 @@ fn start_service(project_id: String, id: String, window: tauri::WebviewWindow, a
 
 #[tauri::command(async)]
 fn stop_service(project_id: String, id: String, state: State<'_, AppState>) -> Result<(), String> {
+    stop_service_in(&state, &project_id, &id)
+}
+
+fn stop_service_in(state: &AppState, project_id: &str, id: &str) -> Result<(), String> {
+    let project_id = project_id.to_string();
+    let id = id.to_string();
     let mut projects = state.projects.lock().unwrap();
     let ps = projects.get_mut(&project_id).ok_or("Project not loaded")?;
 
@@ -2718,6 +2818,7 @@ fn main() {
             });
 
             let _ = DEBUG_APP.set(app.handle().clone());
+            mcp::start_if_enabled(app.handle().clone());
 
             Ok(())
         })
@@ -2765,6 +2866,10 @@ fn main() {
             remove_worktree,
             get_default_branch,
             set_stop_services_on_quit,
+            mcp::mcp_state,
+            mcp::enable_mcp,
+            mcp::disable_mcp,
+            mcp::mcp_logs_reply,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

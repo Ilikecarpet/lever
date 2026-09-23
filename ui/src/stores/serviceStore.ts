@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
-import { ensureSvcTerm, setSvcTermDead } from "../lib/svcTerminals";
-import type { AgentInfo, AgentUsage, RateLimits, SvcExitEvent } from "../types";
+import { ensureSvcTerm, readSvcTermLines, setSvcTermDead } from "../lib/svcTerminals";
+import type { AgentInfo, AgentUsage, McpLogReadRequest, RateLimits, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
@@ -24,6 +24,8 @@ interface ServiceState {
   stopService: (id: string) => Promise<void>;
   setActiveService: (id: string | null) => void;
   initExitListener: () => Promise<() => void>;
+  /** Services started by Lever's MCP server, and its requests to read logs. */
+  initMcpListeners: () => Promise<() => void>;
 }
 
 /** Every counter that moves when the agent does something, so an unchanged
@@ -221,5 +223,34 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
       }));
     });
     return unlisten;
+  },
+
+  initMcpListeners: async () => {
+    // The agent started a service this window did not ask for. Build its
+    // terminal now: waiting for the next poll to adopt it would drop the
+    // first lines, which for a dev server is the one naming its URL.
+    const unlistenStarted = await tauriListen<SvcExitEvent>("svc-started", (payload) => {
+      set((state) => ({
+        ptyIds: { ...state.ptyIds, [payload.id]: payload.pty_id },
+        statuses: { ...state.statuses, [payload.id]: "running" },
+      }));
+      ensureSvcTerm(payload.id, payload.pty_id);
+    });
+    // The agent reads logs from the same terminal the log panel shows.
+    const unlistenRead = await tauriListen<McpLogReadRequest>("mcp-read-logs", (payload) => {
+      const lines = readSvcTermLines(payload.serviceId);
+      const reply = lines
+        ? api.mcpLogsReply(payload.requestId, lines, null)
+        : api.mcpLogsReply(
+            payload.requestId,
+            null,
+            "No output: this service has not run since its Lever window was opened.",
+          );
+      reply.catch(() => {});
+    });
+    return () => {
+      unlistenStarted();
+      unlistenRead();
+    };
   },
 }));

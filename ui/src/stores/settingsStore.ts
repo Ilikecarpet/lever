@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
-import type { BridgeState } from "../types";
+import type { BridgeState, McpState } from "../types";
 
 // App-level preferences persisted to localStorage (mirrors themeStore's pattern).
 
@@ -110,6 +110,14 @@ interface SettingsState {
   agentBridgeError: string | null;
   loadAgentBridge: () => Promise<void>;
   setAgentBridge: (on: boolean) => Promise<void>;
+
+  /** Lever's MCP server. Kept in ~/.lever/mcp.json by the backend, so it is
+   *  read back rather than remembered here. null until first read. */
+  mcp: McpState | null;
+  mcpBusy: boolean;
+  mcpError: string | null;
+  loadMcp: () => Promise<void>;
+  setMcp: (on: boolean) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -127,6 +135,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   agentBridge: null,
   agentBridgeBusy: false,
   agentBridgeError: null,
+  mcp: null,
+  mcpBusy: false,
+  mcpError: null,
 
   setDebugConsole: (v) => {
     write(DEBUG_CONSOLE_KEY, String(v));
@@ -176,6 +187,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ agentBridgeError: String(e) });
     } finally {
       set({ agentBridgeBusy: false });
+    }
+  },
+
+  loadMcp: async () => {
+    try {
+      set({ mcp: await api.mcpState(), mcpError: null });
+    } catch (e) {
+      set({ mcpError: String(e) });
+    }
+  },
+
+  setMcp: async (on) => {
+    set({ mcpBusy: true, mcpError: null });
+    try {
+      set({ mcp: on ? await api.enableMcp() : await api.disableMcp() });
+    } catch (e) {
+      set({ mcpError: String(e) });
+    } finally {
+      set({ mcpBusy: false });
     }
   },
 

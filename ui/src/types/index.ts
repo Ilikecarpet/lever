@@ -144,6 +144,22 @@ export interface RateLimits {
 }
 
 /** Whether Lever's statusLine hook is installed in ~/.claude/settings.json. */
+export interface McpState {
+  enabled: boolean;
+  running: boolean;
+  url: string | null;
+  /** Registers the server with Claude Code by hand. Only set while enabled. */
+  registerCommand: string | null;
+  /** Set when the server runs but Claude Code could not be told about it. */
+  error: string | null;
+}
+
+/** Lever's MCP server asking this window what a service terminal shows. */
+export interface McpLogReadRequest {
+  requestId: number;
+  serviceId: string;
+}
+
 export interface BridgeState {
   installed: boolean;
   /** A statusLine command already in the slot that is not ours. Installing
