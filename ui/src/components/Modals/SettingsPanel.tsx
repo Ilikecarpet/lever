@@ -41,6 +41,11 @@ export default function SettingsPanel() {
   const bridgeError = useSettingsStore((s) => s.agentBridgeError);
   const loadBridge = useSettingsStore((s) => s.loadAgentBridge);
   const setBridge = useSettingsStore((s) => s.setAgentBridge);
+  const mcp = useSettingsStore((s) => s.mcp);
+  const mcpBusy = useSettingsStore((s) => s.mcpBusy);
+  const mcpError = useSettingsStore((s) => s.mcpError);
+  const loadMcp = useSettingsStore((s) => s.loadMcp);
+  const setMcp = useSettingsStore((s) => s.setMcp);
   const setStopOnQuit = useSettingsStore((s) => s.setStopServicesOnQuit);
 
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
@@ -62,6 +67,7 @@ export default function SettingsPanel() {
     // Lives in ~/.claude/settings.json, which anything can change — re-read it
     // rather than trusting what the toggle last showed.
     loadBridge();
+    loadMcp();
     const projectId = api.getProjectId();
     if (!projectId) return;
     api.getRepoPath(projectId).then(setRepoPath).catch(() => setRepoPath(""));
@@ -240,6 +246,19 @@ export default function SettingsPanel() {
             />
             {bridgeError && (
               <div className={styles.settingError}>{bridgeError}</div>
+            )}
+            <Toggle
+              label="Let agents see and run your services"
+              sub="Agents in Claude Code and Codex can read your service logs and start or stop services."
+              on={!!mcp?.enabled}
+              disabled={mcpBusy || mcp === null}
+              onChange={setMcp}
+            />
+            {(mcpError || mcp?.error) && (
+              <div className={styles.settingError}>{mcpError ?? mcp?.error}</div>
+            )}
+            {mcp?.error && mcp.running && mcp.registerCommand && (
+              <code className={styles.settingCommand}>{mcp.registerCommand}</code>
             )}
           </section>
 

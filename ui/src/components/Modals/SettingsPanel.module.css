@@ -239,3 +239,18 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* A command to paste into a terminal, shown when Lever could not run it. */
+.settingCommand {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+  user-select: text;
+}

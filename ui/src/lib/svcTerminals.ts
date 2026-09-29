@@ -195,6 +195,32 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
   return entry;
 }
 
+/** What a service's terminal shows, one string per line, with wrapped rows
+ *  joined back into the line they came from. null when this window has no
+ *  terminal for the service — it has not run since the window opened. */
+export function readSvcTermLines(serviceId: string): string[] | null {
+  const entry = svcTermStore.get(serviceId);
+  if (!entry || entry.disposed) return null;
+  const buf = entry.term.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    const row = buf.getLine(i);
+    if (!row) continue;
+    // Untrimmed: a row that wraps may end in the space between two words.
+    // The whole line is trimmed once it is joined back together.
+    const text = row.translateToString(false);
+    if (row.isWrapped && lines.length > 0) {
+      lines[lines.length - 1] += text;
+    } else {
+      lines.push(text);
+    }
+  }
+  for (let i = 0; i < lines.length; i++) lines[i] = lines[i].trimEnd();
+  // The rows below the last output are blank screen, not output.
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  return lines;
+}
+
 /** Mark a service's PTY as gone, so its terminal stops writing to a dead
  *  session while keeping the output on screen. */
 export function setSvcTermDead(serviceId: string) {

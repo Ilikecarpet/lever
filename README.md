@@ -56,6 +56,33 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - The branch row's subtitle names the conversation in the focused pane, with the lines
   it has changed, in place of the path — which moves to the tooltip
 
+**Agent Access (MCP)**
+- Optional MCP server so an agent can see and drive your services — off by default,
+  turned on in Settings → Agents, which also registers it with Claude Code
+- Tools: `list_projects`, `list_services` (groups, services and tasks per checkout and
+  worktree, with status, ports and last exit code), `get_logs`, `start_service`,
+  `stop_service`, `restart_service`
+- Logs are the text Lever's log panel shows, read from the window's terminal, so the
+  agent sees what you see — newest lines by default, or a line range (`from`/`to`), or
+  only lines matching `contains`; each reply is capped at 40,000 characters
+- `start_service` and `restart_service` wait up to 10s for the service to come up and
+  return its ports and first output
+- `start_service` can wait for a task to finish and returns its exit code and output
+- Worktree-aware: Lever finds the checkout the agent is working in from its working
+  directory, so `web` means that worktree's web server and `list_services` shows only
+  that checkout — `checkout: "all"` (or a branch, or `"main"`) reaches the others
+- An agent that connects from a checkout Lever manages is told so from its first turn,
+  with that checkout's services, their commands and what is already running — so it
+  uses Lever's `web` rather than starting a second `npm run dev` of its own
+- Only projects open in a window are in reach, so everything an agent does happens
+  on screen
+- Served on `127.0.0.1:7438` behind a bearer token kept in `~/.lever/mcp.json` (0600)
+- Also added to Codex CLI (`~/.codex/config.toml`) when Codex is installed; any other
+  client that speaks HTTP MCP can use the same URL and header
+- The server lives in Lever, so open Lever before starting an agent: a session started
+  while Lever is closed shows `lever` as failed, and needs `/mcp` → reconnect once
+  Lever is up
+
 **Git Worktrees**
 - Create and manage Git worktrees directly from the sidebar
 - Each worktree gets its own isolated set of service groups
