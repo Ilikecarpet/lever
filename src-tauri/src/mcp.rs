@@ -30,7 +30,7 @@ use tauri::{Emitter, Manager};
 use super::{
     all_services, debug_action, get_shell_path, is_pid_alive, load_project_index, now_unix,
     service_shell_line, start_service_in, stop_service_in, wait_for_exit, AppState, ServiceDef,
-    AppConfig, LastExit, ServiceGroup, SvcExitEvent, WorktreeDef,
+    now_millis, AppConfig, LastExit, ServiceGroup, SvcExitEvent, WorktreeDef,
 };
 
 const CONFIG_SUBPATH: &str = ".lever/mcp.json";
@@ -43,6 +43,18 @@ const MAX_BODY_BYTES: u64 = 1 << 20;
 const LOG_READ_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_LOG_LINES: usize = 200;
 const MAX_LOG_LINES: usize = 2000;
+/// However many lines are asked for, one reply stays under this — a noisy dev
+/// server's 2000 lines would otherwise take a large bite of the agent's context.
+const MAX_LOG_CHARS: usize = 40_000;
+/// Lines of output returned with the result of a start.
+const START_OUTPUT_LINES: usize = 20;
+/// How long a start waits to see the service come up.
+const READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Output this quiet means a service has settled.
+const QUIET_MS: u64 = 1500;
+/// Not called settled before this: the port scan runs every 2s, and a server
+/// that has printed its banner may not be listening yet.
+const MIN_READY_WAIT: Duration = Duration::from_secs(3);
 const MAX_WAIT_SECS: u64 = 600;
 
 // ---------------------------------------------------------------------------
@@ -391,17 +403,95 @@ fn read_terminal(app: &tauri::AppHandle, project_id: &str, service_id: &str) -> 
     reply
 }
 
-/// The last `n` lines, after keeping only those containing `filter`.
-fn tail(lines: Vec<String>, n: usize, filter: Option<&str>) -> Vec<String> {
-    let kept: Vec<String> = match filter {
-        Some(f) => {
-            let f = f.to_lowercase();
-            lines.into_iter().filter(|l| l.to_lowercase().contains(&f)).collect()
+/// The last `n` lines.
+fn tail(lines: Vec<String>, n: usize) -> Vec<String> {
+    let skip = lines.len().saturating_sub(n);
+    lines.into_iter().skip(skip).collect()
+}
+
+/// What part of a service's output a get_logs call wants. Lines are numbered
+/// from 1 over the whole output, so a range means the same thing on every
+/// call as long as the run is the same.
+struct LogQuery<'a> {
+    from: Option<usize>,
+    to: Option<usize>,
+    lines: usize,
+    contains: Option<&'a str>,
+}
+
+/// The reply to a get_logs call: a header saying which lines these are, then
+/// the lines. Reading forward (`from` given) keeps the start of the range;
+/// otherwise the newest lines are kept. Either way the reply is cut to
+/// MAX_LOG_CHARS, and the header says where to pick up.
+fn select_logs(name: &str, all: &[String], q: &LogQuery) -> String {
+    let total = all.len();
+    if total == 0 {
+        return format!("{} has printed nothing yet.", name);
+    }
+    let needle = q.contains.map(str::to_lowercase);
+    let mut picked: Vec<(usize, &str)> = all.iter().enumerate()
+        .map(|(i, l)| (i + 1, l.as_str()))
+        .filter(|(n, _)| q.from.map_or(true, |f| *n >= f) && q.to.map_or(true, |t| *n <= t))
+        .filter(|(_, l)| needle.as_ref().map_or(true, |f| l.to_lowercase().contains(f)))
+        .collect();
+    let forward = q.from.is_some();
+    let n = q.lines.clamp(1, MAX_LOG_LINES);
+    if picked.len() > n {
+        if forward {
+            picked.truncate(n);
+        } else {
+            picked.drain(..picked.len() - n);
         }
-        None => lines,
+    }
+    if picked.is_empty() {
+        return match q.contains {
+            Some(f) => format!("No line of {} contains \"{}\" (its output has {} lines).", name, f, total),
+            None => format!("{} has no lines there; its output has {} lines.", name, total),
+        };
+    }
+
+    // Matching lines carry their number, so the agent can ask for the lines
+    // around one with from/to.
+    let render = |(n, l): &(usize, &str)| match needle {
+        Some(_) => format!("{}: {}", n, l),
+        None => l.to_string(),
     };
-    let skip = kept.len().saturating_sub(n);
-    kept.into_iter().skip(skip).collect()
+    let mut kept: Vec<(usize, String)> = Vec::new();
+    let mut used = 0;
+    let order: Box<dyn Iterator<Item = &(usize, &str)>> =
+        if forward { Box::new(picked.iter()) } else { Box::new(picked.iter().rev()) };
+    for line in order {
+        let mut text = render(line);
+        if kept.is_empty() && text.len() > MAX_LOG_CHARS {
+            // One line longer than the whole budget still comes back, cut.
+            let cut = (0..=MAX_LOG_CHARS).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+            text.truncate(cut);
+            text.push('…');
+        } else if used + text.len() + 1 > MAX_LOG_CHARS {
+            break;
+        }
+        used += text.len() + 1;
+        kept.push((line.0, text));
+    }
+    if !forward {
+        kept.reverse();
+    }
+    let (first, last) = (kept[0].0, kept[kept.len() - 1].0);
+
+    let mut header = match q.contains {
+        Some(f) => format!("{}: {} lines containing \"{}\", between lines {} and {} of {}",
+            name, kept.len(), f, first, last, total),
+        None => format!("{}: lines {}–{} of {}", name, first, last, total),
+    };
+    if kept.len() < picked.len() {
+        header.push_str(&if forward {
+            format!(" (cut to fit {} characters; pass from={} for the rest)", MAX_LOG_CHARS, last + 1)
+        } else {
+            format!(" (cut to fit {} characters; pass to={} for earlier lines)", MAX_LOG_CHARS, first - 1)
+        });
+    }
+    let body: Vec<String> = kept.into_iter().map(|(_, t)| t).collect();
+    format!("{}\n{}", header, body.join("\n"))
 }
 
 // ---------------------------------------------------------------------------
@@ -662,15 +752,17 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "get_logs",
-            "description": "The output of a service or task's current or most recent run, as shown in Lever's log panel (plain text, colours removed).",
+            "description": "The output of a service or task's current or most recent run, as shown in Lever's log panel (plain text, colours removed). Returns the newest lines by default; any reply is capped at 40,000 characters and says which lines it holds.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "project": project,
                     "checkout": checkout,
                     "service": service,
-                    "lines": { "type": "integer", "description": "How many of the last lines to return (default 200, at most 2000)." },
-                    "contains": { "type": "string", "description": "Only lines containing this text, case-insensitive. Applied before `lines`." },
+                    "lines": { "type": "integer", "description": "How many lines to return (default 200, at most 2000). The newest ones, or with `from`, the first ones from there." },
+                    "from": { "type": "integer", "description": "First line to return, numbered from 1 over the whole output. Use it to page forward, or with `to` for an exact range." },
+                    "to": { "type": "integer", "description": "Last line to return. Alone, returns the lines leading up to it." },
+                    "contains": { "type": "string", "description": "Only lines containing this text, case-insensitive; each comes back with its line number, so you can ask for the lines around it with from/to." },
                 },
                 "required": ["service"],
             },
@@ -678,7 +770,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "start_service",
-            "description": "Start a service or run a task. With wait_seconds, waits for it to finish (meant for tasks) and returns its exit code and the end of its output.",
+            "description": "Start a service or run a task. Waits up to 10s for it to come up (listening on a port, or its output settling) and returns its ports and first output. With wait_seconds, waits instead for it to finish (meant for tasks) and returns its exit code and the end of its output.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -702,7 +794,7 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "restart_service",
-            "description": "Stop a service if it is running, wait for it to exit, and start it again.",
+            "description": "Stop a service if it is running, wait for it to exit, and start it again. Returns once it is back up, as start_service does.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "project": project, "checkout": checkout, "service": service },
@@ -934,8 +1026,9 @@ fn arg_u64(args: &Value, key: &str) -> Option<u64> {
     args.get(key).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
 }
 
-fn pretty(v: Value) -> Result<String, String> {
-    serde_json::to_string_pretty(&v).map_err(|e| e.to_string())
+/// Compact, not pretty: an agent reads it just as well, in fewer tokens.
+fn to_json(v: Value) -> Result<String, String> {
+    serde_json::to_string(&v).map_err(|e| e.to_string())
 }
 
 fn project_names(state: &AppState) -> HashMap<String, String> {
@@ -1040,7 +1133,7 @@ fn list_projects(state: &AppState, cwd: Option<&Path>) -> Result<String, String>
         }
         Some(v)
     }).collect();
-    pretty(json!({ "projects": list }))
+    to_json(json!({ "projects": list }))
 }
 
 fn list_services(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
@@ -1096,18 +1189,83 @@ fn list_services(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<S
         scope_note.push_str(", the one you are working in. Pass checkout: \"all\" to see the others");
     }
     scope_note.push('.');
-    pretty(json!({ "project": scope.project_id, "scope": scope_note, "checkouts": checkouts }))
+    to_json(json!({ "project": scope.project_id, "scope": scope_note, "checkouts": checkouts }))
 }
 
 fn get_logs(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
     let (project_id, def, name) = service_target(state, args, cwd)?;
-    let n = arg_u64(args, "lines").map_or(DEFAULT_LOG_LINES, |n| n as usize).clamp(1, MAX_LOG_LINES);
-    let lines = read_terminal(app, &project_id, &def.id)?;
-    let lines = tail(lines, n, arg_str(args, "contains"));
-    if lines.is_empty() {
-        return Ok(format!("{} has no matching output.", name));
+    // A service found still running when Lever opened was adopted by pid, with
+    // no terminal to read — its output went to a window that is gone.
+    let adopted = state.projects.lock().unwrap().get(&project_id)
+        .and_then(|ps| ps.tracked.get(&def.id))
+        .map_or(false, |t| t.pty_id.is_none());
+    if adopted {
+        return Err(format!(
+            "{} has been running since before Lever was last opened, so its output was not captured. Restart it (restart_service) to see its logs.",
+            name
+        ));
     }
-    Ok(format!("Output of {}:\n{}", name, lines.join("\n")))
+    let lines = read_terminal(app, &project_id, &def.id)?;
+    let query = LogQuery {
+        from: arg_u64(args, "from").map(|n| n.max(1) as usize),
+        to: arg_u64(args, "to").map(|n| n as usize),
+        lines: arg_u64(args, "lines").map_or(DEFAULT_LOG_LINES, |n| n as usize),
+        contains: arg_str(args, "contains"),
+    };
+    Ok(select_logs(&name, &lines, &query))
+}
+
+/// Waits for a service just started on `pty_id` to come up, exit, or settle,
+/// and says which, with its ports and first lines of output.
+fn await_ready(app: &tauri::AppHandle, state: &AppState, project_id: &str, service_id: &str, pty_id: &str, name: &str) -> String {
+    let started = std::time::Instant::now();
+    let (exit, ports) = loop {
+        std::thread::sleep(Duration::from_millis(200));
+        let (exit, last_output) = {
+            let projects = state.projects.lock().unwrap();
+            let ps = match projects.get(project_id) {
+                Some(ps) => ps,
+                None => return format!("Started {}, but its project was closed.", name),
+            };
+            (
+                ps.last_exit.get(service_id).filter(|e| e.pty_id == pty_id).cloned(),
+                ps.pty_sessions.get(pty_id).map(|s| s.last_output.load(std::sync::atomic::Ordering::Relaxed)),
+            )
+        };
+        // Only a scan made after the start counts: until then the cache still
+        // holds the ports of the run this one may be replacing.
+        let ports = {
+            let cache = state.agent_cache.lock().unwrap();
+            cache.last_scan.filter(|t| *t > started)
+                .and_then(|_| cache.ports.get(service_id).cloned())
+                .unwrap_or_default()
+        };
+        let quiet = last_output.map_or(true, |t| now_millis().saturating_sub(t) >= QUIET_MS);
+        let elapsed = started.elapsed();
+        if exit.is_some() || !ports.is_empty() || (quiet && elapsed >= MIN_READY_WAIT) || elapsed >= READY_TIMEOUT {
+            break (exit, ports);
+        }
+    };
+    // The newest output is still on its way to the window's terminal.
+    std::thread::sleep(Duration::from_millis(300));
+    let output = read_terminal(app, project_id, service_id)
+        .map(|l| tail(l, START_OUTPUT_LINES).join("\n"))
+        .unwrap_or_else(|e| format!("(output unavailable: {})", e));
+    let outcome = match (&exit, ports.as_slice()) {
+        (Some(e), _) => exit_sentence(name, e),
+        (None, []) => format!("{} is running; it is not listening on a port yet.", name),
+        (None, ports) => format!("{} is up on {}.", name,
+            ports.iter().map(|p| format!(":{}", p)).collect::<Vec<_>>().join(", ")),
+    };
+    format!("{}\n\nOutput so far:\n{}", outcome, output)
+}
+
+fn exit_sentence(name: &str, exit: &LastExit) -> String {
+    match exit {
+        LastExit { code: Some(c), .. } => format!("{} exited with code {}.", name, c),
+        LastExit { signal: Some(s), .. } => format!("{} was ended by {}.", name, s),
+        _ => format!("{} exited.", name),
+    }
 }
 
 /// Tells the window a service it did not start is up, so it builds the
@@ -1127,7 +1285,7 @@ fn start_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Op
 
     let wait = arg_u64(args, "wait_seconds").unwrap_or(0).min(MAX_WAIT_SECS);
     if wait == 0 {
-        return Ok(format!("Started {}. Call get_logs to see its output.", name));
+        return Ok(await_ready(app, state, &project_id, &def.id, &started.pty_id, &name));
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(wait);
     let exit = loop {
@@ -1142,13 +1300,11 @@ fn start_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Op
     // The last output is still on its way to the window's terminal.
     std::thread::sleep(Duration::from_millis(300));
     let output = read_terminal(app, &project_id, &def.id)
-        .map(|l| tail(l, 100, None).join("\n"))
+        .map(|l| tail(l, 100).join("\n"))
         .unwrap_or_else(|e| format!("(output unavailable: {})", e));
     let outcome = match exit {
         None => format!("{} is still running after {}s.", name, wait),
-        Some(LastExit { code: Some(c), .. }) => format!("{} exited with code {}.", name, c),
-        Some(LastExit { signal: Some(s), .. }) => format!("{} was ended by {}.", name, s),
-        Some(_) => format!("{} exited.", name),
+        Some(e) => exit_sentence(&name, &e),
     };
     Ok(format!("{}\n\nLast output:\n{}", outcome, output))
 }
@@ -1178,7 +1334,7 @@ fn restart_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: 
     }
     let started = start_service_in(app, state, &project_id, &def.id, &window_label(&project_id))?;
     announce_start(app, &project_id, &def.id, &started.pty_id);
-    Ok(format!("Restarted {}. Call get_logs to see its output.", name))
+    Ok(format!("Restarted. {}", await_ready(app, state, &project_id, &def.id, &started.pty_id, &name)))
 }
 
 #[cfg(test)]
@@ -1419,12 +1575,66 @@ mod tests {
         assert_eq!(without_codex_table(&with_codex_table("", &cfg())), "");
     }
 
+    fn numbered(n: usize) -> Vec<String> {
+        (1..=n).map(|i| format!("line {}", i)).collect()
+    }
+
+    fn q<'a>(from: Option<usize>, to: Option<usize>, lines: usize, contains: Option<&'a str>) -> LogQuery<'a> {
+        LogQuery { from, to, lines, contains }
+    }
+
     #[test]
-    fn tail_filters_then_takes_the_end() {
-        let lines: Vec<String> = ["ok 1", "ERROR a", "ok 2", "error b", "ok 3"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(tail(lines.clone(), 2, None), vec!["error b", "ok 3"]);
-        assert_eq!(tail(lines.clone(), 10, Some("error")), vec!["ERROR a", "error b"]);
-        assert_eq!(tail(lines, 1, Some("error")), vec!["error b"]);
+    fn logs_default_to_the_newest_lines() {
+        let out = select_logs("Web", &numbered(500), &q(None, None, 3, None));
+        assert_eq!(out, "Web: lines 498–500 of 500\nline 498\nline 499\nline 500");
+    }
+
+    #[test]
+    fn a_range_is_returned_exactly() {
+        let out = select_logs("Web", &numbered(500), &q(Some(10), Some(12), 200, None));
+        assert_eq!(out, "Web: lines 10–12 of 500\nline 10\nline 11\nline 12");
+    }
+
+    #[test]
+    fn from_alone_pages_forward_and_to_alone_reads_up_to_it() {
+        let fwd = select_logs("Web", &numbered(500), &q(Some(100), None, 2, None));
+        assert!(fwd.starts_with("Web: lines 100–101 of 500\n"), "{}", fwd);
+        let back = select_logs("Web", &numbered(500), &q(None, Some(50), 2, None));
+        assert!(back.starts_with("Web: lines 49–50 of 500\n"), "{}", back);
+    }
+
+    #[test]
+    fn matches_carry_their_line_numbers() {
+        let lines: Vec<String> = ["ok", "ERROR a", "ok", "error b", "ok"].iter().map(|s| s.to_string()).collect();
+        let out = select_logs("API", &lines, &q(None, None, 200, Some("error")));
+        assert_eq!(out, "API: 2 lines containing \"error\", between lines 2 and 4 of 5\n2: ERROR a\n4: error b");
+    }
+
+    #[test]
+    fn a_reply_is_capped_and_says_where_to_pick_up() {
+        let big: Vec<String> = (1..=2000).map(|i| format!("{:05} {}", i, "x".repeat(94))).collect();
+        let newest = select_logs("Web", &big, &q(None, None, 2000, None));
+        assert!(newest.len() <= MAX_LOG_CHARS + 200, "{}", newest.len());
+        assert!(newest.ends_with(&big[1999]), "the newest line survives");
+        assert!(newest.lines().next().unwrap().contains("pass to="), "{}", newest.lines().next().unwrap());
+
+        let forward = select_logs("Web", &big, &q(Some(1), None, 2000, None));
+        assert!(forward.lines().nth(1) == Some(big[0].as_str()), "reading forward keeps the start");
+        assert!(forward.lines().next().unwrap().contains("pass from="), "{}", forward.lines().next().unwrap());
+    }
+
+    #[test]
+    fn one_enormous_line_still_comes_back_cut() {
+        let out = select_logs("Web", &["é".repeat(MAX_LOG_CHARS)], &q(None, None, 200, None));
+        assert!(out.ends_with('…') && out.len() <= MAX_LOG_CHARS + 100, "{}", out.len());
+    }
+
+    #[test]
+    fn empty_and_out_of_range_logs_say_so() {
+        assert_eq!(select_logs("Web", &[], &q(None, None, 200, None)), "Web has printed nothing yet.");
+        assert_eq!(select_logs("Web", &numbered(5), &q(Some(9), None, 200, None)),
+            "Web has no lines there; its output has 5 lines.");
+        assert!(select_logs("Web", &numbered(5), &q(None, None, 200, Some("panic"))).starts_with("No line of Web contains"));
     }
 
     fn svc(id: &str, label: &str) -> ServiceDef {

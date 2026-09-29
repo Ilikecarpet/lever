@@ -63,7 +63,10 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
   worktree, with status, ports and last exit code), `get_logs`, `start_service`,
   `stop_service`, `restart_service`
 - Logs are the text Lever's log panel shows, read from the window's terminal, so the
-  agent sees what you see
+  agent sees what you see — newest lines by default, or a line range (`from`/`to`), or
+  only lines matching `contains`; each reply is capped at 40,000 characters
+- `start_service` and `restart_service` wait up to 10s for the service to come up and
+  return its ports and first output
 - `start_service` can wait for a task to finish and returns its exit code and output
 - Worktree-aware: Lever finds the checkout the agent is working in from its working
   directory, so `web` means that worktree's web server and `list_services` shows only
