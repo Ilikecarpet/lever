@@ -107,6 +107,9 @@ struct Running {
 }
 
 static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
+/// Why the server is enabled but not running — at launch nobody is looking,
+/// so the reason is kept for Settings to show.
+static START_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,8 +126,15 @@ pub struct McpState {
 fn state_with(error: Option<String>) -> McpState {
     let cfg = load_config();
     let running = RUNNING.lock().unwrap().as_ref().map(|r| r.port);
+    let enabled = cfg.as_ref().map_or(false, |c| c.enabled);
+    // On but not serving: agents get "connection refused" and nothing else,
+    // so this is the one place the reason can surface.
+    let error = error.or_else(|| (enabled && running.is_none()).then(|| format!(
+        "The server is not running{}. Turn this off and on again to retry.",
+        START_ERROR.lock().unwrap().as_ref().map(|e| format!(": {}", e)).unwrap_or_default()
+    )));
     McpState {
-        enabled: cfg.as_ref().map_or(false, |c| c.enabled),
+        enabled,
         running: running.is_some(),
         url: cfg.as_ref().map(|c| url_for(c.port)),
         register_command: cfg.as_ref().filter(|c| c.enabled).map(register_command),
@@ -138,7 +148,12 @@ fn start_server(app: tauri::AppHandle, cfg: &McpConfig) -> Result<(), String> {
         return Ok(());
     }
     let server = tiny_http::Server::http(("127.0.0.1", cfg.port))
-        .map_err(|e| format!("could not listen on 127.0.0.1:{}: {}", cfg.port, e))?;
+        .map_err(|e| {
+            let e = format!("could not listen on 127.0.0.1:{} ({})", cfg.port, e);
+            *START_ERROR.lock().unwrap() = Some(e.clone());
+            e
+        })?;
+    *START_ERROR.lock().unwrap() = None;
     let server = Arc::new(server);
     let token = cfg.token.clone();
     let port = cfg.port;
@@ -181,6 +196,85 @@ pub fn start_if_enabled(app: tauri::AppHandle) {
     }
 }
 
+// Codex CLI has no command that adds an HTTP server, so its config.toml is
+// edited directly — only when Codex is installed (~/.codex exists), and only
+// Lever's own table, which is replaced whole and removed whole.
+
+const CODEX_MARKER: &str = "# Added by Lever; removed when you turn off its MCP server in Settings.";
+
+fn codex_config_path() -> Option<PathBuf> {
+    let dir = PathBuf::from(std::env::var_os("HOME")?).join(".codex");
+    dir.is_dir().then(|| dir.join("config.toml"))
+}
+
+/// `toml` with Lever's `[mcp_servers.lever]` table (and any subtables, and the
+/// marker comment above it) taken out, and everything else as it was.
+fn without_codex_table(toml: &str) -> String {
+    let ours = format!("[mcp_servers.{}]", SERVER_NAME);
+    let ours_sub = format!("[mcp_servers.{}.", SERVER_NAME);
+    let mut out: Vec<&str> = Vec::new();
+    let mut inside = false;
+    for line in toml.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            inside = t == ours || t.starts_with(&ours_sub);
+        }
+        if !inside && t != CODEX_MARKER {
+            out.push(line);
+        }
+    }
+    while out.last().map_or(false, |l| l.trim().is_empty()) {
+        out.pop();
+    }
+    let mut s = out.join("\n");
+    if !s.is_empty() {
+        s.push('\n');
+    }
+    s
+}
+
+fn with_codex_table(toml: &str, cfg: &McpConfig) -> String {
+    let mut s = without_codex_table(toml);
+    if !s.is_empty() {
+        s.push('\n');
+    }
+    s.push_str(&format!(
+        "{}\n[mcp_servers.{}]\nurl = \"{}\"\nhttp_headers = {{ \"Authorization\" = \"Bearer {}\" }}\n",
+        CODEX_MARKER, SERVER_NAME, url_for(cfg.port), cfg.token
+    ));
+    s
+}
+
+/// Adds (`Some`) or removes (`None`) Lever in Codex's config. Ok(false) when
+/// Codex is not installed and nothing was touched.
+fn register_codex(cfg: Option<&McpConfig>) -> Result<bool, String> {
+    let path = match codex_config_path() {
+        Some(p) => p,
+        None => return Ok(false),
+    };
+    let current = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("could not read ~/.codex/config.toml: {}", e)),
+    };
+    let next = match cfg {
+        Some(cfg) => with_codex_table(&current, cfg),
+        None => without_codex_table(&current),
+    };
+    if next == current {
+        return Ok(true);
+    }
+    // Written aside and moved into place, so Codex never reads half a file.
+    let tmp = path.with_extension("toml.lever-tmp");
+    fs::write(&tmp, next)
+        .and_then(|_| fs::rename(&tmp, &path))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("could not write ~/.codex/config.toml: {}", e)
+        })?;
+    Ok(true)
+}
+
 fn run_claude(args: &[&str]) -> Result<(), String> {
     let out = std::process::Command::new("claude")
         .args(args)
@@ -214,11 +308,17 @@ pub fn enable_mcp(app: tauri::AppHandle) -> Result<McpState, String> {
     let _ = run_claude(&["mcp", "remove", "--scope", "user", SERVER_NAME]);
     let url = url_for(cfg.port);
     let header = format!("Authorization: Bearer {}", cfg.token);
-    let registered = run_claude(&[
+    let mut problems = Vec::new();
+    if let Err(e) = run_claude(&[
         "mcp", "add", "--transport", "http", "--scope", "user", SERVER_NAME, &url, "--header", &header,
-    ]);
-    Ok(state_with(registered.err().map(|e| {
-        format!("The server is running, but registering it with Claude Code failed: {}. Run the command below yourself.", e)
+    ]) {
+        problems.push(format!("registering it with Claude Code failed: {}. Run the command below yourself", e));
+    }
+    if let Err(e) = register_codex(Some(&cfg)) {
+        problems.push(format!("adding it to Codex failed: {}", e));
+    }
+    Ok(state_with((!problems.is_empty()).then(|| {
+        format!("The server is running, but {}.", problems.join("; "))
     })))
 }
 
@@ -230,9 +330,15 @@ pub fn disable_mcp() -> Result<McpState, String> {
         save_config(&cfg)?;
     }
     debug_action("mcp", "MCP server stopped");
-    let unregistered = run_claude(&["mcp", "remove", "--scope", "user", SERVER_NAME]);
-    Ok(state_with(unregistered.err().map(|e| {
-        format!("The server is stopped, but removing it from Claude Code failed: {}", e)
+    let mut problems = Vec::new();
+    if let Err(e) = run_claude(&["mcp", "remove", "--scope", "user", SERVER_NAME]) {
+        problems.push(format!("removing it from Claude Code failed: {}", e));
+    }
+    if let Err(e) = register_codex(None) {
+        problems.push(format!("removing it from Codex failed: {}", e));
+    }
+    Ok(state_with((!problems.is_empty()).then(|| {
+        format!("The server is stopped, but {}.", problems.join("; "))
     })))
 }
 
@@ -1271,6 +1377,46 @@ mod tests {
         let b = checkout_briefing("Empty", "the main checkout", &[]);
         assert!(b.contains("no services or tasks defined in Lever."), "{}", b);
         assert!(b.ends_with(INSTRUCTIONS));
+    }
+
+    fn cfg() -> McpConfig {
+        McpConfig { enabled: true, port: 7438, token: "tok".into() }
+    }
+
+    const CODEX_USER: &str = "model = \"o4\"\n\n[mcp_servers.github]\ncommand = \"gh-mcp\"\n\n[profiles.fast]\nmodel = \"mini\"\n";
+
+    #[test]
+    fn lever_is_appended_to_a_codex_config_and_the_rest_is_untouched() {
+        let out = with_codex_table(CODEX_USER, &cfg());
+        assert!(out.starts_with(CODEX_USER), "{}", out);
+        assert!(out.ends_with(&format!(
+            "{}\n[mcp_servers.lever]\nurl = \"http://127.0.0.1:7438/mcp\"\nhttp_headers = {{ \"Authorization\" = \"Bearer tok\" }}\n",
+            CODEX_MARKER)), "{}", out);
+    }
+
+    #[test]
+    fn adding_twice_leaves_one_table_with_the_new_token() {
+        let once = with_codex_table(CODEX_USER, &cfg());
+        let twice = with_codex_table(&once, &McpConfig { token: "new".into(), ..cfg() });
+        assert_eq!(twice.matches("[mcp_servers.lever]").count(), 1, "{}", twice);
+        assert!(twice.contains("Bearer new") && !twice.contains("Bearer tok"), "{}", twice);
+    }
+
+    #[test]
+    fn removing_lever_gives_back_the_config_it_started_from() {
+        assert_eq!(without_codex_table(&with_codex_table(CODEX_USER, &cfg())), CODEX_USER);
+    }
+
+    #[test]
+    fn a_lever_table_in_the_middle_is_removed_with_its_subtables_and_nothing_else() {
+        let mid = "a = 1\n\n[mcp_servers.lever]\nurl = \"x\"\n\n[mcp_servers.lever.tools.get_logs]\napproval_mode = \"auto\"\n\n[mcp_servers.leverage]\ncommand = \"keep\"\n";
+        assert_eq!(without_codex_table(mid), "a = 1\n\n[mcp_servers.leverage]\ncommand = \"keep\"\n");
+    }
+
+    #[test]
+    fn an_empty_codex_config_gets_just_the_table() {
+        assert!(with_codex_table("", &cfg()).starts_with(CODEX_MARKER));
+        assert_eq!(without_codex_table(&with_codex_table("", &cfg())), "");
     }
 
     #[test]

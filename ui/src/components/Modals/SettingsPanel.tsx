@@ -249,7 +249,7 @@ export default function SettingsPanel() {
             )}
             <Toggle
               label="Let agents see and run your services"
-              sub={`Serves an MCP server on ${mcp?.url ?? "127.0.0.1"} and adds it to Claude Code (user scope, every session on this Mac). Agents can list services and tasks in open projects, read their logs, and start, stop or restart them.`}
+              sub={`Serves an MCP server on ${mcp?.url ?? "127.0.0.1"} and adds it to Claude Code (user scope, every session on this Mac) and, if installed, Codex. Agents can list services and tasks in open projects, read their logs, and start, stop or restart them.`}
               on={!!mcp?.enabled}
               disabled={mcpBusy || mcp === null}
               onChange={setMcp}
@@ -257,7 +257,7 @@ export default function SettingsPanel() {
             {(mcpError || mcp?.error) && (
               <div className={styles.settingError}>{mcpError ?? mcp?.error}</div>
             )}
-            {mcp?.error && mcp.registerCommand && (
+            {mcp?.error && mcp.running && mcp.registerCommand && (
               <code className={styles.settingCommand}>{mcp.registerCommand}</code>
             )}
           </section>

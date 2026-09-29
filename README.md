@@ -74,6 +74,11 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Only projects open in a window are in reach, so everything an agent does happens
   on screen
 - Served on `127.0.0.1:7438` behind a bearer token kept in `~/.lever/mcp.json` (0600)
+- Also added to Codex CLI (`~/.codex/config.toml`) when Codex is installed; any other
+  client that speaks HTTP MCP can use the same URL and header
+- The server lives in Lever, so open Lever before starting an agent: a session started
+  while Lever is closed shows `lever` as failed, and needs `/mcp` → reconnect once
+  Lever is up
 
 **Git Worktrees**
 - Create and manage Git worktrees directly from the sidebar

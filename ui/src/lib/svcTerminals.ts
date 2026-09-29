@@ -206,13 +206,16 @@ export function readSvcTermLines(serviceId: string): string[] | null {
   for (let i = 0; i < buf.length; i++) {
     const row = buf.getLine(i);
     if (!row) continue;
-    const text = row.translateToString(true);
+    // Untrimmed: a row that wraps may end in the space between two words.
+    // The whole line is trimmed once it is joined back together.
+    const text = row.translateToString(false);
     if (row.isWrapped && lines.length > 0) {
       lines[lines.length - 1] += text;
     } else {
       lines.push(text);
     }
   }
+  for (let i = 0; i < lines.length; i++) lines[i] = lines[i].trimEnd();
   // The rows below the last output are blank screen, not output.
   while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
   return lines;
