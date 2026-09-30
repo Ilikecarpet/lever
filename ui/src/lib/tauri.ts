@@ -5,6 +5,7 @@ import type {
   AppConfig,
   BridgeState,
   McpState,
+  PtyBacklog,
   PollResult,
   PtyInfo,
   StartServiceResult,
@@ -198,12 +199,8 @@ export function disableMcp(): Promise<McpState> {
   return invoke<McpState>("disable_mcp");
 }
 
-export function mcpLogsReply(
-  requestId: number,
-  lines: string[] | null,
-  error: string | null,
-): Promise<void> {
-  return invoke<void>("mcp_logs_reply", { requestId, lines, error });
+export function ptyBacklog(ptyId: string): Promise<PtyBacklog | null> {
+  return invoke<PtyBacklog | null>("pty_backlog", { ptyId });
 }
 
 // ---------------------------------------------------------------------------

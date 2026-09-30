@@ -15,6 +15,7 @@ use tauri::{Emitter, Manager, State};
 mod agent_status_bridge;
 mod agent_usage;
 mod mcp;
+mod output;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
@@ -131,6 +132,10 @@ struct PtySession {
 struct PtyDataEvent {
     id: String,
     data: String,
+    /// Where `data` starts in the run's output, for runs the output hub keeps
+    /// (services); lets a window skip what its backlog already had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offset: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -504,6 +509,14 @@ fn spawn_pty_pump(
         // Per-session event name, delivered only to the owning window —
         // avoids broadcasting every chunk to every window and listener.
         let data_event = format!("pty-data-{}", pty_id);
+        let emit = |s: &str| {
+            let offset = output::hub().push(&pty_id, s);
+            let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
+                id: pty_id.clone(),
+                data: s.to_string(),
+                offset,
+            });
+        };
         let mut leftover: Vec<u8> = Vec::new();
         loop {
             let first = match rx.recv() {
@@ -525,25 +538,17 @@ fn spawn_pty_pump(
                 }
             }
             match std::str::from_utf8(&data) {
-                Ok(s) => {
-                    let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
-                        id: pty_id.clone(),
-                        data: s.to_string(),
-                    });
-                }
+                Ok(s) => emit(s),
                 Err(e) => {
                     let valid_up_to = e.valid_up_to();
                     if valid_up_to > 0 {
-                        let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                        let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
-                            id: pty_id.clone(),
-                            data: s.to_string(),
-                        });
+                        emit(std::str::from_utf8(&data[..valid_up_to]).unwrap());
                     }
                     leftover = data[valid_up_to..].to_vec();
                 }
             }
         }
+        output::hub().close(&pty_id);
         on_exit(&app_handle);
     });
 }
@@ -1233,12 +1238,12 @@ fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> R
     Ok(())
 }
 
-#[tauri::command]
-fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let label = format!("project-{}", id);
-
-    if let Some(window) = app.get_webview_window(&label) {
-        window.set_focus().map_err(|e| e.to_string())?;
+/// Loads a project into the running state — its config, and its services still
+/// running from before — without opening a window for it. Services belong to
+/// the Lever process, not to a window, so the CLI and MCP can load a project
+/// nobody is looking at.
+fn ensure_project_loaded(state: &AppState, id: &str) -> Result<(), String> {
+    if state.projects.lock().unwrap().contains_key(id) {
         return Ok(());
     }
 
@@ -1249,7 +1254,7 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         let mut needs_save = false;
         if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
             if meta.repo_path.is_empty() {
-                if let Some(rp) = migrate_repo_path(&state.projects_dir, &id) {
+                if let Some(rp) = migrate_repo_path(&state.projects_dir, id) {
                     meta.repo_path = rp;
                     needs_save = true;
                 }
@@ -1263,9 +1268,9 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         }
     }
 
-    let config = load_project_config(&state.projects_dir, &id)?;
+    let config = load_project_config(&state.projects_dir, id)?;
 
-    let ps = load_project_persistent_state(&state.projects_dir, &id);
+    let ps = load_project_persistent_state(&state.projects_dir, id);
     let mut tracked = HashMap::new();
 
     for (svc_id, pid) in &ps.running {
@@ -1274,11 +1279,11 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         }
     }
 
-    save_project_persistent_state(&state.projects_dir, &id, &tracked);
+    save_project_persistent_state(&state.projects_dir, id, &tracked);
 
     {
         let mut projects = state.projects.lock().unwrap();
-        projects.insert(id.clone(), ProjectState {
+        projects.entry(id.to_string()).or_insert(ProjectState {
             config,
             repo_path: repo_path.clone(),
             tracked,
@@ -1286,6 +1291,20 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
             last_exit: HashMap::new(),
         });
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let label = format!("project-{}", id);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    ensure_project_loaded(&state, &id)?;
 
     let mut index = load_project_index(&state.projects_dir);
     if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
@@ -1418,6 +1437,11 @@ fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, 
     let svc_last_output = last_output.clone();
     let svc_last_input = last_input.clone();
     let session = PtySession { writer, master: pair.master, child_pid: Some(pid), last_output, last_input };
+    // Keep this run's output; the last run's goes, its result stays in last_exit.
+    if let Some(prev) = ps.last_exit.get(&id) {
+        output::hub().forget(&prev.pty_id);
+    }
+    output::hub().open(&pty_id);
     ps.pty_sessions.insert(pty_id.clone(), session);
     ps.tracked.insert(id.clone(), TrackedService { pid, pty_id: Some(pty_id.clone()) });
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
@@ -1784,6 +1808,13 @@ fn resize_pty(project_id: String, id: String, cols: u16, rows: u16, state: State
     let session = ps.pty_sessions.get(&id).ok_or("PTY not found")?;
     session.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())
+}
+
+/// What a service's run has printed so far, for a terminal built after the
+/// run started — a reopened window, a reloaded web view.
+#[tauri::command]
+fn pty_backlog(pty_id: String) -> Option<output::Backlog> {
+    output::hub().backlog(&pty_id)
 }
 
 #[tauri::command]
@@ -2847,6 +2878,7 @@ fn main() {
             write_pty,
             resize_pty,
             close_pty,
+            pty_backlog,
             write_text_file,
             check_is_git_repo,
             git_info,
@@ -2869,7 +2901,6 @@ fn main() {
             mcp::mcp_state,
             mcp::enable_mcp,
             mcp::disable_mcp,
-            mcp::mcp_logs_reply,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -2877,27 +2908,16 @@ fn main() {
                 if label.starts_with("project-") {
                     let project_id = label[8..].to_string();
                     let state = window.state::<AppState>();
-                    let stop_on_quit = state.stop_services_on_quit.load(Ordering::Relaxed);
                     let mut projects = state.projects.lock().unwrap();
-                    if let Some(ps) = projects.get_mut(&project_id) {
-                        // Closing the window used to leave every spawned service
-                        // running with nothing on screen left to stop it.
-                        if stop_on_quit {
-                            for (_svc_id, t) in ps.tracked.iter() {
-                                #[cfg(unix)]
-                                unsafe {
-                                    libc::kill(-(t.pid as i32), libc::SIGTERM);
-                                    libc::kill(t.pid as i32, libc::SIGTERM);
-                                }
-                            }
-                            ps.tracked.clear();
-                        }
-                        if !project_id.starts_with("scratch-") {
-                            save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-                        }
-                        ps.pty_sessions.clear();
+                    // A window is only a view: its services keep running and
+                    // stay loaded for the CLI, MCP and the next window. Its
+                    // shells go with it — dropping a session hangs up its PTY.
+                    if project_id.starts_with("scratch-") {
+                        projects.remove(&project_id);
+                    } else if let Some(ps) = projects.get_mut(&project_id) {
+                        ps.pty_sessions.retain(|id, _| id.starts_with("svc-pty-"));
+                        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
                     }
-                    projects.remove(&project_id);
                 }
             }
         })
