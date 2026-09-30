@@ -19,6 +19,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tauri::Manager;
 
 use super::{
@@ -28,6 +31,9 @@ use super::{
 use mcp::{arg_str, canon, locate, Checkout};
 
 const SOCKET_SUBPATH: &str = ".lever/lever.sock";
+
+/// Whether this Lever bound the socket.
+static SERVING: AtomicBool = AtomicBool::new(false);
 
 pub fn socket_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(SOCKET_SUBPATH))
@@ -63,6 +69,7 @@ pub fn start(app: tauri::AppHandle) {
         }
     };
     let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    SERVING.store(true, Ordering::SeqCst);
 
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -75,8 +82,12 @@ pub fn start(app: tauri::AppHandle) {
 }
 
 /// Removes the socket on quit, so the next CLI call starts a fresh Lever
-/// instead of waiting on one that is gone.
+/// instead of waiting on one that is gone. Only the Lever that bound it: the
+/// socket may be another Lever's.
 pub fn stop() {
+    if !SERVING.load(Ordering::SeqCst) {
+        return;
+    }
     if let Some(path) = socket_path() {
         let _ = fs::remove_file(path);
     }
@@ -112,8 +123,11 @@ fn handle(app: &tauri::AppHandle, req: &Request, input: &UnixStream, out: &mut U
     let state: &AppState = &state;
     let cwd = req.cwd.as_deref();
     let args = &req.args;
-    if req.op != "ping" && req.op != "shutdown" {
-        load_for(state, cwd, args);
+    match req.op.as_str() {
+        "ping" | "shutdown" => {}
+        // A tool's own arguments carry the project.
+        "tool" => load_for(state, cwd, args.get("args").unwrap_or(&Value::Null)),
+        _ => load_for(state, cwd, args),
     }
     match req.op.as_str() {
         "ping" => Ok(json!({ "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION") })),
@@ -137,7 +151,7 @@ fn handle(app: &tauri::AppHandle, req: &Request, input: &UnixStream, out: &mut U
             })).collect::<Vec<_>>()))
         }
         "up" => up(app, state, args, cwd),
-        "logs" => logs(state, args, cwd, out),
+        "logs" => logs(state, args, cwd, input, out),
         "run" => run(app, state, args, cwd, input, out),
         "open" => {
             let scope = mcp::resolve_scope(state, args, cwd)?;
@@ -243,7 +257,7 @@ fn last_lines(raw: &str, n: usize) -> &str {
     }
 }
 
-fn logs(state: &AppState, args: &Value, cwd: Option<&Path>, out: &mut UnixStream) -> Result<Value, String> {
+fn logs(state: &AppState, args: &Value, cwd: Option<&Path>, input: &UnixStream, out: &mut UnixStream) -> Result<Value, String> {
     let (project_id, def, name) = mcp::service_target(state, args, cwd)?;
     let pty = mcp::service_run(state, &project_id, &def.id)
         .ok_or_else(|| format!("{} has not run since Lever started, so there is no output to show.", name))?;
@@ -256,9 +270,25 @@ fn logs(state: &AppState, args: &Value, cwd: Option<&Path>, out: &mut UnixStream
     if !args.get("follow").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(Value::Null);
     }
-    while let Ok(output::Event::Data(d)) = rx.recv() {
-        if !send(out, json!({ "type": "data", "data": d })) {
-            break;
+    // A quiet service sends nothing to fail on, so watch for the caller
+    // hanging up (as `run` does) and look between waits.
+    let gone = Arc::new(AtomicBool::new(false));
+    if let Ok(mut watch) = input.try_clone() {
+        let gone = gone.clone();
+        std::thread::spawn(move || {
+            let _ = watch.read(&mut [0u8; 1]);
+            gone.store(true, Ordering::SeqCst);
+        });
+    }
+    while !gone.load(Ordering::SeqCst) {
+        match rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(output::Event::Data(d)) => {
+                if !send(out, json!({ "type": "data", "data": d })) {
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            _ => break,
         }
     }
     Ok(Value::Null)

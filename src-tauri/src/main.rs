@@ -1536,9 +1536,15 @@ fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, 
                         signal,
                         at: now_unix(),
                     });
-                    if ps.tracked.get(&id_clone).and_then(|t| t.pty_id.as_deref()) == Some(pty_id_clone.as_str()) {
-                        ps.tracked.remove(&id_clone);
-                        ps.pty_sessions.remove(&pty_id_clone);
+                    match ps.tracked.get(&id_clone).and_then(|t| t.pty_id.as_deref()) {
+                        Some(p) if p == pty_id_clone => {
+                            ps.tracked.remove(&id_clone);
+                            ps.pty_sessions.remove(&pty_id_clone);
+                        }
+                        // Restarted before this run finished ending: the new
+                        // run's start could not see this one to forget it.
+                        Some(_) => output::hub().forget(&pty_id_clone),
+                        None => {}
                     }
                 }
             }
