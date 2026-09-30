@@ -154,10 +154,12 @@ export interface McpState {
   error: string | null;
 }
 
-/** Lever's MCP server asking this window what a service terminal shows. */
-export interface McpLogReadRequest {
-  requestId: number;
-  serviceId: string;
+/** The `lever` command line link. */
+export interface CliState {
+  /** Where `lever` links to this Lever; null when it is not installed. */
+  path: string | null;
+  /** Whether that directory is on the login shell's PATH. */
+  onPath: boolean;
 }
 
 export interface BridgeState {
@@ -200,6 +202,16 @@ export interface PtyInfo {
 export interface PtyDataEvent {
   id: string;
   data: string;
+  /** Where `data` starts in a service run's output (absent for shells). */
+  offset?: number;
+}
+
+/** What a service run has printed so far, kept by the backend. */
+export interface PtyBacklog {
+  data: string;
+  /** A live chunk whose offset is below this is already in `data`. */
+  endOffset: number;
+  closed: boolean;
 }
 
 export interface PtyExitEvent {

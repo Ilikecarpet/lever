@@ -14,7 +14,11 @@ use tauri::{Emitter, Manager, State};
 
 mod agent_status_bridge;
 mod agent_usage;
+mod cli;
+mod daemon;
+mod define;
 mod mcp;
+mod output;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
@@ -131,6 +135,10 @@ struct PtySession {
 struct PtyDataEvent {
     id: String,
     data: String,
+    /// Where `data` starts in the run's output, for runs the output hub keeps
+    /// (services); lets a window skip what its backlog already had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offset: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -504,6 +512,14 @@ fn spawn_pty_pump(
         // Per-session event name, delivered only to the owning window —
         // avoids broadcasting every chunk to every window and listener.
         let data_event = format!("pty-data-{}", pty_id);
+        let emit = |s: &str| {
+            let offset = output::hub().push(&pty_id, s);
+            let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
+                id: pty_id.clone(),
+                data: s.to_string(),
+                offset,
+            });
+        };
         let mut leftover: Vec<u8> = Vec::new();
         loop {
             let first = match rx.recv() {
@@ -525,25 +541,17 @@ fn spawn_pty_pump(
                 }
             }
             match std::str::from_utf8(&data) {
-                Ok(s) => {
-                    let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
-                        id: pty_id.clone(),
-                        data: s.to_string(),
-                    });
-                }
+                Ok(s) => emit(s),
                 Err(e) => {
                     let valid_up_to = e.valid_up_to();
                     if valid_up_to > 0 {
-                        let s = std::str::from_utf8(&data[..valid_up_to]).unwrap();
-                        let _ = app_handle.emit_to(window_label.as_str(), &data_event, PtyDataEvent {
-                            id: pty_id.clone(),
-                            data: s.to_string(),
-                        });
+                        emit(std::str::from_utf8(&data[..valid_up_to]).unwrap());
                     }
                     leftover = data[valid_up_to..].to_vec();
                 }
             }
         }
+        output::hub().close(&pty_id);
         on_exit(&app_handle);
     });
 }
@@ -923,9 +931,13 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
 
 #[tauri::command]
 fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    create_project_in(&state.projects_dir, name, repo_path)
+}
+
+fn create_project_in(projects_dir: &PathBuf, name: String, repo_path: Option<String>) -> Result<ProjectMeta, String> {
     debug_action("project", &format!("create project '{}'{}", name,
         repo_path.as_deref().map(|p| format!(" (repo {})", p)).unwrap_or_default()));
-    let mut index = load_project_index(&state.projects_dir);
+    let mut index = load_project_index(projects_dir);
     let id = name_to_id(&name);
     if id.is_empty() {
         return Err("Project name cannot be empty".to_string());
@@ -934,7 +946,7 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
         return Err(format!("Project '{}' already exists", name));
     }
     let config = AppConfig::default();
-    save_project_config(&state.projects_dir, &id, &config)?;
+    save_project_config(projects_dir, &id, &config)?;
     let meta = ProjectMeta {
         id: id.clone(),
         name,
@@ -943,14 +955,94 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
         last_opened: now_unix(),
     };
     index.projects.push(meta.clone());
-    save_project_index(&state.projects_dir, &index)?;
+    save_project_index(projects_dir, &index)?;
     Ok(meta)
 }
 
-/// Pushed from the settings panel on load and on every change.
+/// Pushed from the settings panel on load and on every change. Also written to
+/// disk, since a Lever started headless by the CLI has no panel to ask.
 #[tauri::command]
 fn set_stop_services_on_quit(enabled: bool, state: State<'_, AppState>) {
     state.stop_services_on_quit.store(enabled, Ordering::Relaxed);
+    let _ = fs::write(stop_on_quit_path(&state.projects_dir), if enabled { "true" } else { "false" });
+}
+
+fn stop_on_quit_path(projects_dir: &PathBuf) -> PathBuf {
+    projects_dir.with_file_name("stop-services-on-quit")
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle: Lever runs with or without windows
+// ---------------------------------------------------------------------------
+
+/// Started by the CLI with no window: `open -g -j -a Lever --args --headless`.
+fn launched_headless() -> bool {
+    std::env::args().any(|a| a == "--headless")
+}
+
+/// A Lever with no window leaves the Dock and the app switcher; one showing a
+/// window is an ordinary app again.
+fn set_in_dock(app: &tauri::AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
+}
+
+/// Asks the process table rather than trusting `tracked`: a service adopted by
+/// pid from an earlier Lever has no exit handler, and without a window nothing
+/// polls it out of `tracked` when it dies.
+fn any_service_running(state: &AppState) -> bool {
+    state.projects.lock().unwrap().values()
+        .any(|ps| ps.tracked.values().any(|t| is_pid_alive(t.pid)))
+}
+
+static WATCHING_FOR_IDLE: AtomicBool = AtomicBool::new(false);
+
+/// Lever stayed up after its last window closed only for its services; once
+/// they have all ended, it quits. A window opening again ends the watch.
+fn quit_when_services_end(app: &tauri::AppHandle) {
+    if WATCHING_FOR_IDLE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        if !app.webview_windows().is_empty() {
+            WATCHING_FOR_IDLE.store(false, Ordering::SeqCst);
+            return;
+        }
+        if !any_service_running(&app.state::<AppState>()) {
+            app.exit(0);
+            return;
+        }
+    });
+}
+
+/// Lever is quitting for real: stop what it runs if the user asked for that,
+/// and record what is left so the next Lever adopts it.
+fn on_quit(state: &AppState) {
+    let stop = state.stop_services_on_quit.load(Ordering::Relaxed);
+    let mut projects = state.projects.lock().unwrap();
+    for (project_id, ps) in projects.iter_mut() {
+        if stop {
+            for t in ps.tracked.values() {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(-(t.pid as i32), libc::SIGTERM);
+                    libc::kill(t.pid as i32, libc::SIGTERM);
+                }
+            }
+            ps.tracked.clear();
+        }
+        if !project_id.starts_with("scratch-") {
+            save_project_persistent_state(&state.projects_dir, project_id, &ps.tracked);
+        }
+    }
 }
 
 #[tauri::command]
@@ -1186,6 +1278,7 @@ fn keep_traffic_lights_positioned(window: &tauri::WebviewWindow) {
 
 #[tauri::command]
 fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
+    set_in_dock(&app, true);
     if let Some(window) = app.get_webview_window("main") {
         window.set_focus().map_err(|e| e.to_string())?;
     } else {
@@ -1205,6 +1298,7 @@ fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    set_in_dock(&app, true);
     let scratch_id = format!("scratch-{}", now_unix());
     let label = format!("project-{}", scratch_id);
 
@@ -1233,12 +1327,12 @@ fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> R
     Ok(())
 }
 
-#[tauri::command]
-fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let label = format!("project-{}", id);
-
-    if let Some(window) = app.get_webview_window(&label) {
-        window.set_focus().map_err(|e| e.to_string())?;
+/// Loads a project into the running state — its config, and its services still
+/// running from before — without opening a window for it. Services belong to
+/// the Lever process, not to a window, so the CLI and MCP can load a project
+/// nobody is looking at.
+fn ensure_project_loaded(state: &AppState, id: &str) -> Result<(), String> {
+    if state.projects.lock().unwrap().contains_key(id) {
         return Ok(());
     }
 
@@ -1249,7 +1343,7 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         let mut needs_save = false;
         if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
             if meta.repo_path.is_empty() {
-                if let Some(rp) = migrate_repo_path(&state.projects_dir, &id) {
+                if let Some(rp) = migrate_repo_path(&state.projects_dir, id) {
                     meta.repo_path = rp;
                     needs_save = true;
                 }
@@ -1263,9 +1357,9 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         }
     }
 
-    let config = load_project_config(&state.projects_dir, &id)?;
+    let config = load_project_config(&state.projects_dir, id)?;
 
-    let ps = load_project_persistent_state(&state.projects_dir, &id);
+    let ps = load_project_persistent_state(&state.projects_dir, id);
     let mut tracked = HashMap::new();
 
     for (svc_id, pid) in &ps.running {
@@ -1274,11 +1368,11 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
         }
     }
 
-    save_project_persistent_state(&state.projects_dir, &id, &tracked);
+    save_project_persistent_state(&state.projects_dir, id, &tracked);
 
     {
         let mut projects = state.projects.lock().unwrap();
-        projects.insert(id.clone(), ProjectState {
+        projects.entry(id.to_string()).or_insert(ProjectState {
             config,
             repo_path: repo_path.clone(),
             tracked,
@@ -1286,6 +1380,21 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
             last_exit: HashMap::new(),
         });
     }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let label = format!("project-{}", id);
+    set_in_dock(&app, true);
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    ensure_project_loaded(&state, &id)?;
 
     let mut index = load_project_index(&state.projects_dir);
     if let Some(meta) = index.projects.iter_mut().find(|p| p.id == id) {
@@ -1418,6 +1527,11 @@ fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, 
     let svc_last_output = last_output.clone();
     let svc_last_input = last_input.clone();
     let session = PtySession { writer, master: pair.master, child_pid: Some(pid), last_output, last_input };
+    // Keep this run's output; the last run's goes, its result stays in last_exit.
+    if let Some(prev) = ps.last_exit.get(&id) {
+        output::hub().forget(&prev.pty_id);
+    }
+    output::hub().open(&pty_id);
     ps.pty_sessions.insert(pty_id.clone(), session);
     ps.tracked.insert(id.clone(), TrackedService { pid, pty_id: Some(pty_id.clone()) });
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
@@ -1453,9 +1567,15 @@ fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, 
                         signal,
                         at: now_unix(),
                     });
-                    if ps.tracked.get(&id_clone).and_then(|t| t.pty_id.as_deref()) == Some(pty_id_clone.as_str()) {
-                        ps.tracked.remove(&id_clone);
-                        ps.pty_sessions.remove(&pty_id_clone);
+                    match ps.tracked.get(&id_clone).and_then(|t| t.pty_id.as_deref()) {
+                        Some(p) if p == pty_id_clone => {
+                            ps.tracked.remove(&id_clone);
+                            ps.pty_sessions.remove(&pty_id_clone);
+                        }
+                        // Restarted before this run finished ending: the new
+                        // run's start could not see this one to forget it.
+                        Some(_) => output::hub().forget(&pty_id_clone),
+                        None => {}
                     }
                 }
             }
@@ -1784,6 +1904,13 @@ fn resize_pty(project_id: String, id: String, cols: u16, rows: u16, state: State
     let session = ps.pty_sessions.get(&id).ok_or("PTY not found")?;
     session.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())
+}
+
+/// What a service's run has printed so far, for a terminal built after the
+/// run started — a reopened window, a reloaded web view.
+#[tauri::command]
+fn pty_backlog(pty_id: String) -> Option<output::Backlog> {
+    output::hub().backlog(&pty_id)
 }
 
 #[tauri::command]
@@ -2797,6 +2924,9 @@ fn remove_worktree(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    if cli::invoked_as_cli() {
+        std::process::exit(cli::main());
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -2808,17 +2938,26 @@ fn main() {
 
             let proj_dir = projects_dir(&data_dir);
             let _ = fs::create_dir_all(&proj_dir);
+            let stop_on_quit = fs::read_to_string(stop_on_quit_path(&proj_dir))
+                .map_or(true, |v| v.trim() != "false");
 
             app.manage(AppState {
                 projects: Mutex::new(HashMap::new()),
                 pty_counter: Mutex::new(0),
                 projects_dir: proj_dir,
                 agent_cache: Mutex::new(AgentScanCache::default()),
-                stop_services_on_quit: AtomicBool::new(true),
+                stop_services_on_quit: AtomicBool::new(stop_on_quit),
             });
+
+            if launched_headless() {
+                set_in_dock(app.handle(), false);
+            } else {
+                show_start_page(app.handle().clone())?;
+            }
 
             let _ = DEBUG_APP.set(app.handle().clone());
             mcp::start_if_enabled(app.handle().clone());
+            daemon::start(app.handle().clone());
 
             Ok(())
         })
@@ -2847,6 +2986,10 @@ fn main() {
             write_pty,
             resize_pty,
             close_pty,
+            pty_backlog,
+            cli::cli_state,
+            cli::install_cli,
+            cli::uninstall_cli,
             write_text_file,
             check_is_git_repo,
             git_info,
@@ -2869,7 +3012,6 @@ fn main() {
             mcp::mcp_state,
             mcp::enable_mcp,
             mcp::disable_mcp,
-            mcp::mcp_logs_reply,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -2877,32 +3019,47 @@ fn main() {
                 if label.starts_with("project-") {
                     let project_id = label[8..].to_string();
                     let state = window.state::<AppState>();
-                    let stop_on_quit = state.stop_services_on_quit.load(Ordering::Relaxed);
                     let mut projects = state.projects.lock().unwrap();
-                    if let Some(ps) = projects.get_mut(&project_id) {
-                        // Closing the window used to leave every spawned service
-                        // running with nothing on screen left to stop it.
-                        if stop_on_quit {
-                            for (_svc_id, t) in ps.tracked.iter() {
-                                #[cfg(unix)]
-                                unsafe {
-                                    libc::kill(-(t.pid as i32), libc::SIGTERM);
-                                    libc::kill(t.pid as i32, libc::SIGTERM);
-                                }
-                            }
-                            ps.tracked.clear();
+                    // A window is only a view: its services keep running and
+                    // stay loaded for the CLI, MCP and the next window. Its
+                    // shells go with it — dropping a session hangs up its PTY.
+                    // With nothing running, the project closes with its window.
+                    if project_id.starts_with("scratch-") {
+                        projects.remove(&project_id);
+                    } else if let Some(ps) = projects.get_mut(&project_id) {
+                        ps.pty_sessions.retain(|id, _| id.starts_with("svc-pty-"));
+                        save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+                        if !ps.tracked.values().any(|t| is_pid_alive(t.pid)) {
+                            projects.remove(&project_id);
                         }
-                        if !project_id.starts_with("scratch-") {
-                            save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
-                        }
-                        ps.pty_sessions.clear();
                     }
-                    projects.remove(&project_id);
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            // The last window closed. Services outlive their windows, so
+            // while any run, Lever stays up out of the Dock rather than
+            // quitting under them.
+            tauri::RunEvent::ExitRequested { code: None, api, .. } => {
+                if any_service_running(&app.state::<AppState>()) {
+                    api.prevent_exit();
+                    set_in_dock(app, false);
+                    quit_when_services_end(app);
+                }
+            }
+            // Opened from the Finder or Dock while running without a window.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { has_visible_windows: false, .. } => {
+                let _ = show_start_page(app.clone());
+            }
+            tauri::RunEvent::Exit => {
+                daemon::stop();
+                on_quit(&app.state::<AppState>());
+            }
+            _ => {}
+        });
 }
 
 #[cfg(test)]

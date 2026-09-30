@@ -6,11 +6,10 @@
 //! bearer token kept in ~/.lever/mcp.json, which is created 0600 — the port is
 //! reachable by anything on the machine, the token is not.
 //!
-//! Only projects with a window open are in reach. That keeps every action the
-//! agent takes on screen, where the user can see it and undo it, and it is the
-//! only place a service's output exists at all: logs are what the window's
-//! terminal holds, read back from it on request, so the agent reads exactly
-//! what the user sees.
+//! Only projects loaded in Lever are in reach: ones open in a window, or ones
+//! the `lever` CLI has worked in since Lever started. Logs are the output Lever
+//! keeps for each service run (see output.rs) — the same bytes the window's log
+//! panel shows — so they can be read whether or not a window is open.
 //!
 //! Off by default. Turning it on starts the server and registers it with
 //! Claude Code through its own CLI (`claude mcp add`, user scope), which, like
@@ -22,12 +21,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 use super::{
+    output,
     all_services, debug_action, get_shell_path, is_pid_alive, load_project_index, now_unix,
     service_shell_line, start_service_in, stop_service_in, wait_for_exit, AppState, ServiceDef,
     now_millis, AppConfig, LastExit, ServiceGroup, SvcExitEvent, WorktreeDef,
@@ -39,8 +38,6 @@ const DEFAULT_PORT: u16 = 7438;
 const SERVER_NAME: &str = "lever";
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_BODY_BYTES: u64 = 1 << 20;
-/// How long a window gets to hand back its terminal's text.
-const LOG_READ_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_LOG_LINES: usize = 200;
 const MAX_LOG_LINES: usize = 2000;
 /// However many lines are asked for, one reply stays under this — a noisy dev
@@ -175,8 +172,7 @@ fn start_server(app: tauri::AppHandle, cfg: &McpConfig) -> Result<(), String> {
         for request in accept.incoming_requests() {
             let app = app.clone();
             let token = token.clone();
-            // Own thread each: a log read waits on a window, and a task start
-            // can wait minutes for the task.
+            // Own thread each: a task start can wait minutes for the task.
             std::thread::spawn(move || serve(&token, request,
                 &|name, args, peer| {
                     let cwd = peer.and_then(|p| caller_cwd(p, port));
@@ -355,52 +351,24 @@ pub fn disable_mcp() -> Result<McpState, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Reading a window's terminal
+// Reading a service's output
 // ---------------------------------------------------------------------------
 
 type LogReply = Result<Vec<String>, String>;
 
-fn pending_reads() -> &'static Mutex<HashMap<u64, mpsc::Sender<LogReply>>> {
-    static PENDING: OnceLock<Mutex<HashMap<u64, mpsc::Sender<LogReply>>>> = OnceLock::new();
-    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+/// The run a service's output belongs to: the one going now, else the last.
+pub(crate) fn service_run(state: &AppState, project_id: &str, service_id: &str) -> Option<String> {
+    let projects = state.projects.lock().unwrap();
+    let ps = projects.get(project_id)?;
+    ps.tracked.get(service_id).and_then(|t| t.pty_id.clone())
+        .or_else(|| ps.last_exit.get(service_id).map(|e| e.pty_id.clone()))
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LogReadRequest {
-    request_id: u64,
-    service_id: String,
-}
-
-/// The window's answer to a `mcp-read-logs` event.
-#[tauri::command]
-pub fn mcp_logs_reply(request_id: u64, lines: Option<Vec<String>>, error: Option<String>) {
-    if let Some(tx) = pending_reads().lock().unwrap().remove(&request_id) {
-        let _ = tx.send(match (lines, error) {
-            (Some(l), _) => Ok(l),
-            (None, e) => Err(e.unwrap_or_else(|| "no output".into())),
-        });
-    }
-}
-
-/// Asks the project's window for what its terminal for `service_id` shows.
-fn read_terminal(app: &tauri::AppHandle, project_id: &str, service_id: &str) -> LogReply {
-    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let request_id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let (tx, rx) = mpsc::channel();
-    pending_reads().lock().unwrap().insert(request_id, tx);
-    let sent = app.emit_to(
-        window_label(project_id).as_str(),
-        "mcp-read-logs",
-        LogReadRequest { request_id, service_id: service_id.to_string() },
-    );
-    let reply = match sent {
-        Ok(()) => rx.recv_timeout(LOG_READ_TIMEOUT)
-            .unwrap_or_else(|_| Err("the project window did not answer".into())),
-        Err(e) => Err(format!("could not reach the project window: {}", e)),
-    };
-    pending_reads().lock().unwrap().remove(&request_id);
-    reply
+/// What `service_id`'s latest run has printed, as lines of text.
+fn read_output(state: &AppState, project_id: &str, service_id: &str) -> LogReply {
+    service_run(state, project_id, service_id)
+        .and_then(|pty| output::hub().lines(&pty))
+        .ok_or_else(|| "No output: this service has not run since Lever started.".into())
 }
 
 /// The last `n` lines.
@@ -637,10 +605,10 @@ watchers) and tasks (one-shot commands such as builds or migrations), organised 
 per project and per git worktree. Each worktree has its own copy of the services, under the \
 same labels. Lever works out which checkout you are in from your working directory and scopes \
 every tool to it, so `web` means your worktree's web server, not the main checkout's; pass \
-`checkout` to reach another one, or `checkout: \"all\"` to list every one. Only projects open \
-in a Lever window are visible. Call list_services to find ids, get_logs to read what a service \
+`checkout` to reach another one, or `checkout: \"all\"` to list every one. Only projects loaded \
+in Lever are visible. Call list_services to find ids, get_logs to read what a service \
 printed (the same text the user sees in Lever), and start_service / stop_service / \
-restart_service to act. Everything you do shows up live in the user's Lever window.
+restart_service to act. Everything you do shows up live in Lever's window when one is open.
 
 Before you start a dev server, watcher, database or a build/test/migration task with a shell \
 command, call list_services. If Lever has it, run it through start_service and read it with \
@@ -891,27 +859,27 @@ fn caller_cwd(peer: std::net::SocketAddr, server_port: u16) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-enum Checkout {
+pub(crate) enum Checkout {
     Main,
     /// A worktree, by its id in the project config.
     Worktree(String),
     All,
 }
 
-struct Scope {
-    project_id: String,
-    checkout: Checkout,
+pub(crate) struct Scope {
+    pub(crate) project_id: String,
+    pub(crate) checkout: Checkout,
     /// Worked out from the caller's directory rather than asked for.
     detected: bool,
 }
 
-fn canon(p: &Path) -> PathBuf {
+pub(crate) fn canon(p: &Path) -> PathBuf {
     fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// The checkout whose directory holds `cwd`. The deepest wins, so a worktree
 /// kept inside the repo is not taken for the main checkout.
-fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(String, Checkout)> {
+pub(crate) fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(String, Checkout)> {
     checkouts.iter()
         .filter(|(_, _, dir)| !dir.as_os_str().is_empty() && cwd.starts_with(dir))
         .max_by_key(|(_, _, dir)| dir.components().count())
@@ -919,7 +887,7 @@ fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(Stri
 }
 
 /// Every checkout of every open project, as (project id, checkout, directory).
-fn open_checkouts(state: &AppState) -> Vec<(String, Checkout, PathBuf)> {
+pub(crate) fn open_checkouts(state: &AppState) -> Vec<(String, Checkout, PathBuf)> {
     let projects = state.projects.lock().unwrap();
     let mut out = Vec::new();
     for (id, ps) in projects.iter().filter(|(id, _)| !id.starts_with("scratch-")) {
@@ -952,7 +920,7 @@ fn parse_checkout(worktrees: &[WorktreeDef], want: &str) -> Result<Checkout, Str
         ))
 }
 
-fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<Scope, String> {
+pub(crate) fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<Scope, String> {
     let here = cwd.and_then(|c| locate(&open_checkouts(state), &canon(c)));
     let project_id = match (&here, arg_str(args, "project")) {
         (Some((id, _)), None) => id.clone(),
@@ -975,7 +943,7 @@ fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<S
     Ok(Scope { project_id, checkout, detected: false })
 }
 
-fn groups_in<'a>(config: &'a AppConfig, checkout: &Checkout) -> Vec<(Option<&'a WorktreeDef>, &'a [ServiceGroup])> {
+pub(crate) fn groups_in<'a>(config: &'a AppConfig, checkout: &Checkout) -> Vec<(Option<&'a WorktreeDef>, &'a [ServiceGroup])> {
     let main = (None, config.groups.as_slice());
     let wts = config.worktrees.iter().map(|w| (Some(w), w.groups.as_slice()));
     match checkout {
@@ -1003,7 +971,7 @@ fn describe_checkout(config: &AppConfig, checkout: &Checkout) -> String {
 
 /// A service's label, with the worktree it belongs to when it is in one —
 /// every worktree has a service of that label.
-fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
+pub(crate) fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
     match config.worktrees.iter().find(|w| w.groups.iter().any(|g| g.services.iter().any(|s| s.id == def.id))) {
         Some(w) => format!("{} (worktree {})", def.label, w.branch),
         None => def.label.clone(),
@@ -1014,11 +982,11 @@ fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
 // Tools
 // ---------------------------------------------------------------------------
 
-fn window_label(project_id: &str) -> String {
+pub(crate) fn window_label(project_id: &str) -> String {
     format!("project-{}", project_id)
 }
 
-fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
@@ -1058,14 +1026,14 @@ fn resolve_project(state: &AppState, args: &Value) -> Result<String, String> {
             .or_else(|| open.iter().find(|(_, name)| name.eq_ignore_ascii_case(want)))
             .map(|(id, _)| id.clone())
             .ok_or_else(|| if open.is_empty() {
-                "No project is open in Lever. Ask the user to open it.".to_string()
+                "No project is loaded in Lever. Ask the user to open it.".to_string()
             } else {
-                format!("'{}' is not open in Lever. Open projects: {}", want, listing())
+                format!("'{}' is not loaded in Lever. Loaded projects: {}", want, listing())
             }),
         None => match open.as_slice() {
             [(id, _)] => Ok(id.clone()),
-            [] => Err("No project is open in Lever. Ask the user to open one.".into()),
-            _ => Err(format!("Several projects are open; pass `project`. Open projects: {}", listing())),
+            [] => Err("No project is loaded in Lever. Ask the user to open one.".into()),
+            _ => Err(format!("Several projects are loaded; pass `project`. Loaded projects: {}", listing())),
         },
     }
 }
@@ -1090,7 +1058,7 @@ fn resolve_service<'a>(all: &[&'a ServiceDef], scoped: &[&'a ServiceDef], want: 
 }
 
 /// The service a call names, and a name for it that says which checkout.
-fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<(String, ServiceDef, String), String> {
+pub(crate) fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<(String, ServiceDef, String), String> {
     let scope = resolve_scope(state, args, cwd)?;
     let want = arg_str(args, "service").ok_or("`service` is required")?;
     let projects = state.projects.lock().unwrap();
@@ -1100,13 +1068,13 @@ fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<
     Ok((scope.project_id, def, name))
 }
 
-fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
+pub(crate) fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
     let state = app.state::<AppState>();
     let state: &AppState = &state;
     match name {
         "list_projects" => list_projects(state, cwd),
         "list_services" => list_services(state, args, cwd),
-        "get_logs" => get_logs(app, state, args, cwd),
+        "get_logs" => get_logs(state, args, cwd),
         "start_service" => start_service(app, state, args, cwd),
         "stop_service" => stop_service(state, args, cwd),
         "restart_service" => restart_service(app, state, args, cwd),
@@ -1192,10 +1160,10 @@ fn list_services(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<S
     to_json(json!({ "project": scope.project_id, "scope": scope_note, "checkouts": checkouts }))
 }
 
-fn get_logs(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
+fn get_logs(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
     let (project_id, def, name) = service_target(state, args, cwd)?;
     // A service found still running when Lever opened was adopted by pid, with
-    // no terminal to read — its output went to a window that is gone.
+    // no terminal to read — its output went to a Lever that has since quit.
     let adopted = state.projects.lock().unwrap().get(&project_id)
         .and_then(|ps| ps.tracked.get(&def.id))
         .map_or(false, |t| t.pty_id.is_none());
@@ -1205,7 +1173,7 @@ fn get_logs(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Option<
             name
         ));
     }
-    let lines = read_terminal(app, &project_id, &def.id)?;
+    let lines = read_output(state, &project_id, &def.id)?;
     let query = LogQuery {
         from: arg_u64(args, "from").map(|n| n.max(1) as usize),
         to: arg_u64(args, "to").map(|n| n as usize),
@@ -1217,7 +1185,7 @@ fn get_logs(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Option<
 
 /// Waits for a service just started on `pty_id` to come up, exit, or settle,
 /// and says which, with its ports and first lines of output.
-fn await_ready(app: &tauri::AppHandle, state: &AppState, project_id: &str, service_id: &str, pty_id: &str, name: &str) -> String {
+fn await_ready(state: &AppState, project_id: &str, service_id: &str, pty_id: &str, name: &str) -> String {
     let started = std::time::Instant::now();
     let (exit, ports) = loop {
         std::thread::sleep(Duration::from_millis(200));
@@ -1246,9 +1214,9 @@ fn await_ready(app: &tauri::AppHandle, state: &AppState, project_id: &str, servi
             break (exit, ports);
         }
     };
-    // The newest output is still on its way to the window's terminal.
-    std::thread::sleep(Duration::from_millis(300));
-    let output = read_terminal(app, project_id, service_id)
+    // The newest output may still be in the pump's batch.
+    std::thread::sleep(Duration::from_millis(100));
+    let output = read_output(state, project_id, service_id)
         .map(|l| tail(l, START_OUTPUT_LINES).join("\n"))
         .unwrap_or_else(|e| format!("(output unavailable: {})", e));
     let outcome = match (&exit, ports.as_slice()) {
@@ -1260,7 +1228,7 @@ fn await_ready(app: &tauri::AppHandle, state: &AppState, project_id: &str, servi
     format!("{}\n\nOutput so far:\n{}", outcome, output)
 }
 
-fn exit_sentence(name: &str, exit: &LastExit) -> String {
+pub(crate) fn exit_sentence(name: &str, exit: &LastExit) -> String {
     match exit {
         LastExit { code: Some(c), .. } => format!("{} exited with code {}.", name, c),
         LastExit { signal: Some(s), .. } => format!("{} was ended by {}.", name, s),
@@ -1270,7 +1238,7 @@ fn exit_sentence(name: &str, exit: &LastExit) -> String {
 
 /// Tells the window a service it did not start is up, so it builds the
 /// terminal now — on its next poll the first lines would already be gone.
-fn announce_start(app: &tauri::AppHandle, project_id: &str, service_id: &str, pty_id: &str) {
+pub(crate) fn announce_start(app: &tauri::AppHandle, project_id: &str, service_id: &str, pty_id: &str) {
     let _ = app.emit_to(window_label(project_id).as_str(), "svc-started", SvcExitEvent {
         id: service_id.to_string(),
         pty_id: pty_id.to_string(),
@@ -1285,7 +1253,7 @@ fn start_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Op
 
     let wait = arg_u64(args, "wait_seconds").unwrap_or(0).min(MAX_WAIT_SECS);
     if wait == 0 {
-        return Ok(await_ready(app, state, &project_id, &def.id, &started.pty_id, &name));
+        return Ok(await_ready(state, &project_id, &def.id, &started.pty_id, &name));
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(wait);
     let exit = loop {
@@ -1297,9 +1265,9 @@ fn start_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: Op
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    // The last output is still on its way to the window's terminal.
-    std::thread::sleep(Duration::from_millis(300));
-    let output = read_terminal(app, &project_id, &def.id)
+    // The last output may still be in the pump's batch.
+    std::thread::sleep(Duration::from_millis(100));
+    let output = read_output(state, &project_id, &def.id)
         .map(|l| tail(l, 100).join("\n"))
         .unwrap_or_else(|e| format!("(output unavailable: {})", e));
     let outcome = match exit {
@@ -1334,7 +1302,7 @@ fn restart_service(app: &tauri::AppHandle, state: &AppState, args: &Value, cwd: 
     }
     let started = start_service_in(app, state, &project_id, &def.id, &window_label(&project_id))?;
     announce_start(app, &project_id, &def.id, &started.pty_id);
-    Ok(format!("Restarted. {}", await_ready(app, state, &project_id, &def.id, &started.pty_id, &name)))
+    Ok(format!("Restarted. {}", await_ready(state, &project_id, &def.id, &started.pty_id, &name)))
 }
 
 #[cfg(test)]

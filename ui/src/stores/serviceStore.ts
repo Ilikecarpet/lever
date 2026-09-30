@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
-import { ensureSvcTerm, readSvcTermLines, setSvcTermDead } from "../lib/svcTerminals";
-import type { AgentInfo, AgentUsage, McpLogReadRequest, RateLimits, SvcExitEvent } from "../types";
+import { ensureSvcTerm, setSvcTermDead } from "../lib/svcTerminals";
+import type { AgentInfo, AgentUsage, RateLimits, SvcExitEvent } from "../types";
 
 interface ServiceState {
   statuses: Record<string, "running" | "stopped">;
@@ -236,21 +236,8 @@ export const useServiceStore = create<ServiceState>((set, get) => ({
       }));
       ensureSvcTerm(payload.id, payload.pty_id);
     });
-    // The agent reads logs from the same terminal the log panel shows.
-    const unlistenRead = await tauriListen<McpLogReadRequest>("mcp-read-logs", (payload) => {
-      const lines = readSvcTermLines(payload.serviceId);
-      const reply = lines
-        ? api.mcpLogsReply(payload.requestId, lines, null)
-        : api.mcpLogsReply(
-            payload.requestId,
-            null,
-            "No output: this service has not run since its Lever window was opened.",
-          );
-      reply.catch(() => {});
-    });
     return () => {
       unlistenStarted();
-      unlistenRead();
     };
   },
 }));

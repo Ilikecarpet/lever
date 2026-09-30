@@ -162,14 +162,34 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
   };
   svcTermStore.set(serviceId, entry);
 
-  // PTY output -> terminal (per-session event)
+  // PTY output -> terminal (per-session event). The run may have been going
+  // for a while — started from the CLI, or before this window opened — so the
+  // backend's backlog goes in first. Live chunks that arrive while it is being
+  // fetched wait, and the ones it already holds are dropped by offset.
+  let caughtUp = false;
+  let seen = 0;
+  const waiting: PtyDataEvent[] = [];
+  const write = (payload: PtyDataEvent) => {
+    if (payload.offset !== undefined && payload.offset < seen) return;
+    term.write(payload.data);
+  };
   tauriListen<PtyDataEvent>(`pty-data-${ptyId}`, (payload) => {
-    if (payload.id === ptyId && !entry.disposed) {
-      term.write(payload.data);
-    }
+    if (payload.id !== ptyId || entry.disposed) return;
+    if (caughtUp) write(payload);
+    else waiting.push(payload);
   }).then((unlisten) => {
     if (entry.disposed) { unlisten(); return; }
     entry.unlisten = unlisten;
+    return api.ptyBacklog(ptyId).catch(() => null);
+  }).then((backlog) => {
+    if (entry.disposed) return;
+    if (backlog) {
+      term.write(backlog.data);
+      seen = backlog.endOffset;
+      if (backlog.closed) entry.live = false;
+    }
+    caughtUp = true;
+    for (const p of waiting.splice(0)) write(p);
   });
 
   // Terminal input -> PTY. Skipped once the process is gone: the backend drops
@@ -193,32 +213,6 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
   }));
 
   return entry;
-}
-
-/** What a service's terminal shows, one string per line, with wrapped rows
- *  joined back into the line they came from. null when this window has no
- *  terminal for the service — it has not run since the window opened. */
-export function readSvcTermLines(serviceId: string): string[] | null {
-  const entry = svcTermStore.get(serviceId);
-  if (!entry || entry.disposed) return null;
-  const buf = entry.term.buffer.active;
-  const lines: string[] = [];
-  for (let i = 0; i < buf.length; i++) {
-    const row = buf.getLine(i);
-    if (!row) continue;
-    // Untrimmed: a row that wraps may end in the space between two words.
-    // The whole line is trimmed once it is joined back together.
-    const text = row.translateToString(false);
-    if (row.isWrapped && lines.length > 0) {
-      lines[lines.length - 1] += text;
-    } else {
-      lines.push(text);
-    }
-  }
-  for (let i = 0; i < lines.length; i++) lines[i] = lines[i].trimEnd();
-  // The rows below the last output are blank screen, not output.
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
-  return lines;
 }
 
 /** Mark a service's PTY as gone, so its terminal stops writing to a dead

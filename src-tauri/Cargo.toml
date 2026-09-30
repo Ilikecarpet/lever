@@ -1,6 +1,6 @@
 [package]
 name = "lever"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2021"
 
 [dependencies]
@@ -15,6 +15,7 @@ libc = "0.2"
 portable-pty = "0.8"
 tiny_http = "0.12"
 git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
+clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

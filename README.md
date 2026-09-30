@@ -25,7 +25,8 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Define services with commands, args, working directories, and optional stop commands
 - Organize services into logical groups (e.g. "Backend", "Frontend", "Infrastructure")
 - Start/stop services individually or monitor real-time logs
-- Automatic log capture to `~/.lever/projects/<id>/logs/`
+- Services outlive their windows: close a window and they keep running, reopen it and
+  their output is still there (the newest 1 MB of each run)
 - Listening ports collected in the status bar and clickable — no hunting for which port a dev server landed on
 
 **Terminal Workspaces**
@@ -62,8 +63,8 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - Tools: `list_projects`, `list_services` (groups, services and tasks per checkout and
   worktree, with status, ports and last exit code), `get_logs`, `start_service`,
   `stop_service`, `restart_service`
-- Logs are the text Lever's log panel shows, read from the window's terminal, so the
-  agent sees what you see — newest lines by default, or a line range (`from`/`to`), or
+- Logs are the output Lever keeps for each run, the same text its log panel shows, so
+  the agent sees what you see, with or without a window open — newest lines by default, or a line range (`from`/`to`), or
   only lines matching `contains`; each reply is capped at 40,000 characters
 - `start_service` and `restart_service` wait up to 10s for the service to come up and
   return its ports and first output
@@ -74,14 +75,34 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - An agent that connects from a checkout Lever manages is told so from its first turn,
   with that checkout's services, their commands and what is already running — so it
   uses Lever's `web` rather than starting a second `npm run dev` of its own
-- Only projects open in a window are in reach, so everything an agent does happens
-  on screen
+- Only projects loaded in Lever are in reach: open in a window, or used from the
+  `lever` command line since Lever started
 - Served on `127.0.0.1:7438` behind a bearer token kept in `~/.lever/mcp.json` (0600)
 - Also added to Codex CLI (`~/.codex/config.toml`) when Codex is installed; any other
   client that speaks HTTP MCP can use the same URL and header
 - The server lives in Lever, so open Lever before starting an agent: a session started
   while Lever is closed shows `lever` as failed, and needs `/mcp` → reconnect once
   Lever is up
+
+**Command Line**
+- `lever`, for using Lever's services from a terminal with no window open — installed
+  from Settings → Services, which links it into `/usr/local/bin` (or `~/.local/bin`)
+- `lever status`, `start`, `stop`, `restart`, `up [group]`, `logs [-f] [-n N]`,
+  `run` (foreground; Ctrl-C stops it, and `lever` exits with the task's code), `projects`,
+  `open`, `daemon status|start|stop`; `--json` for scripts
+- Set a project up without the window: `lever init` makes the current directory a project,
+  `lever add web npm run dev` defines a service (`--task`, `--group`, `--cwd`, `--stop`),
+  `lever rm web` removes one; an open window picks the change up at once
+- Worktree-aware like MCP: `lever start web` in a worktree starts that worktree's `web`;
+  `--checkout` and `--project` reach the others
+- A client of the running Lever, not a second copy: what it starts shows in the window,
+  and what the window started can be tailed from the terminal
+- With no Lever running it starts one in the background, out of the Dock, through Launch
+  Services — so services still run as Lever.app and keep the privacy permissions (Bluetooth,
+  local network…) granted to it
+- Lever stays up while any service runs, even with every window closed; Quit (or
+  `lever daemon stop`) ends it, and its services with it
+- Talks over `~/.lever/lever.sock`, created 0600
 
 **Git Worktrees**
 - Create and manage Git worktrees directly from the sidebar
@@ -166,7 +187,11 @@ After that first install, Lever updates itself: it checks the releases feed hour
 ```
 lever/
 ├── src-tauri/          Rust backend — PTY management, Git ops, service lifecycle
-│   ├── src/main.rs     Tauri command handlers
+│   ├── src/main.rs     Tauri command handlers, app lifecycle
+│   ├── src/output.rs   Kept output of each service run
+│   ├── src/daemon.rs   Socket the `lever` CLI talks to
+│   ├── src/cli.rs      The `lever` CLI
+│   ├── src/mcp.rs      MCP server
 │   └── Cargo.toml
 ├── ui/                 React frontend
 │   ├── src/
