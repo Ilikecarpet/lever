@@ -14,6 +14,8 @@ use tauri::{Emitter, Manager, State};
 
 mod agent_status_bridge;
 mod agent_usage;
+mod cli;
+mod daemon;
 mod mcp;
 mod output;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
@@ -2885,6 +2887,9 @@ fn remove_worktree(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    if cli::invoked_as_cli() {
+        std::process::exit(cli::main());
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -2915,6 +2920,7 @@ fn main() {
 
             let _ = DEBUG_APP.set(app.handle().clone());
             mcp::start_if_enabled(app.handle().clone());
+            daemon::start(app.handle().clone());
 
             Ok(())
         })
@@ -2944,6 +2950,9 @@ fn main() {
             resize_pty,
             close_pty,
             pty_backlog,
+            cli::cli_state,
+            cli::install_cli,
+            cli::uninstall_cli,
             write_text_file,
             check_is_git_repo,
             git_info,
@@ -3003,7 +3012,10 @@ fn main() {
             tauri::RunEvent::Reopen { has_visible_windows: false, .. } => {
                 let _ = show_start_page(app.clone());
             }
-            tauri::RunEvent::Exit => on_quit(&app.state::<AppState>()),
+            tauri::RunEvent::Exit => {
+                daemon::stop();
+                on_quit(&app.state::<AppState>());
+            }
             _ => {}
         });
 }

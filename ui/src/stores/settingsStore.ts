@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
-import type { BridgeState, McpState } from "../types";
+import type { BridgeState, CliState, McpState } from "../types";
 
 // App-level preferences persisted to localStorage (mirrors themeStore's pattern).
 
@@ -118,6 +118,14 @@ interface SettingsState {
   mcpError: string | null;
   loadMcp: () => Promise<void>;
   setMcp: (on: boolean) => Promise<void>;
+
+  /** The `lever` symlink. Lives on disk, so it is read back from the backend.
+   *  null until first read. */
+  cli: CliState | null;
+  cliBusy: boolean;
+  cliError: string | null;
+  loadCli: () => Promise<void>;
+  setCli: (on: boolean) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -138,6 +146,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   mcp: null,
   mcpBusy: false,
   mcpError: null,
+  cli: null,
+  cliBusy: false,
+  cliError: null,
 
   setDebugConsole: (v) => {
     write(DEBUG_CONSOLE_KEY, String(v));
@@ -206,6 +217,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ mcpError: String(e) });
     } finally {
       set({ mcpBusy: false });
+    }
+  },
+
+  loadCli: async () => {
+    try {
+      set({ cli: await api.cliState(), cliError: null });
+    } catch (e) {
+      set({ cliError: String(e) });
+    }
+  },
+
+  setCli: async (on) => {
+    set({ cliBusy: true, cliError: null });
+    try {
+      set({ cli: on ? await api.installCli() : await api.uninstallCli() });
+    } catch (e) {
+      set({ cliError: String(e) });
+    } finally {
+      set({ cliBusy: false });
     }
   },
 

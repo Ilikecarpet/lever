@@ -859,27 +859,27 @@ fn caller_cwd(peer: std::net::SocketAddr, server_port: u16) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-enum Checkout {
+pub(crate) enum Checkout {
     Main,
     /// A worktree, by its id in the project config.
     Worktree(String),
     All,
 }
 
-struct Scope {
-    project_id: String,
-    checkout: Checkout,
+pub(crate) struct Scope {
+    pub(crate) project_id: String,
+    pub(crate) checkout: Checkout,
     /// Worked out from the caller's directory rather than asked for.
     detected: bool,
 }
 
-fn canon(p: &Path) -> PathBuf {
+pub(crate) fn canon(p: &Path) -> PathBuf {
     fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// The checkout whose directory holds `cwd`. The deepest wins, so a worktree
 /// kept inside the repo is not taken for the main checkout.
-fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(String, Checkout)> {
+pub(crate) fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(String, Checkout)> {
     checkouts.iter()
         .filter(|(_, _, dir)| !dir.as_os_str().is_empty() && cwd.starts_with(dir))
         .max_by_key(|(_, _, dir)| dir.components().count())
@@ -887,7 +887,7 @@ fn locate(checkouts: &[(String, Checkout, PathBuf)], cwd: &Path) -> Option<(Stri
 }
 
 /// Every checkout of every open project, as (project id, checkout, directory).
-fn open_checkouts(state: &AppState) -> Vec<(String, Checkout, PathBuf)> {
+pub(crate) fn open_checkouts(state: &AppState) -> Vec<(String, Checkout, PathBuf)> {
     let projects = state.projects.lock().unwrap();
     let mut out = Vec::new();
     for (id, ps) in projects.iter().filter(|(id, _)| !id.starts_with("scratch-")) {
@@ -920,7 +920,7 @@ fn parse_checkout(worktrees: &[WorktreeDef], want: &str) -> Result<Checkout, Str
         ))
 }
 
-fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<Scope, String> {
+pub(crate) fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<Scope, String> {
     let here = cwd.and_then(|c| locate(&open_checkouts(state), &canon(c)));
     let project_id = match (&here, arg_str(args, "project")) {
         (Some((id, _)), None) => id.clone(),
@@ -943,7 +943,7 @@ fn resolve_scope(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<S
     Ok(Scope { project_id, checkout, detected: false })
 }
 
-fn groups_in<'a>(config: &'a AppConfig, checkout: &Checkout) -> Vec<(Option<&'a WorktreeDef>, &'a [ServiceGroup])> {
+pub(crate) fn groups_in<'a>(config: &'a AppConfig, checkout: &Checkout) -> Vec<(Option<&'a WorktreeDef>, &'a [ServiceGroup])> {
     let main = (None, config.groups.as_slice());
     let wts = config.worktrees.iter().map(|w| (Some(w), w.groups.as_slice()));
     match checkout {
@@ -971,7 +971,7 @@ fn describe_checkout(config: &AppConfig, checkout: &Checkout) -> String {
 
 /// A service's label, with the worktree it belongs to when it is in one —
 /// every worktree has a service of that label.
-fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
+pub(crate) fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
     match config.worktrees.iter().find(|w| w.groups.iter().any(|g| g.services.iter().any(|s| s.id == def.id))) {
         Some(w) => format!("{} (worktree {})", def.label, w.branch),
         None => def.label.clone(),
@@ -982,11 +982,11 @@ fn service_name(config: &AppConfig, def: &ServiceDef) -> String {
 // Tools
 // ---------------------------------------------------------------------------
 
-fn window_label(project_id: &str) -> String {
+pub(crate) fn window_label(project_id: &str) -> String {
     format!("project-{}", project_id)
 }
 
-fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
@@ -1058,7 +1058,7 @@ fn resolve_service<'a>(all: &[&'a ServiceDef], scoped: &[&'a ServiceDef], want: 
 }
 
 /// The service a call names, and a name for it that says which checkout.
-fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<(String, ServiceDef, String), String> {
+pub(crate) fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<(String, ServiceDef, String), String> {
     let scope = resolve_scope(state, args, cwd)?;
     let want = arg_str(args, "service").ok_or("`service` is required")?;
     let projects = state.projects.lock().unwrap();
@@ -1068,7 +1068,7 @@ fn service_target(state: &AppState, args: &Value, cwd: Option<&Path>) -> Result<
     Ok((scope.project_id, def, name))
 }
 
-fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
+pub(crate) fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: Option<&Path>) -> Result<String, String> {
     let state = app.state::<AppState>();
     let state: &AppState = &state;
     match name {
@@ -1228,7 +1228,7 @@ fn await_ready(state: &AppState, project_id: &str, service_id: &str, pty_id: &st
     format!("{}\n\nOutput so far:\n{}", outcome, output)
 }
 
-fn exit_sentence(name: &str, exit: &LastExit) -> String {
+pub(crate) fn exit_sentence(name: &str, exit: &LastExit) -> String {
     match exit {
         LastExit { code: Some(c), .. } => format!("{} exited with code {}.", name, c),
         LastExit { signal: Some(s), .. } => format!("{} was ended by {}.", name, s),
@@ -1238,7 +1238,7 @@ fn exit_sentence(name: &str, exit: &LastExit) -> String {
 
 /// Tells the window a service it did not start is up, so it builds the
 /// terminal now — on its next poll the first lines would already be gone.
-fn announce_start(app: &tauri::AppHandle, project_id: &str, service_id: &str, pty_id: &str) {
+pub(crate) fn announce_start(app: &tauri::AppHandle, project_id: &str, service_id: &str, pty_id: &str) {
     let _ = app.emit_to(window_label(project_id).as_str(), "svc-started", SvcExitEvent {
         id: service_id.to_string(),
         pty_id: pty_id.to_string(),

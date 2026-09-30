@@ -46,6 +46,11 @@ export default function SettingsPanel() {
   const mcpError = useSettingsStore((s) => s.mcpError);
   const loadMcp = useSettingsStore((s) => s.loadMcp);
   const setMcp = useSettingsStore((s) => s.setMcp);
+  const cli = useSettingsStore((s) => s.cli);
+  const cliBusy = useSettingsStore((s) => s.cliBusy);
+  const cliError = useSettingsStore((s) => s.cliError);
+  const loadCli = useSettingsStore((s) => s.loadCli);
+  const setCli = useSettingsStore((s) => s.setCli);
   const setStopOnQuit = useSettingsStore((s) => s.setStopServicesOnQuit);
 
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
@@ -68,6 +73,7 @@ export default function SettingsPanel() {
     // rather than trusting what the toggle last showed.
     loadBridge();
     loadMcp();
+    loadCli();
     const projectId = api.getProjectId();
     if (!projectId) return;
     api.getRepoPath(projectId).then(setRepoPath).catch(() => setRepoPath(""));
@@ -274,6 +280,23 @@ export default function SettingsPanel() {
               on={stopOnQuit}
               onChange={setStopOnQuit}
             />
+            <Toggle
+              label="Install the lever command"
+              sub={
+                cli?.path
+                  ? `Linked at ${cli.path}. Run lever --help in a terminal; it starts Lever in the background when it is not running.`
+                  : "Start, stop and tail services from a terminal, with or without a Lever window open."
+              }
+              on={!!cli?.path}
+              disabled={cliBusy || cli === null}
+              onChange={setCli}
+            />
+            {cliError && <div className={styles.settingError}>{cliError}</div>}
+            {cli?.path && !cli.onPath && (
+              <div className={styles.settingError}>
+                {cli.path.replace(/\/lever$/, "")} is not on your PATH. Add it in your shell profile.
+              </div>
+            )}
           </section>
 
           {/* ---- Repository ---- */}

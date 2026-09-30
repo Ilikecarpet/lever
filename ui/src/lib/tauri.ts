@@ -5,6 +5,7 @@ import type {
   AppConfig,
   BridgeState,
   McpState,
+  CliState,
   PtyBacklog,
   PollResult,
   PtyInfo,
@@ -197,6 +198,18 @@ export function enableMcp(): Promise<McpState> {
 
 export function disableMcp(): Promise<McpState> {
   return invoke<McpState>("disable_mcp");
+}
+
+export function cliState(): Promise<CliState> {
+  return invoke<CliState>("cli_state");
+}
+
+export function installCli(): Promise<CliState> {
+  return invoke<CliState>("install_cli");
+}
+
+export function uninstallCli(): Promise<CliState> {
+  return invoke<CliState>("uninstall_cli");
 }
 
 export function ptyBacklog(ptyId: string): Promise<PtyBacklog | null> {

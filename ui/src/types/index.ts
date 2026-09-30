@@ -154,6 +154,14 @@ export interface McpState {
   error: string | null;
 }
 
+/** The `lever` command line link. */
+export interface CliState {
+  /** Where `lever` links to this Lever; null when it is not installed. */
+  path: string | null;
+  /** Whether that directory is on the login shell's PATH. */
+  onPath: boolean;
+}
+
 export interface BridgeState {
   installed: boolean;
   /** A statusLine command already in the slot that is not ours. Installing
