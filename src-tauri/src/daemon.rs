@@ -69,6 +69,12 @@ pub fn start(app: tauri::AppHandle) {
 /// help.
 fn try_serve(app: &tauri::AppHandle) -> bool {
     let Some(path) = socket_path() else { return true };
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    // Two Levers starting together would both find the old socket dead, and
+    // the second to bind would unlink the first one's. Held until return.
+    let _lock = lock_takeover(&path);
     // Someone answering is another Lever (a dev build next to the installed
     // one); leave it be. Nobody answering is a socket left by a Lever that
     // did not exit cleanly, or by one that quit.
@@ -76,9 +82,6 @@ fn try_serve(app: &tauri::AppHandle) -> bool {
         return false;
     }
     let _ = fs::remove_file(&path);
-    if let Some(dir) = path.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
     let listener = match UnixListener::bind(&path) {
         Ok(l) => l,
         Err(e) => {
@@ -99,6 +102,18 @@ fn try_serve(app: &tauri::AppHandle) -> bool {
         }
     });
     true
+}
+
+/// An exclusive lock beside the socket, released when the file drops. None
+/// when it cannot be taken; the takeover then goes ahead unguarded.
+fn lock_takeover(socket: &Path) -> Option<fs::File> {
+    use std::os::unix::io::AsRawFd;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(socket.with_extension("sock.lock"))
+        .ok()?;
+    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0).then_some(file)
 }
 
 /// Removes the socket on quit, so the next CLI call starts a fresh Lever

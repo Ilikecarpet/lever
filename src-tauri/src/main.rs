@@ -988,8 +988,34 @@ fn set_in_dock(app: &tauri::AppHandle, visible: bool) {
     let _ = (app, visible);
 }
 
+/// Asks the process table rather than trusting `tracked`: a service adopted by
+/// pid from an earlier Lever has no exit handler, and without a window nothing
+/// polls it out of `tracked` when it dies.
 fn any_service_running(state: &AppState) -> bool {
-    state.projects.lock().unwrap().values().any(|ps| !ps.tracked.is_empty())
+    state.projects.lock().unwrap().values()
+        .any(|ps| ps.tracked.values().any(|t| is_pid_alive(t.pid)))
+}
+
+static WATCHING_FOR_IDLE: AtomicBool = AtomicBool::new(false);
+
+/// Lever stayed up after its last window closed only for its services; once
+/// they have all ended, it quits. A window opening again ends the watch.
+fn quit_when_services_end(app: &tauri::AppHandle) {
+    if WATCHING_FOR_IDLE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        if !app.webview_windows().is_empty() {
+            WATCHING_FOR_IDLE.store(false, Ordering::SeqCst);
+            return;
+        }
+        if !any_service_running(&app.state::<AppState>()) {
+            app.exit(0);
+            return;
+        }
+    });
 }
 
 /// Lever is quitting for real: stop what it runs if the user asked for that,
@@ -2992,11 +3018,15 @@ fn main() {
                     // A window is only a view: its services keep running and
                     // stay loaded for the CLI, MCP and the next window. Its
                     // shells go with it — dropping a session hangs up its PTY.
+                    // With nothing running, the project closes with its window.
                     if project_id.starts_with("scratch-") {
                         projects.remove(&project_id);
                     } else if let Some(ps) = projects.get_mut(&project_id) {
                         ps.pty_sessions.retain(|id, _| id.starts_with("svc-pty-"));
                         save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
+                        if !ps.tracked.values().any(|t| is_pid_alive(t.pid)) {
+                            projects.remove(&project_id);
+                        }
                     }
                 }
             }
@@ -3011,6 +3041,7 @@ fn main() {
                 if any_service_running(&app.state::<AppState>()) {
                     api.prevent_exit();
                     set_in_dock(app, false);
+                    quit_when_services_end(app);
                 }
             }
             // Opened from the Finder or Dock while running without a window.
