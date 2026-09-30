@@ -48,14 +48,32 @@ struct Request {
     args: Value,
 }
 
+/// How often a Lever that found the socket taken looks again, so it can take
+/// over once the other Lever quits. Well inside the CLI's launch timeout.
+const RETRY_EVERY: Duration = Duration::from_secs(2);
+
 pub fn start(app: tauri::AppHandle) {
-    let Some(path) = socket_path() else { return };
+    if try_serve(&app) {
+        return;
+    }
+    super::debug_log("cli", "error", "another Lever is serving the CLI socket; will take over when it quits");
+    std::thread::spawn(move || {
+        while !try_serve(&app) {
+            std::thread::sleep(RETRY_EVERY);
+        }
+    });
+}
+
+/// Binds the socket and serves it; false when another Lever is serving it.
+/// True as well when the socket cannot be opened at all, as retrying will not
+/// help.
+fn try_serve(app: &tauri::AppHandle) -> bool {
+    let Some(path) = socket_path() else { return true };
     // Someone answering is another Lever (a dev build next to the installed
     // one); leave it be. Nobody answering is a socket left by a Lever that
-    // did not exit cleanly.
+    // did not exit cleanly, or by one that quit.
     if UnixStream::connect(&path).is_ok() {
-        super::debug_log("cli", "error", "another Lever is serving the CLI socket; not taking it over");
-        return;
+        return false;
     }
     let _ = fs::remove_file(&path);
     if let Some(dir) = path.parent() {
@@ -65,12 +83,13 @@ pub fn start(app: tauri::AppHandle) {
         Ok(l) => l,
         Err(e) => {
             super::debug_log("cli", "error", &format!("could not open {}: {}", path.display(), e));
-            return;
+            return true;
         }
     };
     let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     SERVING.store(true, Ordering::SeqCst);
 
+    let app = app.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let app = app.clone();
@@ -79,6 +98,7 @@ pub fn start(app: tauri::AppHandle) {
             std::thread::spawn(move || serve(&app, stream));
         }
     });
+    true
 }
 
 /// Removes the socket on quit, so the next CLI call starts a fresh Lever

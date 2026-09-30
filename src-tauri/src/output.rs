@@ -13,11 +13,17 @@
 
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 /// Per run. A noisy dev server prints this in minutes; a task's whole run fits.
 const CAP_BYTES: usize = 1 << 20;
+
+/// Per subscriber: how far a reader may fall behind (a paused pager) before
+/// chunks are skipped rather than queued without end.
+const SUBSCRIBER_CAP_BYTES: usize = 1 << 20;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -42,7 +48,65 @@ struct Run {
     kept: usize,
     end: u64,
     closed: bool,
-    subscribers: Vec<mpsc::Sender<Event>>,
+    subscribers: Vec<Subscriber>,
+}
+
+struct Subscriber {
+    tx: mpsc::Sender<Event>,
+    /// Bytes sent and not yet received.
+    queued: Arc<AtomicUsize>,
+    /// Bytes skipped since the reader last had room.
+    skipped: usize,
+}
+
+impl Subscriber {
+    /// False once the reader has gone.
+    fn send(&mut self, data: &str) -> bool {
+        let queued = self.queued.load(Ordering::SeqCst);
+        if queued + data.len() > SUBSCRIBER_CAP_BYTES && queued > 0 {
+            self.skipped += data.len();
+            return true;
+        }
+        let mut out = String::new();
+        if self.skipped > 0 {
+            out = format!("\r\n[lever: {} skipped while not reading]\r\n", size(self.skipped));
+            self.skipped = 0;
+        }
+        out.push_str(data);
+        self.queued.fetch_add(out.len(), Ordering::SeqCst);
+        self.tx.send(Event::Data(out)).is_ok()
+    }
+}
+
+fn size(bytes: usize) -> String {
+    match bytes {
+        b if b >= 1 << 20 => format!("{:.1} MB", b as f64 / (1 << 20) as f64),
+        b if b >= 1 << 10 => format!("{:.1} KB", b as f64 / (1 << 10) as f64),
+        b => format!("{} bytes", b),
+    }
+}
+
+/// A run's live output, from a subscribe.
+pub struct Subscription {
+    rx: mpsc::Receiver<Event>,
+    queued: Arc<AtomicUsize>,
+}
+
+impl Subscription {
+    fn received(&self, e: Event) -> Event {
+        if let Event::Data(d) = &e {
+            self.queued.fetch_sub(d.len(), Ordering::SeqCst);
+        }
+        e
+    }
+
+    pub fn recv(&self) -> Result<Event, mpsc::RecvError> {
+        self.rx.recv().map(|e| self.received(e))
+    }
+
+    pub fn recv_timeout(&self, t: Duration) -> Result<Event, mpsc::RecvTimeoutError> {
+        self.rx.recv_timeout(t).map(|e| self.received(e))
+    }
 }
 
 impl Run {
@@ -56,7 +120,7 @@ impl Run {
                 self.kept -= c.len();
             }
         }
-        self.subscribers.retain(|s| s.send(Event::Data(data.to_string())).is_ok());
+        self.subscribers.retain_mut(|s| s.send(data));
         offset
     }
 
@@ -94,7 +158,7 @@ impl Hub {
         if let Some(r) = self.runs.lock().unwrap().get_mut(pty_id) {
             r.closed = true;
             for s in r.subscribers.drain(..) {
-                let _ = s.send(Event::Closed);
+                let _ = s.tx.send(Event::Closed);
             }
         }
     }
@@ -110,16 +174,17 @@ impl Hub {
 
     /// The backlog, and everything after it. Taken under one lock, so no chunk
     /// falls between the two or arrives in both.
-    pub fn subscribe(&self, pty_id: &str) -> Option<(Backlog, mpsc::Receiver<Event>)> {
+    pub fn subscribe(&self, pty_id: &str) -> Option<(Backlog, Subscription)> {
         let mut runs = self.runs.lock().unwrap();
         let run = runs.get_mut(pty_id)?;
         let (tx, rx) = mpsc::channel();
+        let queued = Arc::new(AtomicUsize::new(0));
         if run.closed {
             let _ = tx.send(Event::Closed);
         } else {
-            run.subscribers.push(tx);
+            run.subscribers.push(Subscriber { tx, queued: queued.clone(), skipped: 0 });
         }
-        Some((run.backlog(), rx))
+        Some((run.backlog(), Subscription { rx, queued }))
     }
 
     /// The run's output as lines of plain text.
@@ -226,6 +291,27 @@ mod tests {
         h.push("p", "two\n");
         h.close("p");
         assert_eq!(rx.recv().unwrap(), Event::Data("two\n".into()));
+        assert_eq!(rx.recv().unwrap(), Event::Closed);
+    }
+
+    #[test]
+    fn a_reader_that_falls_behind_skips_ahead_and_is_told() {
+        let h = Hub::default();
+        h.open("p");
+        let (_, rx) = h.subscribe("p").unwrap();
+        let big = "x".repeat(SUBSCRIBER_CAP_BYTES / 2);
+        h.push("p", &big);
+        h.push("p", &big);
+        h.push("p", "lost\n");
+        h.push("p", &big);
+        assert_eq!(rx.recv().unwrap(), Event::Data(big.clone()));
+        assert_eq!(rx.recv().unwrap(), Event::Data(big.clone()));
+        h.push("p", "back\n");
+        h.close("p");
+        assert_eq!(
+            rx.recv().unwrap(),
+            Event::Data(format!("\r\n[lever: {} skipped while not reading]\r\nback\n", size(big.len() + 5)))
+        );
         assert_eq!(rx.recv().unwrap(), Event::Closed);
     }
 
