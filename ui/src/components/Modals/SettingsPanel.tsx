@@ -276,7 +276,7 @@ export default function SettingsPanel() {
             </div>
             <Toggle
               label="Stop services when Lever quits"
-              sub="Closing a window never stops them. Off also keeps them running after Quit; the next Lever adopts them, without their earlier output."
+              sub="Closing a window never stops them. Off skips stopping them on Quit, but most still end with Lever, since their terminal closes with it."
               on={stopOnQuit}
               onChange={setStopOnQuit}
             />

@@ -91,7 +91,7 @@ enum DaemonCmd {
     Status,
     /// Start Lever in the background.
     Start,
-    /// Quit Lever. Services stop too, unless "Stop services when Lever quits" is off.
+    /// Quit Lever, and the services it runs.
     Stop,
 }
 

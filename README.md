@@ -98,7 +98,7 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
   Services — so services still run as Lever.app and keep the privacy permissions (Bluetooth,
   local network…) granted to it
 - Lever stays up while any service runs, even with every window closed; Quit (or
-  `lever daemon stop`) ends it, stopping services unless that is turned off in Settings
+  `lever daemon stop`) ends it, and its services with it
 - Talks over `~/.lever/lever.sock`, created 0600
 
 **Git Worktrees**
