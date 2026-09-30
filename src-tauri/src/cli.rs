@@ -70,38 +70,46 @@ enum Cmd {
         /// A command that stops it, run before it is signalled.
         #[arg(long)]
         stop: Option<String>,
-        /// A note shown with it in the window.
+        /// A note about it, shown in its settings in the window.
         #[arg(long, short = 'd')]
         description: Option<String>,
     },
-    /// Remove services from the project. Running ones must be stopped first.
+    /// Remove services from the checkout here. Running ones must be stopped first.
     #[command(alias = "rm")]
     Remove {
+        /// Service ids, or names that match one service each.
         #[arg(required = true)]
         services: Vec<String>,
     },
-    /// Start services and wait for each to come up.
+    /// Start services and wait up to 10s for each to come up.
     Start {
+        /// Service ids, or names that match one service each.
         #[arg(required = true)]
         services: Vec<String>,
-        /// Wait up to this many seconds for a task to finish.
+        /// Wait up to this many seconds (at most 600) for a task to finish instead.
         #[arg(long)]
         wait: Option<u64>,
     },
     /// Stop services.
     Stop {
+        /// Service ids, or names that match one service each.
         #[arg(required = true)]
         services: Vec<String>,
     },
-    /// Restart services.
+    /// Restart services; ones that are stopped are started.
     Restart {
+        /// Service ids, or names that match one service each.
         #[arg(required = true)]
         services: Vec<String>,
     },
-    /// Start a group's services, or every service (not task) here.
-    Up { group: Option<String> },
+    /// Start every service (not task) here, skipping ones already running.
+    Up {
+        /// Only this group, tasks included, by id or name.
+        group: Option<String>,
+    },
     /// Print a service's output.
     Logs {
+        /// Service id, or a name that matches one service.
         service: String,
         /// Keep printing new output.
         #[arg(long, short = 'f')]
@@ -111,7 +119,10 @@ enum Cmd {
         lines: u64,
     },
     /// Run a service or task in the foreground; Ctrl-C stops it. Exits with its code.
-    Run { service: String },
+    Run {
+        /// Service id, or a name that matches one service.
+        service: String,
+    },
     /// Open this project in a Lever window.
     Open,
     /// The background Lever.
