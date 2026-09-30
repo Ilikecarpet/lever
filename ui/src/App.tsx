@@ -38,6 +38,11 @@ function ProjectApp() {
 
   useEffect(() => {
     loadConfig();
+    // `lever add` and `lever remove` edit the config under an open window.
+    const unlisten = api.tauriListen("config-changed", () => loadConfig());
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [loadConfig]);
 
   useEffect(() => {

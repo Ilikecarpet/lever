@@ -16,6 +16,7 @@ mod agent_status_bridge;
 mod agent_usage;
 mod cli;
 mod daemon;
+mod define;
 mod mcp;
 mod output;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
@@ -930,9 +931,13 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectListEntry>, St
 
 #[tauri::command]
 fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppState>) -> Result<ProjectMeta, String> {
+    create_project_in(&state.projects_dir, name, repo_path)
+}
+
+fn create_project_in(projects_dir: &PathBuf, name: String, repo_path: Option<String>) -> Result<ProjectMeta, String> {
     debug_action("project", &format!("create project '{}'{}", name,
         repo_path.as_deref().map(|p| format!(" (repo {})", p)).unwrap_or_default()));
-    let mut index = load_project_index(&state.projects_dir);
+    let mut index = load_project_index(projects_dir);
     let id = name_to_id(&name);
     if id.is_empty() {
         return Err("Project name cannot be empty".to_string());
@@ -941,7 +946,7 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
         return Err(format!("Project '{}' already exists", name));
     }
     let config = AppConfig::default();
-    save_project_config(&state.projects_dir, &id, &config)?;
+    save_project_config(projects_dir, &id, &config)?;
     let meta = ProjectMeta {
         id: id.clone(),
         name,
@@ -950,7 +955,7 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
         last_opened: now_unix(),
     };
     index.projects.push(meta.clone());
-    save_project_index(&state.projects_dir, &index)?;
+    save_project_index(projects_dir, &index)?;
     Ok(meta)
 }
 

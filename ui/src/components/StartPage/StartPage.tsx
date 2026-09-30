@@ -62,6 +62,11 @@ export default function StartPage() {
 
   useEffect(() => {
     refresh();
+    // `lever init` adds a project while this page is open.
+    const unlisten = api.tauriListen("projects-changed", () => refresh());
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [refresh]);
 
   useEffect(() => {

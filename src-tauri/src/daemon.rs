@@ -185,6 +185,9 @@ fn handle(app: &tauri::AppHandle, req: &Request, input: &UnixStream, out: &mut U
                 "here": here.as_deref() == Some(p.id.as_str()),
             })).collect::<Vec<_>>()))
         }
+        "init" => super::define::init(app, args, cwd),
+        "add" => super::define::add(app, args, cwd),
+        "remove" => super::define::remove(app, args, cwd),
         "up" => up(app, state, args, cwd),
         "logs" => logs(state, args, cwd, input, out),
         "run" => run(app, state, args, cwd, input, out),

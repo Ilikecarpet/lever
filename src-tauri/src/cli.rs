@@ -18,8 +18,8 @@ use super::daemon::socket_path;
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Parser)]
-#[command(name = "lever", version, about = "Run and watch your Lever services from the terminal.",
-    long_about = "Run and watch your Lever services from the terminal.\n\n\
+#[command(name = "lever", version, about = "Define, run and watch your Lever services from the terminal.",
+    long_about = "Define, run and watch your Lever services from the terminal.\n\n\
 Commands act on the project and checkout (main or worktree) holding the current directory, \
 like Lever's MCP tools. Services run inside Lever — it is started in the background when it \
 is not running — so they show up in its window when you open one.")]
@@ -44,6 +44,42 @@ enum Cmd {
     Status,
     /// Projects Lever knows about.
     Projects,
+    /// Make the current directory a Lever project.
+    Init {
+        /// Named after the directory unless given.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Define a service (or, with --task, a task) here.
+    #[command(after_help = "Examples:\n  lever add web npm run dev\n  lever add build --task \"cargo build 2>&1 | tee build.log\"\n\nOptions go before the command; everything after it is the command's.")]
+    Add {
+        /// What it is called; its id is made from this.
+        name: String,
+        /// The command line, as you would type it. Quote it as one argument to keep pipes and `&&`.
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+        /// The group to put it in, made if missing. Needed when there are several.
+        #[arg(long, short = 'g')]
+        group: Option<String>,
+        /// A task runs to completion rather than staying up.
+        #[arg(long)]
+        task: bool,
+        /// Where it runs; the checkout's directory unless given.
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        /// A command that stops it, run before it is signalled.
+        #[arg(long)]
+        stop: Option<String>,
+        /// A note shown with it in the window.
+        #[arg(long, short = 'd')]
+        description: Option<String>,
+    },
+    /// Remove services from the project. Running ones must be stopped first.
+    #[command(alias = "rm")]
+    Remove {
+        #[arg(required = true)]
+        services: Vec<String>,
+    },
     /// Start services and wait for each to come up.
     Start {
         #[arg(required = true)]
@@ -161,6 +197,46 @@ fn run(cli: Cli) -> Result<i32, String> {
             }
             Ok(0)
         }
+        Cmd::Init { name } => {
+            let mut extra = json!({});
+            if let Some(n) = name {
+                extra["name"] = json!(n);
+            }
+            let result = call("init", extra, |_| {})?;
+            if cli.json {
+                println!("{}", result);
+            } else {
+                println!("Made {} the project '{}'. Add services with `lever add`.", str_of(&result["repoPath"]), str_of(&result["name"]));
+            }
+            Ok(0)
+        }
+        Cmd::Add { name, command, group, task, cwd, stop, description } => {
+            let mut extra = json!({ "name": name, "command": super::define::command_line(&command), "task": task });
+            if let Some(g) = group {
+                extra["group"] = json!(g);
+            }
+            if let Some(c) = cwd {
+                let here = std::env::current_dir().map_err(|e| e.to_string())?;
+                extra["cwd"] = json!(here.join(c).to_string_lossy());
+            }
+            if let Some(s) = stop {
+                extra["stop"] = json!(s);
+            }
+            if let Some(d) = description {
+                extra["description"] = json!(d);
+            }
+            let result = call("add", with_scope(extra), |_| {})?;
+            if cli.json {
+                println!("{}", result);
+            } else {
+                println!("Added {} '{}' to {}.", if task { "task" } else { "service" }, str_of(&result["id"]), str_of(&result["group"]));
+            }
+            Ok(0)
+        }
+        Cmd::Remove { services } => each(&services, |s| {
+            call("remove", with_scope(json!({ "service": s })), |_| {})
+                .map(|r| format!("Removed '{}'.", str_of(&r["id"])))
+        }),
         Cmd::Start { services, wait } => each(&services, |s| {
             let mut extra = json!({ "service": s });
             if let Some(w) = wait {
@@ -311,7 +387,7 @@ fn print_status(v: &Value) {
 fn print_projects(v: &Value) {
     let list = v.as_array().cloned().unwrap_or_default();
     if list.is_empty() {
-        println!("Lever has no projects yet. Add one in the Lever window.");
+        println!("Lever has no projects yet. Run `lever init` in one, or add it in the Lever window.");
     }
     for p in list {
         let here = if p["here"] == true { "  ← here" } else { "" };

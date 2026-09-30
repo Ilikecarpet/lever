@@ -90,6 +90,9 @@ Lever replaces the mess of terminal tabs, manually started services, and scatter
 - `lever status`, `start`, `stop`, `restart`, `up [group]`, `logs [-f] [-n N]`,
   `run` (foreground; Ctrl-C stops it, and `lever` exits with the task's code), `projects`,
   `open`, `daemon status|start|stop`; `--json` for scripts
+- Set a project up without the window: `lever init` makes the current directory a project,
+  `lever add web npm run dev` defines a service (`--task`, `--group`, `--cwd`, `--stop`),
+  `lever rm web` removes one; an open window picks the change up at once
 - Worktree-aware like MCP: `lever start web` in a worktree starts that worktree's `web`;
   `--checkout` and `--project` reach the others
 - A client of the running Lever, not a second copy: what it starts shows in the window,
