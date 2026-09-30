@@ -269,8 +269,8 @@ export default function SettingsPanel() {
               <span className={shell.sectionRule} />
             </div>
             <Toggle
-              label="Stop services when this window closes"
-              sub="Off leaves them running in the background with nothing on screen to stop them."
+              label="Stop services when Lever quits"
+              sub="Closing a window never stops them. Off also keeps them running after Quit; the next Lever adopts them, without their earlier output."
               on={stopOnQuit}
               onChange={setStopOnQuit}
             />

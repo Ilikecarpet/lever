@@ -952,10 +952,64 @@ fn create_project(name: String, repo_path: Option<String>, state: State<'_, AppS
     Ok(meta)
 }
 
-/// Pushed from the settings panel on load and on every change.
+/// Pushed from the settings panel on load and on every change. Also written to
+/// disk, since a Lever started headless by the CLI has no panel to ask.
 #[tauri::command]
 fn set_stop_services_on_quit(enabled: bool, state: State<'_, AppState>) {
     state.stop_services_on_quit.store(enabled, Ordering::Relaxed);
+    let _ = fs::write(stop_on_quit_path(&state.projects_dir), if enabled { "true" } else { "false" });
+}
+
+fn stop_on_quit_path(projects_dir: &PathBuf) -> PathBuf {
+    projects_dir.with_file_name("stop-services-on-quit")
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle: Lever runs with or without windows
+// ---------------------------------------------------------------------------
+
+/// Started by the CLI with no window: `open -g -j -a Lever --args --headless`.
+fn launched_headless() -> bool {
+    std::env::args().any(|a| a == "--headless")
+}
+
+/// A Lever with no window leaves the Dock and the app switcher; one showing a
+/// window is an ordinary app again.
+fn set_in_dock(app: &tauri::AppHandle, visible: bool) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, visible);
+}
+
+fn any_service_running(state: &AppState) -> bool {
+    state.projects.lock().unwrap().values().any(|ps| !ps.tracked.is_empty())
+}
+
+/// Lever is quitting for real: stop what it runs if the user asked for that,
+/// and record what is left so the next Lever adopts it.
+fn on_quit(state: &AppState) {
+    let stop = state.stop_services_on_quit.load(Ordering::Relaxed);
+    let mut projects = state.projects.lock().unwrap();
+    for (project_id, ps) in projects.iter_mut() {
+        if stop {
+            for t in ps.tracked.values() {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(-(t.pid as i32), libc::SIGTERM);
+                    libc::kill(t.pid as i32, libc::SIGTERM);
+                }
+            }
+            ps.tracked.clear();
+        }
+        if !project_id.starts_with("scratch-") {
+            save_project_persistent_state(&state.projects_dir, project_id, &ps.tracked);
+        }
+    }
 }
 
 #[tauri::command]
@@ -1191,6 +1245,7 @@ fn keep_traffic_lights_positioned(window: &tauri::WebviewWindow) {
 
 #[tauri::command]
 fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
+    set_in_dock(&app, true);
     if let Some(window) = app.get_webview_window("main") {
         window.set_focus().map_err(|e| e.to_string())?;
     } else {
@@ -1210,6 +1265,7 @@ fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    set_in_dock(&app, true);
     let scratch_id = format!("scratch-{}", now_unix());
     let label = format!("project-{}", scratch_id);
 
@@ -1298,6 +1354,7 @@ fn ensure_project_loaded(state: &AppState, id: &str) -> Result<(), String> {
 #[tauri::command]
 fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let label = format!("project-{}", id);
+    set_in_dock(&app, true);
 
     if let Some(window) = app.get_webview_window(&label) {
         window.set_focus().map_err(|e| e.to_string())?;
@@ -2839,14 +2896,22 @@ fn main() {
 
             let proj_dir = projects_dir(&data_dir);
             let _ = fs::create_dir_all(&proj_dir);
+            let stop_on_quit = fs::read_to_string(stop_on_quit_path(&proj_dir))
+                .map_or(true, |v| v.trim() != "false");
 
             app.manage(AppState {
                 projects: Mutex::new(HashMap::new()),
                 pty_counter: Mutex::new(0),
                 projects_dir: proj_dir,
                 agent_cache: Mutex::new(AgentScanCache::default()),
-                stop_services_on_quit: AtomicBool::new(true),
+                stop_services_on_quit: AtomicBool::new(stop_on_quit),
             });
+
+            if launched_headless() {
+                set_in_dock(app.handle(), false);
+            } else {
+                show_start_page(app.handle().clone())?;
+            }
 
             let _ = DEBUG_APP.set(app.handle().clone());
             mcp::start_if_enabled(app.handle().clone());
@@ -2921,8 +2986,26 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            // The last window closed. Services outlive their windows, so
+            // while any run, Lever stays up out of the Dock rather than
+            // quitting under them.
+            tauri::RunEvent::ExitRequested { code: None, api, .. } => {
+                if any_service_running(&app.state::<AppState>()) {
+                    api.prevent_exit();
+                    set_in_dock(app, false);
+                }
+            }
+            // Opened from the Finder or Dock while running without a window.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { has_visible_windows: false, .. } => {
+                let _ = show_start_page(app.clone());
+            }
+            tauri::RunEvent::Exit => on_quit(&app.state::<AppState>()),
+            _ => {}
+        });
 }
 
 #[cfg(test)]

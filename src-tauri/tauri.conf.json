@@ -20,19 +20,7 @@
     ]
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Lever — Start",
-        "width": 700,
-        "height": 500,
-        "minWidth": 500,
-        "minHeight": 350,
-        "titleBarStyle": "Visible",
-        "decorations": true,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
