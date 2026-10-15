@@ -8,6 +8,8 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
 import * as api from "../../lib/tauri";
 import Divider from "./Divider";
+import ChatView from "../Chat/ChatView";
+import { useChatMetaStore } from "../../stores/chatMetaStore";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./PaneView.module.css";
 
@@ -62,6 +64,34 @@ function LeafPane({ id, isActive, visible, worktreeId }: { id: string; isActive:
   );
 }
 
+function ChatLeaf({ id, isActive, visible, worktreeId }: { id: string; isActive: boolean; visible: boolean; worktreeId: string | null }) {
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const repoPath = useGitStore((s) => s.repoPath);
+  const worktree = worktreeId ? worktrees.find((w) => w.id === worktreeId) : null;
+  const cwd = worktree?.path || repoPath;
+  const setActivePane = useWorkspaceStore((s) => s.setActivePane);
+  const attention = useChatMetaStore((s) => !!s.meta[id]?.attention);
+  const watched = visible && isActive;
+
+  // Looking at the chat is seeing that it finished, as with a terminal.
+  useEffect(() => {
+    if (watched && attention) useChatMetaStore.getState().patch(id, { attention: false });
+  }, [watched, attention, id]);
+
+  return (
+    <div
+      className={`${styles.leafPane} ${styles.chatLeaf}${isActive ? ` ${styles.leafActive}` : ""}`}
+      onMouseDown={() => setActivePane(id)}
+    >
+      {cwd ? (
+        <ChatView paneId={id} cwd={cwd} worktreeId={worktreeId} isActive={watched} />
+      ) : (
+        <div className={styles.chatUnavailable}>A chat needs a project folder to work in.</div>
+      )}
+    </div>
+  );
+}
+
 interface PaneViewProps {
   node: PaneNode;
   activePaneId: string;
@@ -71,6 +101,9 @@ interface PaneViewProps {
 
 export default function PaneView({ node, activePaneId, visible = true, worktreeId = null }: PaneViewProps) {
   if (node.type === "leaf") {
+    if (node.kind === "chat") {
+      return <ChatLeaf id={node.id} isActive={node.id === activePaneId} visible={visible} worktreeId={worktreeId} />;
+    }
     return <LeafPane id={node.id} isActive={node.id === activePaneId} visible={visible} worktreeId={worktreeId} />;
   }
 

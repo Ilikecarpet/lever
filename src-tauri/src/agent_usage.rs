@@ -163,6 +163,48 @@ fn project_slug(cwd: &str) -> String {
         .collect()
 }
 
+/// The branch a session was last on, as Claude Code recorded it with each
+/// entry of its transcript. Only the file's tail is read — the newest entry is
+/// the one that counts, and a long session's transcript runs to megabytes.
+pub fn session_branch(cwd: &str, session_id: &str) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL: u64 = 256 * 1024;
+    let mut f = fs::File::open(transcript_path(cwd, session_id)?).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(TAIL))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    last_branch(&String::from_utf8_lossy(&buf))
+}
+
+/// The newest `gitBranch` in a stretch of transcript.
+fn last_branch(text: &str) -> Option<String> {
+    const KEY: &str = "\"gitBranch\":\"";
+    let at = text.rfind(KEY)? + KEY.len();
+    let end = text[at..].find('"')?;
+    let branch = &text[at..at + end];
+    // Outside a repo, or a detached HEAD, Claude Code writes "HEAD" or nothing.
+    (!branch.is_empty() && branch != "HEAD").then(|| branch.to_string())
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::last_branch;
+
+    #[test]
+    fn the_newest_entry_names_the_branch() {
+        let t = "{\"gitBranch\":\"main\",\"x\":1}\n{\"gitBranch\":\"feat/chat\",\"x\":2}\n";
+        assert_eq!(last_branch(t).as_deref(), Some("feat/chat"));
+    }
+
+    #[test]
+    fn a_detached_head_or_no_repo_names_none() {
+        assert_eq!(last_branch("{\"gitBranch\":\"HEAD\"}"), None);
+        assert_eq!(last_branch("{\"gitBranch\":\"\"}"), None);
+        assert_eq!(last_branch("{\"type\":\"user\"}"), None);
+    }
+}
+
 /// The transcript for a session. Tries the slug the cwd implies, then falls
 /// back to a scan — a session resumed under a different cwd keeps writing to
 /// the directory it started in.

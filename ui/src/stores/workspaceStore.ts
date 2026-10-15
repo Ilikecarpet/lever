@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Workspace, PaneNode } from "../types/pane";
+import type { Workspace, PaneNode, PaneKind } from "../types/pane";
 import {
   makeLeaf,
   nextId,
@@ -11,13 +11,21 @@ import {
   setTitleInTree,
 } from "../lib/paneTree";
 import { destroyPty } from "../hooks/usePty";
+import { destroyChat } from "../lib/acpChat";
+import { useSettingsStore } from "./settingsStore";
+
+/** Whatever the pane holds — shell or chat — goes with it. */
+function destroyPane(paneId: string) {
+  destroyPty(paneId);
+  destroyChat(paneId);
+}
 
 interface WorkspaceState {
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
 
-  addWorkspace: () => string;
-  addWorkspaceForWorktree: (worktreeId: string) => string;
+  addWorkspace: (kind?: PaneKind) => string;
+  addWorkspaceForWorktree: (worktreeId: string, kind?: PaneKind) => string;
   closeWorkspace: (id: string) => void;
   closeWorktreeWorkspaces: (worktreeId: string) => void;
   setActiveWorkspace: (id: string | null) => void;
@@ -34,8 +42,8 @@ interface WorkspaceState {
   setPaneTitle: (paneId: string, title: string) => void;
 }
 
-function createWorkspace(label: string, worktreeId: string | null = null): Workspace {
-  const leaf = makeLeaf();
+function createWorkspace(label: string, worktreeId: string | null = null, kind: PaneKind = "terminal"): Workspace {
+  const leaf = makeLeaf(kind);
   return {
     id: nextId("ws"),
     label,
@@ -45,21 +53,26 @@ function createWorkspace(label: string, worktreeId: string | null = null): Works
   };
 }
 
-function nextWorkspaceName(workspaces: Workspace[]): string {
+function nextWorkspaceName(workspaces: Workspace[], kind: PaneKind = "terminal"): string {
+  const base = kind === "chat" ? "Chat" : "Workspace";
+  const pattern = new RegExp(`^${base} (\\d+)$`);
   const numbers = workspaces
-    .map((w) => w.label.match(/^Workspace (\d+)$/))
+    .map((w) => w.label.match(pattern))
     .filter(Boolean)
     .map((m) => parseInt(m![1], 10));
   const max = numbers.length > 0 ? Math.max(...numbers) : 0;
-  return `Workspace ${max + 1}`;
+  return `${base} ${max + 1}`;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
 
-  addWorkspace: () => {
-    const ws = createWorkspace(nextWorkspaceName(get().workspaces), null);
+  // A tab opened without saying what it is — the first one at startup, a new
+  // worktree's, the one a worktree with none gets when you switch to it — is
+  // whatever Settings says new tabs open as.
+  addWorkspace: (kind = useSettingsStore.getState().defaultPaneKind) => {
+    const ws = createWorkspace(nextWorkspaceName(get().workspaces, kind), null, kind);
     set((s) => ({
       workspaces: [...s.workspaces, ws],
       activeWorkspaceId: ws.id,
@@ -67,10 +80,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return ws.id;
   },
 
-  addWorkspaceForWorktree: (worktreeId) => {
+  addWorkspaceForWorktree: (worktreeId, kind = useSettingsStore.getState().defaultPaneKind) => {
     const allWs = get().workspaces;
     const wtWorkspaces = allWs.filter((w) => w.worktreeId === worktreeId);
-    const ws = createWorkspace(nextWorkspaceName(wtWorkspaces), worktreeId);
+    const ws = createWorkspace(nextWorkspaceName(wtWorkspaces, kind), worktreeId, kind);
     set((s) => ({
       workspaces: [...s.workspaces, ws],
       activeWorkspaceId: ws.id,
@@ -81,7 +94,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   closeWorkspace: (id) => {
     const ws = get().workspaces.find((w) => w.id === id);
     if (ws) {
-      collectLeaves(ws.root).forEach((leaf) => destroyPty(leaf.id));
+      collectLeaves(ws.root).forEach((leaf) => destroyPane(leaf.id));
     }
     set((s) => {
       const workspaces = s.workspaces.filter((w) => w.id !== id);
@@ -98,7 +111,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   closeWorktreeWorkspaces: (worktreeId) => {
     const toClose = get().workspaces.filter((w) => w.worktreeId === worktreeId);
     for (const ws of toClose) {
-      collectLeaves(ws.root).forEach((leaf) => destroyPty(leaf.id));
+      collectLeaves(ws.root).forEach((leaf) => destroyPane(leaf.id));
     }
     set((s) => {
       const workspaces = s.workspaces.filter((w) => w.worktreeId !== worktreeId);
@@ -161,7 +174,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return;
     }
 
-    destroyPty(closedPaneId);
+    destroyPane(closedPaneId);
 
     const leaves = collectLeaves(newRoot);
     const newActive = leaves[0]?.id ?? ws.activePaneId;

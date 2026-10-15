@@ -527,3 +527,26 @@
   background: var(--surface-hover);
 }
 
+
+/* An agent in the main checkout finished and has not been looked at — the
+   same dot a worktree's row carries. */
+.attentionDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+  animation: mainAttentionPulse 2s ease-in-out infinite;
+}
+
+@keyframes mainAttentionPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attentionDot {
+    animation: none;
+  }
+}

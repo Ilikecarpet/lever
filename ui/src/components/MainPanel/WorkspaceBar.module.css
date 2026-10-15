@@ -177,3 +177,10 @@
     animation: none;
   }
 }
+
+/* A chat whose agent is mid-turn: the lever, being pulled. */
+.workingLever {
+  display: inline-flex;
+  flex: none;
+  margin: -2px 0;
+}

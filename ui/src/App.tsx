@@ -50,8 +50,8 @@ function ProjectApp() {
     initialized.current = true;
 
     // Load repo path BEFORE the first workspace mounts, so the initial
-    // terminal's PTY spawns with the project dir as its cwd. usePty only
-    // reads cwd once (on pane mount), so a late setRepoPath can't fix it.
+    // terminal's PTY (or chat's agent) starts in the project dir. Both read
+    // cwd once, on pane mount, so a late setRepoPath can't fix it.
     const pid = getProjectId();
     const bootstrap = async () => {
       // Mirror the close-behaviour preference down before anything can be

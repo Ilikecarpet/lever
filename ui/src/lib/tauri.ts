@@ -146,6 +146,39 @@ export function closePty(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Chat agents (ACP) — the backend is only the pipe; see lib/acpChat.ts
+// ---------------------------------------------------------------------------
+
+export function acpStart(chatId: string, cwd: string, agent: string): Promise<void> {
+  return invoke<void>("acp_start", { chatId, cwd, agent });
+}
+
+export function acpSessionBranches(cwd: string, sessionIds: string[]): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("acp_session_branches", { cwd, sessionIds });
+}
+
+export function acpReadImage(path: string): Promise<{ mimeType: string; data: string }> {
+  return invoke<{ mimeType: string; data: string }>("acp_read_image", { path });
+}
+
+/** A small text file's contents, or null when it should go as a link. */
+export function acpReadText(path: string): Promise<string | null> {
+  return invoke<string | null>("acp_read_text", { path });
+}
+
+export function acpListFiles(cwd: string): Promise<string[]> {
+  return invoke<string[]>("acp_list_files", { cwd });
+}
+
+export function acpSend(chatId: string, line: string): Promise<void> {
+  return invoke<void>("acp_send", { chatId, line });
+}
+
+export function acpStop(chatId: string): Promise<void> {
+  return invoke<void>("acp_stop", { chatId });
+}
+
+// ---------------------------------------------------------------------------
 // Project repo path commands
 // ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useServiceStore } from "../../stores/serviceStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { IconTerminal } from "../Icons";
 import PaneView from "./PaneView";
 import ServiceTerminal from "./LogOverlay";
@@ -14,6 +15,7 @@ export default function MainPanel() {
   const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
   const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
   const activeServiceId = useServiceStore((s) => s.activeServiceId);
+  const defaultKind = useSettingsStore((s) => s.defaultPaneKind);
 
   const contextWorkspaces = workspaces.filter((w) => w.worktreeId === activeWorktreeId);
   const showEmpty = contextWorkspaces.length === 0 && !activeServiceId;
@@ -32,7 +34,8 @@ export default function MainPanel() {
                 <span className={styles.emptyTitle}>No workspaces open</span>
                 <span className={styles.emptyHint}>
                   Press <kbd className={styles.emptyKbd}>⌘T</kbd> or click{" "}
-                  <kbd className={styles.emptyKbd}>+</kbd> to open a terminal workspace
+                  <kbd className={styles.emptyKbd}>+</kbd> to open a {defaultKind === "chat" ? "chat" : "terminal"},{" "}
+                  <kbd className={styles.emptyKbd}>⌘⇧T</kbd> for a {defaultKind === "chat" ? "terminal" : "chat"}
                 </span>
               </div>
             )}

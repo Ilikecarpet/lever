@@ -3,6 +3,7 @@ import { useWorkspaceStore } from "../stores/workspaceStore";
 import { useWorktreeStore } from "../stores/worktreeStore";
 import { useGitStore, MAIN_GIT_TARGET } from "../stores/gitStore";
 import { useUiStore } from "../stores/uiStore";
+import { useSettingsStore, otherPaneKind } from "../stores/settingsStore";
 import { cycleContext } from "../lib/switchContext";
 
 /** Return the worktree context: current workspace's worktreeId, or the global activeWorktreeId. */
@@ -57,14 +58,17 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd+T — new workspace in current worktree context
-      if (e.key === "t" && !e.shiftKey) {
+      // Cmd+T — new workspace of the default kind (terminal or chat, per
+      // Settings) in the current worktree context; Cmd+Shift+T — the other kind
+      if (e.key === "t" || e.key === "T") {
         e.preventDefault();
+        const preferred = useSettingsStore.getState().defaultPaneKind;
+        const kind = e.shiftKey ? otherPaneKind(preferred) : preferred;
         const wtId = currentWorktreeId();
         if (wtId) {
-          store.addWorkspaceForWorktree(wtId);
+          store.addWorkspaceForWorktree(wtId, kind);
         } else {
-          store.addWorkspace();
+          store.addWorkspace(kind);
         }
         return;
       }

@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Emitter, Manager, State};
 
+mod acp;
 mod agent_status_bridge;
 mod agent_usage;
 mod cli;
@@ -3012,10 +3013,18 @@ fn main() {
             mcp::mcp_state,
             mcp::enable_mcp,
             mcp::disable_mcp,
+            acp::acp_start,
+            acp::acp_send,
+            acp::acp_stop,
+            acp::acp_list_files,
+            acp::acp_session_branches,
+            acp::acp_read_image,
+            acp::acp_read_text,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let label = window.label().to_string();
+                acp::stop_for_window(&label);
                 if label.starts_with("project-") {
                     let project_id = label[8..].to_string();
                     let state = window.state::<AppState>();
@@ -3056,6 +3065,7 @@ fn main() {
             }
             tauri::RunEvent::Exit => {
                 daemon::stop();
+                acp::stop_all();
                 on_quit(&app.state::<AppState>());
             }
             _ => {}
