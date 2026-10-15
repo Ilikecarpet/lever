@@ -1709,6 +1709,9 @@
 .input {
   display: block;
   width: 100%;
+  /* Text wraps, so nothing in here is ever wider than the box; under the
+     Type size zoom it can still measure a hair wider and scroll sideways. */
+  overflow-x: hidden;
   padding: 12px 16px 4px;
   background: none;
   border: none;
