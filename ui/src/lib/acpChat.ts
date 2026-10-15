@@ -133,11 +133,24 @@ export interface ChatState {
   usage: { used: number; size: number; cost?: number } | null;
   authMethods: { id: string; name: string; description?: string }[];
   turnStartedAt: number | null;
+  /** What this session's turns have cost in tokens, summed from each
+   *  prompt's reported usage — the session totals the status bar shows. */
+  totals: SessionTotals;
   /** Replaying a past session into the transcript. */
   loading: boolean;
   canLoad: boolean;
   canList: boolean;
 }
+
+export interface SessionTotals {
+  turns: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+const NO_TOTALS: SessionTotals = { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 type Pending = { resolve: (v: any) => void; reject: (e: Error & { code?: number }) => void };
 
@@ -178,6 +191,7 @@ export class Chat {
       usage: null,
       authMethods: [],
       turnStartedAt: null,
+      totals: NO_TOTALS,
       loading: false,
       canLoad: false,
       canList: false,
@@ -228,6 +242,13 @@ export class Chat {
       added += n.added;
       removed += n.removed;
     }
+    const opt = (id: string) => st.configOptions.find((o) => o.id === id);
+    const model = opt("model");
+    const picked = model?.options.find((o) => o.value === model.currentValue);
+    // "Default (recommended)" says which model it is in its description.
+    const modelName = picked ? (picked.value === "default" && picked.description ? picked.description : picked.name) : null;
+    const effort = opt("effort")?.currentValue;
+    const fast = opt("fast")?.currentValue;
     useChatMetaStore.getState().patch(this.paneId, {
       working: st.status === "working",
       agentName: AGENTS[st.agent].name,
@@ -237,6 +258,10 @@ export class Chat {
       contextUsed: st.usage?.used ?? 0,
       contextSize: st.usage?.size ?? 0,
       costUsd: st.usage?.cost ?? null,
+      modelName,
+      effort: effort && effort !== "default" ? effort : null,
+      fastMode: fast == null ? null : fast === "on",
+      totals: st.totals,
     });
   }
 
@@ -560,6 +585,7 @@ export class Chat {
       items: [],
       plan: [],
       usage: null,
+      totals: NO_TOTALS,
       title: summary.title ?? null,
       turnStartedAt: null,
       status: "starting",
@@ -576,7 +602,7 @@ export class Chat {
   async newSession() {
     if (this.state.status === "working") this.cancel();
     this.itemSeq = 0;
-    this.set({ items: [], plan: [], usage: null, title: null, turnStartedAt: null, status: "starting" });
+    this.set({ items: [], plan: [], usage: null, totals: NO_TOTALS, title: null, turnStartedAt: null, status: "starting" });
     try {
       await this.openSession();
     } catch (e) {
@@ -632,6 +658,21 @@ export class Chat {
 
       const res = await this.request("session/prompt", { sessionId, prompt: blocks });
       stopReason = res?.stopReason;
+      // Each turn reports the tokens its requests used; the session's totals
+      // are their sum, as Claude Code's own `/usage` counts them.
+      const u = res?.usage;
+      if (u) {
+        const t = this.state.totals;
+        this.set({
+          totals: {
+            turns: t.turns + 1,
+            input: t.input + (u.inputTokens ?? 0),
+            output: t.output + (u.outputTokens ?? 0),
+            cacheRead: t.cacheRead + (u.cachedReadTokens ?? 0),
+            cacheWrite: t.cacheWrite + (u.cachedWriteTokens ?? 0),
+          },
+        });
+      }
     } catch (e) {
       if (!this.disposed && this.state.status !== "exited") this.notice((e as Error).message, "error");
       stopReason = "error";

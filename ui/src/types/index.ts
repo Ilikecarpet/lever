@@ -56,6 +56,9 @@ export interface ServiceStatus {
 
 /** Token stats read from an agent CLI's own on-disk session records. */
 export interface AgentUsage {
+  /** Set for an agent chat pane, whose figures come from the agent over ACP
+   *  rather than a session file; absent for a terminal's agent. */
+  origin?: "chat";
   sessionId: string;
   /** The label the agent derives for the session, e.g. "lever-4f". */
   sessionName: string | null;

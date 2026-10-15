@@ -178,5 +178,14 @@ export function useFocusedPaneAgent(): AgentInfo | null {
     const pane = findNode(ws.root, ws.activePaneId);
     return pane?.type === "leaf" ? pane.ptyId : null;
   });
-  return useServiceStore((s) => (ptyId ? s.agents[ptyId] ?? null : null));
+  // A focused chat reports through its own store rather than a terminal's.
+  const chatPaneId = useWorkspaceStore((s) => {
+    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    if (!ws) return null;
+    const pane = findNode(ws.root, ws.activePaneId);
+    return pane?.type === "leaf" && pane.kind === "chat" ? pane.id : null;
+  });
+  const terminal = useServiceStore((s) => (ptyId ? s.agents[ptyId] ?? null : null));
+  const chat = useChatMetaStore((s) => (chatPaneId ? s.meta[chatPaneId]?.info ?? null : null));
+  return chat ?? terminal;
 }

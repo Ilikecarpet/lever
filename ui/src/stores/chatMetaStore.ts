@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AgentInfo } from "../types";
+import type { SessionTotals } from "../lib/acpChat";
 
 /**
  * What the rest of the window needs to know about each chat pane, without
@@ -22,6 +23,11 @@ export interface ChatFacts {
   contextUsed: number;
   contextSize: number;
   costUsd: number | null;
+  /** "Opus 5.5" — the model the chat's picker is on. */
+  modelName: string | null;
+  effort: string | null;
+  fastMode: boolean | null;
+  totals: SessionTotals;
 }
 
 export interface ChatMeta extends ChatFacts {
@@ -38,20 +44,27 @@ const EMPTY: ChatFacts = {
   contextUsed: 0,
   contextSize: 0,
   costUsd: null,
+  modelName: null,
+  effort: null,
+  fastMode: null,
+  totals: { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-/** A chat described the way a terminal's agent is. Only the fields the
- *  sidebar and tab bar read are real; the token breakdown a terminal's
- *  transcript gives is not something a chat has. */
+/** A chat described the way a terminal's agent is, for the sidebar, the tab
+ *  bar and the status bar's meter. Context, cost, lines and session totals
+ *  are the agent's own figures. What only a terminal's transcript or the
+ *  statusLine bridge knows — the split of the last reply's context, the
+ *  prompt cache's state — is left empty, and `origin` tells the meter so. */
 function toAgentInfo(f: ChatFacts): AgentInfo {
   return {
     name: f.agentName,
     active: f.working,
     needsAttention: f.attention,
     usage: {
+      origin: "chat",
       sessionId: "",
       sessionName: f.title,
-      model: null,
+      model: f.modelName,
       cliVersion: null,
       contextTokens: f.contextUsed,
       contextLimit: f.contextSize,
@@ -60,18 +73,18 @@ function toAgentInfo(f: ChatFacts): AgentInfo {
       cacheWriteTokens: 0,
       freshInputTokens: 0,
       replyTokens: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCacheReadTokens: 0,
-      totalCacheWriteTokens: 0,
+      totalInputTokens: f.totals.input,
+      totalOutputTokens: f.totals.output,
+      totalCacheReadTokens: f.totals.cacheRead,
+      totalCacheWriteTokens: f.totals.cacheWrite,
       sidechainOutputTokens: 0,
-      turns: 0,
+      turns: f.totals.turns,
       catchingUp: false,
       reported: {
         title: f.title,
-        modelName: f.agentName,
-        effort: null,
-        fastMode: null,
+        modelName: f.modelName ?? f.agentName,
+        effort: f.effort,
+        fastMode: f.fastMode,
         thinking: null,
         costUsd: f.costUsd,
         durationMs: null,
