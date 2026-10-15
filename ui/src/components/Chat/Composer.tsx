@@ -6,6 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { IconAt, IconClose, IconFile, IconPaperclip, IconSend, IconSlash, IconStop } from "../Icons";
 import { PickerMenu, type MenuItem } from "./Menu";
+import { UsageButton } from "./UsagePopover";
 import styles from "./Chat.module.css";
 
 /** What each permission mode is worth flagging as, at a glance. */
@@ -510,7 +511,7 @@ export const Composer = forwardRef<ComposerHandle, {
         {effort && (
           <PickerMenu heading="Effort" items={items(effort)} value={effort.currentValue} onChange={(v) => chat.setOption("effort", v)} align="right" />
         )}
-        {state.usage && state.usage.size > 0 && <ContextRing used={state.usage.used} size={state.usage.size} cost={state.usage.cost} />}
+        {state.usage && state.usage.size > 0 && <UsageButton chat={chat} state={state} />}
         {/* One button that turns from send into stop and back, rather than
             two swapping places. */}
         <button
@@ -530,32 +531,3 @@ export const Composer = forwardRef<ComposerHandle, {
     </div>
   );
 });
-
-function ContextRing({ used, size, cost }: { used: number; size: number; cost?: number }) {
-  const pct = Math.min(1, used / size);
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const tone = pct > 0.85 ? "var(--red)" : pct > 0.6 ? "var(--yellow)" : "var(--text-dim)";
-  return (
-    <span
-      className={styles.ring}
-      title={`Context: ${used.toLocaleString()} of ${size.toLocaleString()} tokens (${Math.round(pct * 100)}%)${cost != null ? `\nSession cost: $${cost.toFixed(2)}` : ""}`}
-    >
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <circle cx="9" cy="9" r={r} fill="none" stroke="var(--border-hover)" strokeWidth="2" />
-        <circle
-          cx="9"
-          cy="9"
-          r={r}
-          fill="none"
-          stroke={tone}
-          strokeWidth="2"
-          strokeDasharray={`${c * pct} ${c}`}
-          strokeLinecap="round"
-          transform="rotate(-90 9 9)"
-        />
-      </svg>
-      <span className={styles.ringPct}>{Math.round(pct * 100)}%</span>
-    </span>
-  );
-}

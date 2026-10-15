@@ -2671,3 +2671,209 @@
   cursor: col-resize;
   user-select: none;
 }
+
+/* --- Usage popover (the context ring) -------------------------------------- */
+
+.usageWrap {
+  position: relative;
+}
+
+button.ring {
+  height: 28px;
+  padding: 0 7px 0 5px;
+  margin: 0 2px 0 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.25s var(--ease-spring);
+}
+
+button.ring:hover,
+.ringOpen {
+  background: var(--surface-hover);
+}
+
+button.ring:active {
+  transform: scale(0.95);
+}
+
+.ringArc {
+  transition: stroke-dasharray 0.6s var(--ease-out), stroke 0.3s;
+}
+
+.usagePanel {
+  position: absolute;
+  right: -40px;
+  bottom: calc(100% + 10px);
+  z-index: 40;
+  width: 300px;
+  padding: 14px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  transform-origin: 85% 100%;
+  animation: menuIn 0.24s var(--ease-out) both;
+  cursor: default;
+  font-size: 12.5px;
+}
+
+.usageHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.usageModel {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.usageChip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.usageSection {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.usageSection:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.usageRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.usageRow > :first-child {
+  flex: 1;
+}
+
+.usageLabel {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.usageFigure {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usageDim {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.usageBar {
+  height: 6px;
+  margin: 7px 0 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.usageBar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: left;
+  animation: barGrow 0.7s var(--ease-out) both;
+}
+
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.usageNote {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usageAdvice {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  background: var(--yellow-dim);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.usageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.usageStat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  animation: rise 0.4s var(--ease-out) both;
+}
+
+.usageStatValue {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usageStatLabel {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.usagePlan {
+  margin-top: 8px;
+}
+
+.usagePlan .usageBar {
+  height: 4px;
+  margin-bottom: 2px;
+}
+
+.usageAction {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 0;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.25s var(--ease-spring);
+}
+
+.usageAction:hover {
+  border-color: var(--accent);
+}
+
+.usageAction:active {
+  transform: scale(0.98);
+}
