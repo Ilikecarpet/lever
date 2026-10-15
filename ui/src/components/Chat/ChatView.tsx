@@ -124,6 +124,16 @@ export default function ChatView({
   const [showChanges, setShowChanges] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
   const column = useColumnWidth(mainRef);
+  // The width grabber shows only when the pointer comes near the edge it sits on.
+  const [nearEdge, setNearEdge] = useState(false);
+  const onMainMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = mainRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const edge = r.left + r.width / 2 + column.width / 2;
+    const near = Math.abs(e.clientX - edge) < 48;
+    if (near !== nearEdge) setNearEdge(near);
+  };
   // Settings → Type size scales the chat as it does terminals; the chat's
   // sizes are drawn for the default.
   const zoom = useSettingsStore((s) => s.terminalFontSize) / FONT_SIZE_DEFAULT;
@@ -184,11 +194,13 @@ export default function ChatView({
         <div
           className={`${styles.chatMain}${column.dragging ? ` ${styles.chatMainResizing}` : ""}`}
           ref={mainRef}
+          onMouseMove={onMainMove}
+          onMouseLeave={() => setNearEdge(false)}
           style={{ "--chat-zoom": zoom, "--chat-col": `${column.width}px` } as React.CSSProperties}
         >
           {!empty && column.mainWidth > COLUMN_MIN + 40 && (
             <div
-              className={styles.columnHandle}
+              className={`${styles.columnHandle}${nearEdge || column.dragging ? ` ${styles.columnHandleShown}` : ""}`}
               style={{ left: `calc(50% + ${column.width / 2}px - 4px)` }}
               onPointerDown={column.onHandleDown}
               onDoubleClick={column.reset}

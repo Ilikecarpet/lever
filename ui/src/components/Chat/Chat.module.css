@@ -2646,8 +2646,15 @@
   width: 4px;
   border-radius: 2px;
   background: var(--border-hover);
-  opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s, transform 0.25s var(--ease-spring);
+  opacity: 0;
+  transform: scaleY(0.6);
+  transition: opacity 0.2s, background 0.15s, transform 0.3s var(--ease-spring);
+}
+
+/* Out of sight until the pointer comes near the edge. */
+.columnHandleShown::after {
+  opacity: 0.7;
+  transform: scaleY(1);
 }
 
 .columnHandle:hover::after,
