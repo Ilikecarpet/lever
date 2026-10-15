@@ -1,6 +1,10 @@
+/** A terminal runs a shell; a chat talks to a coding agent over ACP. */
+export type PaneKind = "terminal" | "chat";
+
 export interface PaneLeaf {
   type: "leaf";
   id: string;
+  kind: PaneKind;
   ptyId: string | null;
   title: string | null;
 }

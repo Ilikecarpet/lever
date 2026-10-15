@@ -1,4 +1,4 @@
-import type { PaneLeaf, PaneNode, PaneSplit } from "../types/pane";
+import type { PaneKind, PaneLeaf, PaneNode, PaneSplit } from "../types/pane";
 
 // ---------------------------------------------------------------------------
 // ID generation
@@ -19,8 +19,8 @@ export function resetCounter(val = 0): void {
 // Leaf factory
 // ---------------------------------------------------------------------------
 
-export function makeLeaf(): PaneLeaf {
-  return { type: "leaf", id: nextId("pane"), ptyId: null, title: null };
+export function makeLeaf(kind: PaneKind = "terminal"): PaneLeaf {
+  return { type: "leaf", id: nextId("pane"), kind, ptyId: null, title: null };
 }
 
 // ---------------------------------------------------------------------------

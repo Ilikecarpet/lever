@@ -10,7 +10,7 @@ import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/u
 import { useThemeStore, themes, type ThemeDef } from "../../stores/themeStore";
 import { usePanelStore } from "../../stores/panelStore";
 import { useUpdateStore } from "../../stores/updateStore";
-import { useWorktreeAgent, useWorktreeFocusedAgent } from "../../hooks/useAgentActivity";
+import { useWorktreeAgent, useWorktreeFocusedAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
@@ -65,6 +65,7 @@ export default function Sidebar() {
 
   const mainAgent = useWorktreeAgent(null);
   const mainFocusedAgent = useWorktreeFocusedAgent(null);
+  const mainWantsYou = useWorktreeNeedsAttention(null);
 
   const isMainActive = activeWorktreeId === null;
 
@@ -355,6 +356,13 @@ export default function Sidebar() {
               </span>
               <ContextSubtitle path={repoPath} agent={mainFocusedAgent} />
             </span>
+            {/* As on a worktree's row: an agent here finished, unseen. */}
+            {mainWantsYou && (
+              <span
+                className={styles.attentionDot}
+                title={`${mainAgent?.name ?? "The agent"} finished and is waiting on you`}
+              />
+            )}
             {!isMainActive && mainRunningCount > 0 && (
               <span
                 className={styles.runningBadge}

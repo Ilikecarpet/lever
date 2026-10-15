@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import * as api from "../lib/tauri";
 import type { BridgeState, CliState, McpState } from "../types";
+import type { PaneKind } from "../types/pane";
 
 // App-level preferences persisted to localStorage (mirrors themeStore's pattern).
 
@@ -10,6 +11,7 @@ const SCROLLBACK_KEY = "lever-terminal-scrollback";
 const STOP_ON_QUIT_KEY = "lever-stop-services-on-quit";
 const CONTEXT_WINDOW_KEY = "lever-agent-context-window";
 const METER_COLLAPSED_KEY = "lever-agent-meter-collapsed";
+const DEFAULT_PANE_KEY = "lever-default-pane";
 
 export const FONT_SIZE_MIN = 9;
 export const FONT_SIZE_MAX = 22;
@@ -48,6 +50,19 @@ function readCollapsed(): MeterSection[] {
   return [];
 }
 
+function readPaneKind(): PaneKind {
+  try {
+    if (localStorage.getItem(DEFAULT_PANE_KEY) === "chat") return "chat";
+  } catch {}
+  return "terminal";
+}
+
+/** The kind a new workspace is not by default — what ⌘⇧T and the second
+ *  button in the workspace bar open. */
+export function otherPaneKind(kind: PaneKind): PaneKind {
+  return kind === "chat" ? "terminal" : "chat";
+}
+
 function readBool(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key);
@@ -81,6 +96,10 @@ interface SettingsState {
   debugConsole: boolean;
   setDebugConsole: (v: boolean) => void;
   toggleDebugConsole: () => void;
+
+  /** What ⌘T and the workspace bar's + open: a shell or an agent chat. */
+  defaultPaneKind: PaneKind;
+  setDefaultPaneKind: (v: PaneKind) => void;
 
   /** Terminal type size, in px. Applied live to every open terminal. */
   terminalFontSize: number;
@@ -130,6 +149,7 @@ interface SettingsState {
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   debugConsole: readBool(DEBUG_CONSOLE_KEY, false),
+  defaultPaneKind: readPaneKind(),
   terminalFontSize: readNumber(FONT_SIZE_KEY, FONT_SIZE_DEFAULT, FONT_SIZE_MIN, FONT_SIZE_MAX),
   terminalScrollback: readNumber(
     SCROLLBACK_KEY,
@@ -155,6 +175,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ debugConsole: v });
   },
   toggleDebugConsole: () => get().setDebugConsole(!get().debugConsole),
+
+  setDefaultPaneKind: (v) => {
+    write(DEFAULT_PANE_KEY, v);
+    set({ defaultPaneKind: v });
+  },
 
   setTerminalFontSize: (v) => {
     const next = clamp(v, FONT_SIZE_MIN, FONT_SIZE_MAX);

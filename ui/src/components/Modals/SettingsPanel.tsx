@@ -11,10 +11,16 @@ import {
   SCROLLBACK_MAX,
 } from "../../stores/settingsStore";
 import type { ContextWindow } from "../../stores/settingsStore";
+import type { PaneKind } from "../../types/pane";
 import { useUiStore } from "../../stores/uiStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import shell from "./Panel.module.css";
 import styles from "./SettingsPanel.module.css";
+
+const PANE_KIND_OPTIONS: Array<{ value: PaneKind; label: string }> = [
+  { value: "terminal", label: "Terminal" },
+  { value: "chat", label: "Chat" },
+];
 
 const CONTEXT_WINDOW_OPTIONS: Array<{ value: ContextWindow; label: string }> = [
   { value: "auto", label: "Auto" },
@@ -29,6 +35,8 @@ export default function SettingsPanel() {
 
   const debugConsole = useSettingsStore((s) => s.debugConsole);
   const setDebugConsole = useSettingsStore((s) => s.setDebugConsole);
+  const defaultPaneKind = useSettingsStore((s) => s.defaultPaneKind);
+  const setDefaultPaneKind = useSettingsStore((s) => s.setDefaultPaneKind);
   const fontSize = useSettingsStore((s) => s.terminalFontSize);
   const setFontSize = useSettingsStore((s) => s.setTerminalFontSize);
   const scrollback = useSettingsStore((s) => s.terminalScrollback);
@@ -146,6 +154,33 @@ export default function SettingsPanel() {
           </section>
 
           {/* ---- Terminal ---- */}
+          <section className={styles.section}>
+            <div className={shell.sectionHead}>
+              <span className={shell.sectionName}>Workspaces</span>
+              <span className={shell.sectionRule} />
+            </div>
+            <div className={styles.row}>
+              <div className={styles.rowText}>
+                <div className={styles.rowLabel}>New tabs open as</div>
+                <div className={styles.rowSub}>
+                  What ⌘T and + open. ⌘⇧T and the button beside + open the other.
+                </div>
+              </div>
+              <div className={styles.segmented} role="group" aria-label="New tabs open as">
+                {PANE_KIND_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    className={`${styles.segment}${defaultPaneKind === o.value ? ` ${styles.segmentOn}` : ""}`}
+                    aria-pressed={defaultPaneKind === o.value}
+                    onClick={() => setDefaultPaneKind(o.value)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
           <section className={styles.section}>
             <div className={shell.sectionHead}>
               <span className={shell.sectionName}>Terminal</span>

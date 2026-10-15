@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { useWorkspaceNeedsAttention } from "../../hooks/useAgentActivity";
+import { useWorkspaceChatWorking, useWorkspaceNeedsAttention } from "../../hooks/useAgentActivity";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { findNode } from "../../lib/paneTree";
-import type { PaneLeaf } from "../../types/pane";
-import { IconClose, IconPlus } from "../Icons";
+import type { PaneKind, PaneLeaf } from "../../types/pane";
+import { IconChat, IconClose, IconPlus, IconTerminal } from "../Icons";
+import { useSettingsStore, otherPaneKind } from "../../stores/settingsStore";
+import { LeverMark } from "../Chat/LeverMark";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import styles from "./WorkspaceBar.module.css";
 
@@ -28,6 +30,8 @@ export default function WorkspaceBar() {
   const addWorkspaceForWorktree = useWorkspaceStore((s) => s.addWorkspaceForWorktree);
 
   const setActiveService = useServiceStore((s) => s.setActiveService);
+  const defaultKind = useSettingsStore((s) => s.defaultPaneKind);
+  const otherKind = otherPaneKind(defaultKind);
 
   const filteredWorkspaces = workspaces.filter(
     (w) => w.worktreeId === activeWorktreeId
@@ -72,13 +76,13 @@ export default function WorkspaceBar() {
     setActiveService(null);
   };
 
-  const handleNew = () => {
+  const handleNew = (kind: PaneKind) => {
     const currentWs = workspaces.find((w) => w.id === activeWorkspaceId);
     const wtId = currentWs?.worktreeId ?? activeWorktreeId;
     if (wtId) {
-      addWorkspaceForWorktree(wtId);
+      addWorkspaceForWorktree(wtId, kind);
     } else {
-      addWorkspace();
+      addWorkspace(kind);
     }
     setActiveService(null);
   };
@@ -224,10 +228,17 @@ export default function WorkspaceBar() {
       ))}
       <button
         className={styles.newBtn}
-        onClick={handleNew}
-        title="New workspace (⌘T)"
+        onClick={() => handleNew(defaultKind)}
+        title={`New ${defaultKind === "chat" ? "chat" : "terminal"} (⌘T)`}
       >
         <IconPlus size={14} />
+      </button>
+      <button
+        className={styles.newBtn}
+        onClick={() => handleNew(otherKind)}
+        title={`New ${otherKind === "chat" ? "chat" : "terminal"} (⌘⇧T)`}
+      >
+        {otherKind === "chat" ? <IconChat size={14} /> : <IconTerminal size={14} />}
       </button>
       </div>
 
@@ -258,6 +269,14 @@ export default function WorkspaceBar() {
  *  workspace, once you are there. Same signal, the next level down. */
 function AttentionDot({ workspaceId }: { workspaceId: string }) {
   const wantsYou = useWorkspaceNeedsAttention(workspaceId);
+  const working = useWorkspaceChatWorking(workspaceId);
+  if (!wantsYou && working) {
+    return (
+      <span className={styles.workingLever} title="An agent here is working">
+        <LeverMark size={15} working />
+      </span>
+    );
+  }
   if (!wantsYou) return null;
   return <span className={styles.attentionDot} title="An agent here finished and is waiting on you" />;
 }

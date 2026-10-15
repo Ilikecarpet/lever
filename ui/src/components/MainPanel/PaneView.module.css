@@ -45,3 +45,24 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.chatUnavailable {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--terminal-bg);
+}
+
+/* A chat sits inset in its pane as a rounded card on the window's own
+   background, rather than running edge to edge like a terminal. */
+.chatLeaf {
+  padding: 0 6px 6px;
+  background: var(--bg);
+}
+
+.chatLeaf::before {
+  margin: 0 -6px 6px;
+}
