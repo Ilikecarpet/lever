@@ -140,6 +140,10 @@ export interface ChatState {
   loading: boolean;
   canLoad: boolean;
   canList: boolean;
+  /** The agent can copy a conversation up to a given reply, which is what
+   *  rewinding needs. Claude's adapter only: the fork point is named in its
+   *  own extension. */
+  canFork: boolean;
 }
 
 export interface SessionTotals {
@@ -195,6 +199,7 @@ export class Chat {
       loading: false,
       canLoad: false,
       canList: false,
+      canFork: false,
     };
   }
 
@@ -470,6 +475,7 @@ export class Chat {
       this.set({
         canLoad: !!caps.loadSession,
         canList: !!caps.sessionCapabilities?.list,
+        canFork: !!caps.sessionCapabilities?.fork && this.state.agent === "claude",
         authMethods: init?.authMethods ?? [],
       });
       await this.openSession(this.resumeId);
@@ -736,6 +742,78 @@ export class Chat {
       this.set({ configOptions: before });
       this.notice(`Could not change ${configId}: ${(e as Error).message}`, "error");
     }
+  }
+
+  /** The edits made after a message — what "restore code" would undo. */
+  editsAfter(userItemId: string): ToolItem[] {
+    const idx = this.state.items.findIndex((i) => i.id === userItemId);
+    if (idx < 0) return [];
+    return this.state.items
+      .slice(idx + 1)
+      .filter((i): i is ToolItem => i.kind === "tool" && i.status !== "failed" && i.content.some((c) => c.type === "diff"));
+  }
+
+  /**
+   * Go back to just before one of your messages, as double-Esc does in Claude
+   * Code. The conversation is forked at the reply before it, so the agent
+   * forgets everything after; the original stays in History. With `code`, the
+   * chat's own edits since then are undone too, newest first, each only if the
+   * file still holds it exactly. Returns the message, for the composer.
+   */
+  async rewind(userItemId: string, opts: { code: boolean }): Promise<string | null> {
+    const st = this.state;
+    const idx = st.items.findIndex((i) => i.id === userItemId);
+    const target = st.items[idx];
+    if (!target || target.kind !== "user" || !st.sessionId || st.status !== "ready") return null;
+
+    let reverted = 0;
+    const skipped: string[] = [];
+    if (opts.code) {
+      const edits = this.editsAfter(userItemId).flatMap((t) => t.content.filter((c) => c.type === "diff" && c.path));
+      for (const c of edits.reverse()) {
+        try {
+          await api.acpRevertEdit(c.path!, c.oldText ?? null, c.newText ?? "");
+          reverted++;
+        } catch (e) {
+          skipped.push(String(e));
+        }
+      }
+    }
+
+    // The reply the conversation should end on: the last one before the
+    // message. With none, rewinding means starting over.
+    const before = st.items.slice(0, idx);
+    const lastReply = [...before].reverse().find((i): i is Extract<ChatItem, { kind: "agent" }> => i.kind === "agent" && !!i.messageId);
+    this.set({ status: "starting" });
+    try {
+      if (lastReply && st.canFork) {
+        const res = await this.request("session/fork", {
+          sessionId: st.sessionId,
+          cwd: this.cwd,
+          mcpServers: [],
+          _meta: { jetbrains: { air: { fork: { version: 1, messageId: lastReply.messageId } } } },
+        });
+        this.set({ sessionId: res.sessionId, configOptions: res.configOptions ?? st.configOptions });
+      } else {
+        const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [] });
+        this.set({ sessionId: res.sessionId, configOptions: res.configOptions ?? st.configOptions });
+      }
+    } catch (e) {
+      this.set({ status: "ready" });
+      this.notice(`Could not rewind: ${(e as Error).message}`, "error");
+      return null;
+    }
+
+    const lines = [`Rewound to before "${target.text.split("\n")[0].slice(0, 60)}". The conversation before the rewind is still in History.`];
+    if (opts.code) {
+      lines.push(
+        reverted || !skipped.length ? `Undid ${reverted} ${reverted === 1 ? "edit" : "edits"}.` : "",
+        skipped.length ? `Left ${skipped.length} as they are, changed since:\n${skipped.join("\n")}` : ""
+      );
+    }
+    this.set({ items: before, plan: [], usage: null, status: "ready" });
+    this.notice(lines.filter(Boolean).join(" "), skipped.length ? "error" : "info");
+    return target.text;
   }
 
   /** Step through the agent's permission modes, as ⇧Tab does in Claude Code. */

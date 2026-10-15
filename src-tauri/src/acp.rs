@@ -251,6 +251,59 @@ mod embed_tests {
     }
 }
 
+/// Undo one edit a chat's agent made, for rewinding a conversation with its
+/// code. Only an edit that is still exactly as the agent left it is undone:
+/// `new_text` must appear once in the file, and is put back to `old_text`. A
+/// file the agent created (`old_text` absent) is removed only if it still holds
+/// just what was written. Anything else — edited since, or ambiguous — is left
+/// alone and reported, never guessed at.
+#[tauri::command(async)]
+pub fn acp_revert_edit(path: String, old_text: Option<String>, new_text: String) -> Result<(), String> {
+    let current = std::fs::read_to_string(&path).map_err(|e| format!("{}: {}", path, e))?;
+    let reverted = revert_in(&current, old_text.as_deref(), &new_text)
+        .map_err(|why| format!("{}: {}", path.rsplit('/').next().unwrap_or(&path), why))?;
+    match reverted {
+        None => std::fs::remove_file(&path).map_err(|e| e.to_string()),
+        Some(text) => std::fs::write(&path, text).map_err(|e| e.to_string()),
+    }
+}
+
+/// The file's text with one edit undone; None when the file should go.
+fn revert_in(current: &str, old_text: Option<&str>, new_text: &str) -> Result<Option<String>, &'static str> {
+    match old_text {
+        None if current == new_text => Ok(None),
+        None => Err("changed since the agent created it"),
+        Some(old) => match current.matches(new_text).count() {
+            1 => Ok(Some(current.replacen(new_text, old, 1))),
+            0 => Err("changed since the agent edited it"),
+            _ => Err("the edit appears more than once, so it is unclear which to undo"),
+        },
+    }
+}
+
+#[cfg(test)]
+mod revert_tests {
+    use super::revert_in;
+
+    #[test]
+    fn an_untouched_edit_is_undone() {
+        let r = revert_in("a\nB\nc\n", Some("b"), "B").unwrap();
+        assert_eq!(r.as_deref(), Some("a\nb\nc\n"));
+    }
+
+    #[test]
+    fn a_created_file_goes_only_if_unchanged() {
+        assert_eq!(revert_in("new", None, "new").unwrap(), None);
+        assert!(revert_in("new, then edited", None, "new").is_err());
+    }
+
+    #[test]
+    fn a_changed_or_ambiguous_edit_is_left_alone() {
+        assert!(revert_in("a\nc\n", Some("b"), "B").is_err());
+        assert!(revert_in("B B", Some("b"), "B").is_err());
+    }
+}
+
 /// The checkout's files, relative to it, for @-mentioning in a chat: tracked
 /// ones and untracked ones git does not ignore. Empty outside a repo.
 #[tauri::command(async)]

@@ -67,7 +67,10 @@ export const Composer = forwardRef<ComposerHandle, {
   placeholder?: string;
   /** The chat in front of the user: the one a file dropped on the window is for. */
   active?: boolean;
-}>(function Composer({ chat, state, cwd, centered, placeholder, active }, ref) {
+  /** Esc pressed twice in quick succession, as in Claude Code: rewind. */
+  onDoubleEscape?: () => void;
+}>(function Composer({ chat, state, cwd, centered, placeholder, active, onDoubleEscape }, ref) {
+  const lastEscape = useRef(0);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -314,6 +317,17 @@ export const Composer = forwardRef<ComposerHandle, {
     if (e.key === "Escape" && working) {
       e.preventDefault();
       chat.cancel();
+      return;
+    }
+    if (e.key === "Escape" && onDoubleEscape) {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastEscape.current < 500) {
+        lastEscape.current = 0;
+        onDoubleEscape();
+      } else {
+        lastEscape.current = now;
+      }
       return;
     }
     // Walk back through what was sent, as a shell does, while the draft is

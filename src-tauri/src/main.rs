@@ -3020,6 +3020,7 @@ fn main() {
             acp::acp_session_branches,
             acp::acp_read_image,
             acp::acp_read_text,
+            acp::acp_revert_edit,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

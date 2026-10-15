@@ -18,6 +18,7 @@ import {
   IconSpinner,
   IconTrash,
   IconPencil,
+  IconUndo,
 } from "../Icons";
 import { CopyButton, Markdown } from "./Markdown";
 import { LeverMark } from "./LeverMark";
@@ -124,11 +125,14 @@ export function Transcript({
   working,
   turnStartedAt,
   onEdit,
+  onRewind,
 }: {
   items: ChatItem[];
   working: boolean;
   turnStartedAt: number | null;
   onEdit: (text: string) => void;
+  /** Absent when this chat cannot rewind, or not right now. */
+  onRewind?: (userItemId: string) => void;
 }) {
   const blocks = useMemo(() => toBlocks(items), [items]);
   const lastBlock = blocks[blocks.length - 1];
@@ -144,6 +148,7 @@ export function Transcript({
             key={b.item.id}
             item={b.item}
             onEdit={onEdit}
+            onRewind={onRewind}
             streaming={working && i === blocks.length - 1 && b.item.kind === "agent"}
           />
         )
@@ -156,10 +161,12 @@ export function Transcript({
 const ItemView = memo(function ItemView({
   item,
   onEdit,
+  onRewind,
   streaming,
 }: {
   item: ChatItem;
   onEdit: (text: string) => void;
+  onRewind?: (userItemId: string) => void;
   streaming?: boolean;
 }) {
   switch (item.kind) {
@@ -192,6 +199,11 @@ const ItemView = memo(function ItemView({
               <button className={styles.iconBtn} title="Edit as a new message" onClick={() => onEdit(item.text)}>
                 <IconPencil size={12} />
               </button>
+              {onRewind && (
+                <button className={styles.iconBtn} title="Rewind to before this message (Esc Esc)" onClick={() => onRewind(item.id)}>
+                  <IconUndo size={12} />
+                </button>
+              )}
             </div>
           )}
         </div>

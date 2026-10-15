@@ -13,7 +13,7 @@ import {
 } from "../../lib/acpChat";
 import { useGitStore, MAIN_GIT_TARGET } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
-import { IconPanelNarrow, IconPanelWiden, IconArrowDown, IconBranch, IconChat, IconChevronRight, IconClock, IconDiff, IconRetry, IconSearch } from "../Icons";
+import { IconUndo, IconPanelNarrow, IconPanelWiden, IconArrowDown, IconBranch, IconChat, IconChevronRight, IconClock, IconDiff, IconRetry, IconSearch } from "../Icons";
 import { Composer, type ComposerHandle } from "./Composer";
 import { Transcript, Diff, DiffStat, CwdContext, Collapse, formatDuration } from "./Transcript";
 import { CodeBlock } from "./Markdown";
@@ -68,6 +68,14 @@ export default function ChatView({
   );
   const waiting = state.items.filter((i): i is Extract<ChatItem, { kind: "permission" }> => i.kind === "permission" && !i.outcome);
   const pending = waiting[0];
+  // Rewinding: picking which message to go back to, then how far.
+  const [rewind, setRewind] = useState<{ step: "pick" } | { step: "confirm"; id: string } | null>(null);
+  const canRewind = state.canFork && state.status === "ready" && state.items.some((i) => i.kind === "user");
+  const doRewind = async (id: string, code: boolean) => {
+    setRewind(null);
+    const text = await chat.rewind(id, { code });
+    if (text != null) composer.current?.setDraft(text);
+  };
   const empty = state.items.length === 0 && !state.loading;
   const working = state.status === "working";
 
@@ -115,6 +123,7 @@ export default function ChatView({
                     working={working}
                     turnStartedAt={state.turnStartedAt}
                     onEdit={(t) => composer.current?.setDraft(t)}
+                    onRewind={canRewind ? (id) => setRewind({ step: "confirm", id }) : undefined}
                   />
                   {state.status === "exited" && (
                     <div className={styles.exitedCard}>
@@ -136,7 +145,27 @@ export default function ChatView({
                   )}
                   <PlanCard state={state} />
                   {pending && <PermissionDock key={pending.id} chat={chat} item={pending} queued={waiting.length - 1} agent={AGENTS[state.agent].name} cwd={cwd} />}
-                  <Composer ref={composer} chat={chat} state={state} cwd={cwd} active={isActive} />
+                  {rewind && canRewind && (
+                    <RewindDock
+                      chat={chat}
+                      state={state}
+                      step={rewind}
+                      onPick={(id) => setRewind({ step: "confirm", id })}
+                      onChoose={doRewind}
+                      onClose={() => {
+                        setRewind(null);
+                        composer.current?.focus();
+                      }}
+                    />
+                  )}
+                  <Composer
+                    ref={composer}
+                    chat={chat}
+                    state={state}
+                    cwd={cwd}
+                    active={isActive}
+                    onDoubleEscape={canRewind ? () => setRewind({ step: "pick" }) : undefined}
+                  />
                   <div className={styles.footnote}>
                     {AGENTS[state.agent].name} can make mistakes and acts on this checkout. Review its changes before you commit.
                   </div>
@@ -597,6 +626,114 @@ function PermissionDock({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Rewind, docked above the composer like an approval: first which of your
+ * messages to go back to (newest first), then whether to take the code back
+ * with the conversation. Keys: ↑↓ and Enter to pick, 1/2 to choose, Esc out.
+ */
+function RewindDock({
+  chat,
+  state,
+  step,
+  onPick,
+  onChoose,
+  onClose,
+}: {
+  chat: Chat;
+  state: ChatState;
+  step: { step: "pick" } | { step: "confirm"; id: string };
+  onPick: (id: string) => void;
+  onChoose: (id: string, code: boolean) => void;
+  onClose: () => void;
+}) {
+  const messages = state.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user").reverse();
+  const [hover, setHover] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, [step.step]);
+
+  const target = step.step === "confirm" ? state.items.find((i) => i.id === step.id) : null;
+  const edits = step.step === "confirm" ? chat.editsAfter(step.id) : [];
+  const files = new Set(edits.flatMap((t) => t.content.filter((c) => c.type === "diff").map((c) => c.path)));
+
+  return (
+    <div
+      className={styles.rewindDock}
+      ref={ref}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (step.step === "pick" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          const d = e.key === "ArrowDown" ? 1 : -1;
+          setHover((h) => (h + d + messages.length) % messages.length);
+        } else if (step.step === "pick" && e.key === "Enter" && messages[hover]) {
+          e.preventDefault();
+          onPick(messages[hover].id);
+        } else if (step.step === "confirm" && (e.key === "1" || e.key === "Enter")) {
+          e.preventDefault();
+          onChoose(step.id, false);
+        } else if (step.step === "confirm" && e.key === "2" && edits.length) {
+          e.preventDefault();
+          onChoose(step.id, true);
+        }
+      }}
+    >
+      <div className={styles.permHead}>
+        <IconUndo size={13} />
+        <span>
+          <b>Rewind</b> {step.step === "pick" ? "to before which message?" : "to before this message"}
+        </span>
+        <span className={styles.permQueue}>esc to cancel</span>
+      </div>
+      {step.step === "pick" ? (
+        <div className={styles.rewindList}>
+          {messages.map((m, i) => {
+            const n = chat.editsAfter(m.id).length;
+            return (
+              <button
+                key={m.id}
+                className={`${styles.rewindItem}${i === hover ? ` ${styles.menuItemHover}` : ""}`}
+                onMouseEnter={() => setHover(i)}
+                onClick={() => onPick(m.id)}
+              >
+                <span className={styles.rewindText}>{m.text.split("\n")[0] || "(image)"}</span>
+                {n > 0 && <span className={styles.rewindEdits}>{n} {n === 1 ? "edit" : "edits"} after</span>}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className={styles.rewindQuote}>{target?.kind === "user" ? target.text : ""}</div>
+          <div className={styles.permOptions}>
+            <button className={styles.allowBtn} onClick={() => onChoose(step.id, false)}>
+              <span className={styles.keyHint}>1</span>
+              Restore conversation
+            </button>
+            {edits.length > 0 && (
+              <button className={styles.allowAltBtn} onClick={() => onChoose(step.id, true)}>
+                <span className={styles.keyHint}>2</span>
+                Restore conversation and code ({edits.length} {edits.length === 1 ? "edit" : "edits"}, {files.size} {files.size === 1 ? "file" : "files"})
+              </button>
+            )}
+            <button className={styles.rejectBtn} onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+          <div className={styles.rewindNote}>
+            The agent forgets everything from this message on; the conversation as it is now stays in History.
+            {edits.length > 0 && " Code is restored only where a file still holds exactly what the agent wrote."}
+          </div>
+        </>
+      )}
     </div>
   );
 }
