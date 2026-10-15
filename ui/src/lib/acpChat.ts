@@ -97,7 +97,46 @@ export type ToolItem = {
   content: ToolContent[];
   rawInput?: Record<string, unknown>;
   rawOutput?: string;
+  /** For a tool call that launched a subagent: what that agent did — its own
+   *  tool calls and notes — and whether it is still at it. */
+  subagent?: SubagentRun;
 };
+
+export interface SubagentRun {
+  title?: string;
+  description?: string;
+  /** "running", "completed", "failed"… as the agent reports it. */
+  state?: string;
+  steps: (ToolItem | { kind: "note"; id: string; messageId?: string; text: string })[];
+}
+
+/** Every tool call in a transcript, subagents' included — for counting edits
+ *  and undoing them, which a subagent's count as much as the main thread's. */
+export function allTools(items: ChatItem[]): ToolItem[] {
+  const out: ToolItem[] = [];
+  for (const i of items) {
+    if (i.kind !== "tool") continue;
+    out.push(i);
+    for (const step of i.subagent?.steps ?? []) if (step.kind === "tool") out.push(step);
+  }
+  return out;
+}
+
+/** A tool call with an update folded in; the update carries only what changed. */
+function mergeTool(prev: ToolItem | null, u: any): ToolItem {
+  const rawInput = u.rawInput && Object.keys(u.rawInput).length ? u.rawInput : prev?.rawInput;
+  return {
+    kind: "tool",
+    id: u.toolCallId,
+    title: u.title ?? prev?.title ?? u.name ?? "Tool",
+    toolKind: u.kind ?? prev?.toolKind,
+    status: u.status ?? prev?.status,
+    content: u.content ?? prev?.content ?? [],
+    rawInput,
+    rawOutput: typeof u.rawOutput === "string" ? u.rawOutput : prev?.rawOutput,
+    subagent: prev?.subagent,
+  };
+}
 
 export type ChatItem =
   | { kind: "user"; id: string; text: string; images?: ImageAttachment[]; attached?: string[] }
@@ -231,8 +270,8 @@ export class Chat {
     const st = this.state;
     let added = 0;
     let removed = 0;
-    for (const item of st.items) {
-      if (item.kind !== "tool" || item.status === "failed") continue;
+    for (const item of allTools(st.items)) {
+      if (item.status === "failed") continue;
       let n = this.lineCache.get(item);
       if (!n) {
         n = { added: 0, removed: 0 };
@@ -323,8 +362,23 @@ export class Chat {
       return;
     }
     if (msg.method === "session/update") {
-      if (msg.params?.sessionId && this.state.sessionId && msg.params.sessionId !== this.state.sessionId) return;
-      this.onUpdate(msg.params?.update ?? {});
+      const sid = msg.params?.sessionId;
+      const u = msg.params?.update ?? {};
+      // A subagent's activity names the tool call that launched it; it goes
+      // under that call rather than into the conversation.
+      if (u.sessionUpdate === "session_message" && sid && typeof u.messageId === "string") {
+        this.childParents.set(sid, u.messageId);
+        this.updateSubagent(u.messageId, (r) => ({ ...r, ...this.subagentInfo.get(sid) }));
+        return;
+      }
+      const parent = u._meta?.claudeCode?.parentToolUseId ?? (sid ? this.childParents.get(sid) : undefined);
+      if (parent && u.sessionUpdate !== "subagent_update") {
+        if (sid && sid !== this.state.sessionId) this.childParents.set(sid, parent);
+        this.onSubagentUpdate(parent, u);
+        return;
+      }
+      if (sid && this.state.sessionId && sid !== this.state.sessionId) return;
+      this.onUpdate(u);
       return;
     }
     if (msg.method === "session/request_permission" && msg.id != null) {
@@ -335,6 +389,52 @@ export class Chat {
     // rather than leave the agent waiting on it.
     if (msg.id != null && msg.method) {
       this.write({ id: msg.id, error: { code: -32601, message: `Lever does not support ${msg.method}` } });
+    }
+  }
+
+  /** Subagent session id -> the tool call that launched it. */
+  private childParents = new Map<string, string>();
+  /** What a subagent said about itself, kept until its tool call is known. */
+  private subagentInfo = new Map<string, { title?: string; description?: string; state?: string }>();
+
+  private updateSubagent(parentId: string, fn: (run: SubagentRun) => SubagentRun) {
+    const items = this.state.items;
+    const idx = items.findIndex((i) => i.kind === "tool" && i.id === parentId);
+    if (idx < 0) return;
+    const tool = items[idx] as ToolItem;
+    const copy = items.slice();
+    copy[idx] = { ...tool, subagent: fn(tool.subagent ?? { steps: [] }) };
+    this.set({ items: copy });
+  }
+
+  private onSubagentUpdate(parentId: string, u: any) {
+    switch (u.sessionUpdate) {
+      case "tool_call":
+      case "tool_call_update":
+        this.updateSubagent(parentId, (run) => {
+          const steps = run.steps.slice();
+          const at = steps.findIndex((s) => s.kind === "tool" && s.id === u.toolCallId);
+          const next = mergeTool(at >= 0 ? (steps[at] as ToolItem) : null, u);
+          if (at >= 0) steps[at] = next;
+          else steps.push(next);
+          return { ...run, steps };
+        });
+        return;
+      case "agent_message_chunk": {
+        const text = u.content?.type === "text" ? u.content.text ?? "" : "";
+        if (!text) return;
+        this.updateSubagent(parentId, (run) => {
+          const steps = run.steps.slice();
+          const last = steps[steps.length - 1];
+          if (last && last.kind === "note" && last.messageId === u.messageId) {
+            steps[steps.length - 1] = { ...last, text: last.text + text };
+          } else {
+            steps.push({ kind: "note", id: `${parentId}-n${steps.length}`, messageId: u.messageId, text });
+          }
+          return { ...run, steps };
+        });
+        return;
+      }
     }
   }
 
@@ -403,17 +503,7 @@ export class Chat {
         const items = this.state.items;
         const idx = items.findIndex((i) => i.kind === "tool" && i.id === u.toolCallId);
         const prev = idx >= 0 ? (items[idx] as ToolItem) : null;
-        const rawInput = u.rawInput && Object.keys(u.rawInput).length ? u.rawInput : prev?.rawInput;
-        const next: ToolItem = {
-          kind: "tool",
-          id: u.toolCallId,
-          title: u.title ?? prev?.title ?? u.name ?? "Tool",
-          toolKind: u.kind ?? prev?.toolKind,
-          status: u.status ?? prev?.status,
-          content: u.content ?? prev?.content ?? [],
-          rawInput,
-          rawOutput: typeof u.rawOutput === "string" ? u.rawOutput : prev?.rawOutput,
-        };
+        const next = mergeTool(prev, u);
         if (idx >= 0) {
           const copy = items.slice();
           copy[idx] = next;
@@ -421,6 +511,19 @@ export class Chat {
         } else {
           this.push(next);
         }
+        return;
+      }
+      case "subagent_update": {
+        // A subagent announced (or finished). Its own messages, under its own
+        // session id, name the tool call that launched it.
+        const run = this.subagentInfo.get(u.sessionId) ?? {};
+        this.subagentInfo.set(u.sessionId, {
+          title: u.title ?? run.title,
+          description: u.description ?? run.description,
+          state: u.state?.state ?? run.state,
+        });
+        const parent = this.childParents.get(u.sessionId);
+        if (parent) this.updateSubagent(parent, (r) => ({ ...r, ...this.subagentInfo.get(u.sessionId) }));
         return;
       }
       case "plan":
@@ -468,7 +571,10 @@ export class Chat {
       const init = await this.request("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "lever", title: "Lever" },
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        // `subagents`: a subagent's activity comes as its own session, which
+        // is also what lets a loaded conversation bring that activity back —
+        // without it only the main thread is replayed.
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, subagents: {} },
       });
       if (!live()) return;
       const caps = init?.agentCapabilities ?? {};
@@ -494,9 +600,23 @@ export class Chat {
         const res = await this.request("session/load", { sessionId: resumeId, cwd: this.cwd, mcpServers: [] });
         // A replayed tool call that never reported an outcome is history, not
         // something still running.
-        const items = this.state.items.map((i) =>
-          i.kind === "tool" && (i.status === "pending" || i.status === "in_progress" || !i.status) ? { ...i, status: "replayed" } : i
-        );
+        const settle = (t: ToolItem): ToolItem =>
+          t.status === "pending" || t.status === "in_progress" || !t.status ? { ...t, status: "replayed" } : t;
+        // A subagent still "running" at the end of a replay ran in a process
+        // that is gone; it is history now, like the tool calls above.
+        const items = this.state.items.map((i) => {
+          if (i.kind !== "tool") return i;
+          const t = settle(i);
+          if (!t.subagent) return t;
+          return {
+            ...t,
+            subagent: {
+              ...t.subagent,
+              state: t.subagent.state === "running" ? "ended" : t.subagent.state,
+              steps: t.subagent.steps.map((st) => (st.kind === "tool" ? settle(st) : st)),
+            },
+          };
+        });
         this.set({ status: "ready", loading: false, items, configOptions: res?.configOptions ?? this.state.configOptions });
       } else {
         const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [] });
@@ -748,9 +868,9 @@ export class Chat {
   editsAfter(userItemId: string): ToolItem[] {
     const idx = this.state.items.findIndex((i) => i.id === userItemId);
     if (idx < 0) return [];
-    return this.state.items
-      .slice(idx + 1)
-      .filter((i): i is ToolItem => i.kind === "tool" && i.status !== "failed" && i.content.some((c) => c.type === "diff"));
+    return allTools(this.state.items.slice(idx + 1)).filter(
+      (i) => i.status !== "failed" && i.content.some((c) => c.type === "diff")
+    );
   }
 
   /**
@@ -872,8 +992,8 @@ export interface FileChange {
 /** Every file this conversation's edits touched, with their edits. */
 export function fileChanges(items: ChatItem[], cwd: string): FileChange[] {
   const byPath = new Map<string, FileChange>();
-  for (const item of items) {
-    if (item.kind !== "tool" || item.status === "failed") continue;
+  for (const item of allTools(items)) {
+    if (item.status === "failed") continue;
     for (const c of item.content) {
       if (c.type !== "diff" || !c.path) continue;
       let f = byPath.get(c.path);

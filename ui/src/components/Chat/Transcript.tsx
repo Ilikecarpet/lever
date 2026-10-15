@@ -76,10 +76,14 @@ function summarize(entries: ActivityEntry[]): string {
   let thoughts = 0;
   for (const e of entries) {
     if (e.kind === "thought") thoughts++;
-    else if (e.kind === "tool") count[e.toolKind ?? "other"] = (count[e.toolKind ?? "other"] ?? 0) + 1;
+    else if (e.kind === "tool") {
+      const k = e.subagent ? "agent" : e.toolKind ?? "other";
+      count[k] = (count[k] ?? 0) + 1;
+    }
   }
   const parts: string[] = [];
-  if (count.read) parts.push(`Read ${plural(count.read, "file", "files")}`);
+  if (count.agent) parts.push(`ran ${plural(count.agent, "agent", "agents")}`);
+  if (count.read) parts.push(`read ${plural(count.read, "file", "files")}`);
   if (count.search) parts.push(`searched ${plural(count.search, "time", "times")}`);
   if (count.edit) {
     const files = editedFiles(entries as ChatItem[]);
@@ -395,7 +399,59 @@ function decisionLabel(e: Extract<ChatItem, { kind: "permission" }>): string {
   return opt.kind.startsWith("allow") ? (opt.kind === "allow_always" ? "Always allowed" : "Approved") : "Declined";
 }
 
+/** A tool call that launched a subagent: what it was sent to do, whether it
+ *  is still going, and — opened — every step it took. */
+function SubagentRow({ item, decision }: { item: ToolItem; decision?: string }) {
+  const [open, setOpen] = useState(false);
+  const run = item.subagent!;
+  const input = item.rawInput ?? {};
+  const kind = typeof input.subagent_type === "string" ? input.subagent_type : run.title ?? "Agent";
+  const task = typeof input.description === "string" ? input.description : run.description ?? item.title;
+  const running = run.state === "running" || (!run.state && (item.status === "pending" || item.status === "in_progress"));
+  const failed = run.state === "failed" || run.state === "error";
+  const tools = run.steps.filter((s) => s.kind === "tool").length;
+  return (
+    <div className={styles.toolRow} data-status={running ? "in_progress" : failed ? "failed" : "completed"}>
+      <button className={styles.toolHead} onClick={() => setOpen((o) => !o)}>
+        <span className={styles.toolIcon}>
+          <IconSparkle size={12} />
+        </span>
+        <span className={styles.subagentKind}>{kind}</span>
+        <span className={styles.toolLabel}>{task}</span>
+        <span className={styles.subagentCount}>
+          {tools} {tools === 1 ? "step" : "steps"}
+        </span>
+        {decision && (
+          <span className={decision === "Declined" || decision === "Cancelled" ? styles.decisionNo : styles.decisionYes}>{decision}</span>
+        )}
+        <span key={running ? "r" : "d"} className={`${styles.toolStatus}${running ? "" : ` ${styles.statusPop}`}`}>
+          {running ? <LeverMark size={13} working /> : failed ? <IconClose size={9} /> : <IconCheck size={11} />}
+        </span>
+      </button>
+      <Collapse open={open}>
+        <div className={styles.subagentBody}>
+          {run.steps.length === 0 && <div className={styles.subagentNote}>No steps recorded.</div>}
+          {run.steps.map((step) =>
+            step.kind === "tool" ? (
+              <ToolRow key={step.id} item={step} />
+            ) : (
+              <div key={step.id} className={styles.subagentNote}>
+                {step.text}
+              </div>
+            )
+          )}
+        </div>
+      </Collapse>
+    </div>
+  );
+}
+
 function ToolRow({ item, decision }: { item: ToolItem; decision?: string }) {
+  if (item.subagent) return <SubagentRow item={item} decision={decision} />;
+  return <PlainToolRow item={item} decision={decision} />;
+}
+
+function PlainToolRow({ item, decision }: { item: ToolItem; decision?: string }) {
   const cwd = useContext(CwdContext);
   const diffs = item.content.filter((c) => c.type === "diff");
   const [open, setOpen] = useState(false);
