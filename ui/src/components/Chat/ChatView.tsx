@@ -13,12 +13,87 @@ import {
 } from "../../lib/acpChat";
 import { useGitStore, MAIN_GIT_TARGET } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
+import { useSettingsStore, FONT_SIZE_DEFAULT } from "../../stores/settingsStore";
 import { IconUndo, IconPanelNarrow, IconPanelWiden, IconArrowDown, IconBranch, IconChat, IconChevronRight, IconClock, IconDiff, IconRetry, IconSearch } from "../Icons";
 import { Composer, type ComposerHandle } from "./Composer";
 import { Transcript, Diff, DiffStat, CwdContext, Collapse, formatDuration } from "./Transcript";
 import { CodeBlock } from "./Markdown";
 import { AgentLogo } from "./AgentLogo";
 import styles from "./Chat.module.css";
+
+const COLUMN_DEFAULT = 760;
+const COLUMN_MIN = 480;
+const COLUMN_KEY = "lever-chat-column-width";
+
+function readColumnWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(COLUMN_KEY));
+    if (Number.isFinite(v) && v >= COLUMN_MIN) return v;
+  } catch {}
+  return COLUMN_DEFAULT;
+}
+
+/**
+ * How wide the conversation runs, dragged by a handle on its right edge and
+ * remembered across chats. The column stays centred, so the handle moves by
+ * half what the column grows. Double-click puts it back.
+ */
+function useColumnWidth(mainRef: React.RefObject<HTMLDivElement>) {
+  const [width, setWidth] = useState(readColumnWidth);
+  const [mainWidth, setMainWidth] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const measure = () => setMainWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mainRef]);
+
+  const shown = mainWidth ? Math.min(width, mainWidth) : width;
+
+  const save = (w: number) => {
+    try {
+      localStorage.setItem(COLUMN_KEY, String(Math.round(w)));
+    } catch {}
+  };
+
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = mainRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const centre = rect.left + rect.width / 2;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    setDragging(true);
+    let last = width;
+    const move = (ev: PointerEvent) => {
+      last = Math.max(COLUMN_MIN, Math.min(2 * (ev.clientX - centre), rect.width));
+      setWidth(last);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
+      setDragging(false);
+      save(last);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
+  };
+
+  const reset = () => {
+    setWidth(COLUMN_DEFAULT);
+    save(COLUMN_DEFAULT);
+  };
+
+  return { width: shown, mainWidth, dragging, onHandleDown, reset };
+}
 
 /** The branch checked out where this chat runs. */
 function useBranch(worktreeId: string | null): string | undefined {
@@ -47,6 +122,11 @@ export default function ChatView({
   const pinned = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [showChanges, setShowChanges] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const column = useColumnWidth(mainRef);
+  // Settings → Type size scales the chat as it does terminals; the chat's
+  // sizes are drawn for the default.
+  const zoom = useSettingsStore((s) => s.terminalFontSize) / FONT_SIZE_DEFAULT;
   const branch = useBranch(worktreeId);
 
   useEffect(() => {
@@ -101,7 +181,22 @@ export default function ChatView({
       />
 
       <div className={styles.chatBody}>
-        <div className={styles.chatMain}>
+        <div
+          className={`${styles.chatMain}${column.dragging ? ` ${styles.chatMainResizing}` : ""}`}
+          ref={mainRef}
+          style={{ "--chat-zoom": zoom, "--chat-col": `${column.width}px` } as React.CSSProperties}
+        >
+          {!empty && column.mainWidth > COLUMN_MIN + 40 && (
+            <div
+              className={styles.columnHandle}
+              style={{ left: `calc(50% + ${column.width / 2}px - 4px)` }}
+              onPointerDown={column.onHandleDown}
+              onDoubleClick={column.reset}
+              role="separator"
+              aria-orientation="vertical"
+              title="Drag to widen the conversation · double-click to reset"
+            />
+          )}
           {empty ? (
             <Welcome chat={chat} state={state} cwd={cwd} branch={branch} composer={composer} active={isActive} />
           ) : (
