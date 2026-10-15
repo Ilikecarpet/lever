@@ -2626,31 +2626,35 @@
 
 .columnHandle {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 50%;
   z-index: 4;
-  width: 8px;
+  width: 12px;
+  height: 48px;
+  margin-left: -2px;
+  transform: translateY(-50%);
   cursor: col-resize;
   touch-action: none;
 }
 
+/* A small pill grabber, centred on the column's edge: faint until hovered. */
 .columnHandle::after {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 3px;
-  width: 2px;
-  background: var(--accent);
-  opacity: 0;
-  transform: scaleY(0.4);
-  transition: opacity 0.15s, transform 0.3s var(--ease-out);
+  top: 8px;
+  bottom: 8px;
+  left: 4px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--border-hover);
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, transform 0.25s var(--ease-spring);
 }
 
 .columnHandle:hover::after,
 .chatMainResizing .columnHandle::after {
-  opacity: 0.8;
-  transform: scaleY(1);
+  opacity: 1;
+  background: var(--accent);
+  transform: scaleY(1.15);
 }
 
 .chatMainResizing {
