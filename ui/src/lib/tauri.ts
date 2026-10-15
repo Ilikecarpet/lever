@@ -166,6 +166,11 @@ export function acpReadText(path: string): Promise<string | null> {
   return invoke<string | null>("acp_read_text", { path });
 }
 
+/** Undo one of a chat's edits, if the file still holds it exactly. */
+export function acpRevertEdit(path: string, oldText: string | null, newText: string): Promise<void> {
+  return invoke<void>("acp_revert_edit", { path, oldText, newText });
+}
+
 export function acpListFiles(cwd: string): Promise<string[]> {
   return invoke<string[]>("acp_list_files", { cwd });
 }

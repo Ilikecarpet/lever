@@ -36,12 +36,16 @@
 }
 
 /* Text stays a readable width however wide the pane is. */
+/* Width is the drag handle's (--chat-col, on screen); zoom is Settings →
+   Type size. A zoomed box's own lengths are scaled too, so the width is
+   divided back out to stay where the handle put it. */
 .column {
   width: 100%;
-  max-width: 760px;
+  max-width: calc(var(--chat-col, 760px) / var(--chat-zoom, 1));
   margin: 0 auto;
   padding: 0 24px;
   position: relative;
+  zoom: var(--chat-zoom, 1);
 }
 
 .scroller {
@@ -293,6 +297,7 @@
 }
 
 .welcomeInner {
+  zoom: var(--chat-zoom, 1);
   width: 100%;
   max-width: 680px;
   margin: auto 0;
@@ -1704,6 +1709,9 @@
 .input {
   display: block;
   width: 100%;
+  /* Text wraps, so nothing in here is ever wider than the box; under the
+     Type size zoom it can still measure a hair wider and scroll sideways. */
+  overflow-x: hidden;
   padding: 12px 16px 4px;
   background: none;
   border: none;
@@ -2504,4 +2512,368 @@
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/* --- Rewind ---------------------------------------------------------------- */
+
+.rewindDock {
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  outline: none;
+  animation: dockIn 0.4s var(--ease-spring) both;
+}
+
+.rewindDock .permHead {
+  color: var(--text-dim);
+}
+
+.rewindList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.rewindItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rewindText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewindEdits {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.rewindQuote {
+  margin: 8px 0 10px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border-hover);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  max-height: 90px;
+  overflow: hidden;
+}
+
+.rewindNote {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.rewindItem.menuItemHover {
+  background: var(--surface-hover);
+}
+
+/* --- Subagents ------------------------------------------------------------- */
+
+.subagentKind {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.subagentCount {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.subagentBody {
+  margin: 2px 0 6px 6px;
+  padding-left: 12px;
+  border-left: 1px dashed var(--border-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.subagentNote {
+  padding: 3px 0 3px 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+/* --- Conversation width handle ---------------------------------------------- */
+
+.columnHandle {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  width: 12px;
+  height: 48px;
+  margin-left: -2px;
+  transform: translateY(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* A small pill grabber, centred on the column's edge: faint until hovered. */
+.columnHandle::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 4px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--border-hover);
+  opacity: 0;
+  transform: scaleY(0.6);
+  transition: opacity 0.2s, background 0.15s, transform 0.3s var(--ease-spring);
+}
+
+/* Out of sight until the pointer comes near the edge. */
+.columnHandleShown::after {
+  opacity: 0.7;
+  transform: scaleY(1);
+}
+
+.columnHandle:hover::after,
+.chatMainResizing .columnHandle::after {
+  opacity: 1;
+  background: var(--accent);
+  transform: scaleY(1.15);
+}
+
+.chatMainResizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* --- Usage popover (the context ring) -------------------------------------- */
+
+.usageWrap {
+  position: relative;
+}
+
+button.ring {
+  height: 28px;
+  padding: 0 7px 0 5px;
+  margin: 0 2px 0 4px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.25s var(--ease-spring);
+}
+
+button.ring:hover,
+.ringOpen {
+  background: var(--surface-hover);
+}
+
+button.ring:active {
+  transform: scale(0.95);
+}
+
+.ringArc {
+  transition: stroke-dasharray 0.6s var(--ease-out), stroke 0.3s;
+}
+
+.usagePanel {
+  position: absolute;
+  right: -40px;
+  bottom: calc(100% + 10px);
+  z-index: 40;
+  width: 300px;
+  padding: 14px;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  transform-origin: 85% 100%;
+  animation: menuIn 0.24s var(--ease-out) both;
+  cursor: default;
+  font-size: 12.5px;
+}
+
+.usageHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.usageModel {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.usageChip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.usageSection {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.usageSection:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.usageRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.usageRow > :first-child {
+  flex: 1;
+}
+
+.usageLabel {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.usageFigure {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usageDim {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.usageBar {
+  height: 6px;
+  margin: 7px 0 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.usageBar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: left;
+  animation: barGrow 0.7s var(--ease-out) both;
+}
+
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.usageNote {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.usageAdvice {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  background: var(--yellow-dim);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.usageGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.usageStat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  animation: rise 0.4s var(--ease-out) both;
+}
+
+.usageStatValue {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usageStatLabel {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.usagePlan {
+  margin-top: 8px;
+}
+
+.usagePlan .usageBar {
+  height: 4px;
+  margin-bottom: 2px;
+}
+
+.usageAction {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 0;
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.25s var(--ease-spring);
+}
+
+.usageAction:hover {
+  border-color: var(--accent);
+}
+
+.usageAction:active {
+  transform: scale(0.98);
 }

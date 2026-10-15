@@ -223,6 +223,9 @@ export default function AgentMeter() {
   }, [hasUsage]);
 
   if (!agent || !usage) return null;
+  // A chat's agent says how big its window is with its first reply; before
+  // that there is nothing to measure against.
+  if (usage.origin === "chat" && usage.contextLimit <= 0) return null;
 
   // An explicit setting wins over the backend's guess, except that a session
   // which has already outgrown the chosen size keeps the larger one — a meter
@@ -234,6 +237,9 @@ export default function AgentMeter() {
   const percent = Math.round(fraction * 100);
   const segments = segmentsOf(usage);
   const reported = usage.reported;
+  // A chat's figures come from the agent over ACP: it says how full the window
+  // is, but not how the last reply split it, nor the prompt cache's state.
+  const fromChat = usage.origin === "chat";
 
   // The plan headline is the tighter window — the one that runs out first is
   // the one you plan around. The weekly window stands in when Claude Code has
@@ -311,6 +317,7 @@ export default function AgentMeter() {
             <span className={styles.headMeta}>
               <span className={styles.headModel} title={usage.model ?? undefined}>{modelLabel}</span>
               {usage.cliVersion ? ` · v${usage.cliVersion}` : ""}
+              {fromChat && <span className={styles.chip}>chat</span>}
               {chips.map((c) => (
                 <span key={c} className={styles.chip}>{c}</span>
               ))}
@@ -328,6 +335,8 @@ export default function AgentMeter() {
               </>
             }
           >
+            {!fromChat && (
+            <>
             <div className={styles.stack}>
               {segments.map((s) => (
                 <span
@@ -346,11 +355,15 @@ export default function AgentMeter() {
                 <span className={styles.rowValue}>{exact(s.value)}</span>
               </div>
             ))}
+            </>
+            )}
             {/* The figure is a floor, and saying so costs one line. Where the
                 window came from matters just as much: an inferred one is a
                 guess that has not been contradicted yet. */}
             <p className={styles.note}>
-              Measured at the last reply — tool output since then is not counted.
+              {fromChat
+                ? `${exact(usage.contextTokens)} tokens, as the agent last reported them for this chat.`
+                : "Measured at the last reply — tool output since then is not counted."}
               {usage.contextLimitSource === "inferred" &&
                 " Window size assumed; turn on the Claude Code bridge in Settings to read the real one, along with your plan's remaining usage."}
             </p>
@@ -421,7 +434,7 @@ export default function AgentMeter() {
                 until this process's first request, and a resumed conversation
                 spends a while in that gap. A dash with a reason beats a row
                 that comes and goes. */}
-            {reported && (
+            {reported && !fromChat && (
               <TextRow
                 label="Prompt cache"
                 value={
@@ -445,6 +458,9 @@ export default function AgentMeter() {
                         : "")
                 }
               />
+            )}
+            {fromChat && usage.turns === 0 && (
+              <p className={styles.note}>Totals start with this chat's first reply.</p>
             )}
             <TotalRow
               label="Input"

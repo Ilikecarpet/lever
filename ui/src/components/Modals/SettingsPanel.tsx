@@ -190,7 +190,7 @@ export default function SettingsPanel() {
             <div className={styles.row}>
               <div className={styles.rowText}>
                 <div className={styles.rowLabel}>Type size</div>
-                <div className={styles.rowSub}>Applies to open terminals straight away.</div>
+                <div className={styles.rowSub}>Applies to open terminals and chats straight away.</div>
               </div>
               <div className={styles.stepper}>
                 <button

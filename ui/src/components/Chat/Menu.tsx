@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { IconCheck, IconChevron } from "../Icons";
+import { IconCheck } from "../Icons";
 import styles from "./Chat.module.css";
 
 export interface MenuItem {
@@ -75,7 +75,6 @@ export function PickerMenu({
         {current?.tone && <span className={styles.toneDot} style={{ background: current.tone }} />}
         {icon}
         <span>{current?.label ?? value}</span>
-        <IconChevron size={8} />
       </button>
       {open && (
         <div className={`${styles.menu} ${align === "right" ? styles.menuRight : ""}`} role="listbox">

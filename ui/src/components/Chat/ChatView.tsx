@@ -13,12 +13,87 @@ import {
 } from "../../lib/acpChat";
 import { useGitStore, MAIN_GIT_TARGET } from "../../stores/gitStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
-import { IconPanelNarrow, IconPanelWiden, IconArrowDown, IconBranch, IconChat, IconChevronRight, IconClock, IconDiff, IconRetry, IconSearch } from "../Icons";
+import { useSettingsStore, FONT_SIZE_DEFAULT } from "../../stores/settingsStore";
+import { IconUndo, IconPanelNarrow, IconPanelWiden, IconArrowDown, IconBranch, IconChat, IconChevronRight, IconClock, IconDiff, IconRetry, IconSearch } from "../Icons";
 import { Composer, type ComposerHandle } from "./Composer";
 import { Transcript, Diff, DiffStat, CwdContext, Collapse, formatDuration } from "./Transcript";
 import { CodeBlock } from "./Markdown";
 import { AgentLogo } from "./AgentLogo";
 import styles from "./Chat.module.css";
+
+const COLUMN_DEFAULT = 760;
+const COLUMN_MIN = 480;
+const COLUMN_KEY = "lever-chat-column-width";
+
+function readColumnWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(COLUMN_KEY));
+    if (Number.isFinite(v) && v >= COLUMN_MIN) return v;
+  } catch {}
+  return COLUMN_DEFAULT;
+}
+
+/**
+ * How wide the conversation runs, dragged by a handle on its right edge and
+ * remembered across chats. The column stays centred, so the handle moves by
+ * half what the column grows. Double-click puts it back.
+ */
+function useColumnWidth(mainRef: React.RefObject<HTMLDivElement>) {
+  const [width, setWidth] = useState(readColumnWidth);
+  const [mainWidth, setMainWidth] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const measure = () => setMainWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mainRef]);
+
+  const shown = mainWidth ? Math.min(width, mainWidth) : width;
+
+  const save = (w: number) => {
+    try {
+      localStorage.setItem(COLUMN_KEY, String(Math.round(w)));
+    } catch {}
+  };
+
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = mainRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const rect = el.getBoundingClientRect();
+    const centre = rect.left + rect.width / 2;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    setDragging(true);
+    let last = width;
+    const move = (ev: PointerEvent) => {
+      last = Math.max(COLUMN_MIN, Math.min(2 * (ev.clientX - centre), rect.width));
+      setWidth(last);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
+      setDragging(false);
+      save(last);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
+  };
+
+  const reset = () => {
+    setWidth(COLUMN_DEFAULT);
+    save(COLUMN_DEFAULT);
+  };
+
+  return { width: shown, mainWidth, dragging, onHandleDown, reset };
+}
 
 /** The branch checked out where this chat runs. */
 function useBranch(worktreeId: string | null): string | undefined {
@@ -47,6 +122,21 @@ export default function ChatView({
   const pinned = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [showChanges, setShowChanges] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const column = useColumnWidth(mainRef);
+  // The width grabber shows only when the pointer comes near the edge it sits on.
+  const [nearEdge, setNearEdge] = useState(false);
+  const onMainMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = mainRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const edge = r.left + r.width / 2 + column.width / 2;
+    const near = Math.abs(e.clientX - edge) < 48;
+    if (near !== nearEdge) setNearEdge(near);
+  };
+  // Settings → Type size scales the chat as it does terminals; the chat's
+  // sizes are drawn for the default.
+  const zoom = useSettingsStore((s) => s.terminalFontSize) / FONT_SIZE_DEFAULT;
   const branch = useBranch(worktreeId);
 
   useEffect(() => {
@@ -68,6 +158,14 @@ export default function ChatView({
   );
   const waiting = state.items.filter((i): i is Extract<ChatItem, { kind: "permission" }> => i.kind === "permission" && !i.outcome);
   const pending = waiting[0];
+  // Rewinding: picking which message to go back to, then how far.
+  const [rewind, setRewind] = useState<{ step: "pick" } | { step: "confirm"; id: string } | null>(null);
+  const canRewind = state.canFork && state.status === "ready" && state.items.some((i) => i.kind === "user");
+  const doRewind = async (id: string, code: boolean) => {
+    setRewind(null);
+    const text = await chat.rewind(id, { code });
+    if (text != null) composer.current?.setDraft(text);
+  };
   const empty = state.items.length === 0 && !state.loading;
   const working = state.status === "working";
 
@@ -93,7 +191,24 @@ export default function ChatView({
       />
 
       <div className={styles.chatBody}>
-        <div className={styles.chatMain}>
+        <div
+          className={`${styles.chatMain}${column.dragging ? ` ${styles.chatMainResizing}` : ""}`}
+          ref={mainRef}
+          onMouseMove={onMainMove}
+          onMouseLeave={() => setNearEdge(false)}
+          style={{ "--chat-zoom": zoom, "--chat-col": `${column.width}px` } as React.CSSProperties}
+        >
+          {!empty && column.mainWidth > COLUMN_MIN + 40 && (
+            <div
+              className={`${styles.columnHandle}${nearEdge || column.dragging ? ` ${styles.columnHandleShown}` : ""}`}
+              style={{ left: `calc(50% + ${column.width / 2}px - 4px)` }}
+              onPointerDown={column.onHandleDown}
+              onDoubleClick={column.reset}
+              role="separator"
+              aria-orientation="vertical"
+              title="Drag to widen the conversation · double-click to reset"
+            />
+          )}
           {empty ? (
             <Welcome chat={chat} state={state} cwd={cwd} branch={branch} composer={composer} active={isActive} />
           ) : (
@@ -115,6 +230,7 @@ export default function ChatView({
                     working={working}
                     turnStartedAt={state.turnStartedAt}
                     onEdit={(t) => composer.current?.setDraft(t)}
+                    onRewind={canRewind ? (id) => setRewind({ step: "confirm", id }) : undefined}
                   />
                   {state.status === "exited" && (
                     <div className={styles.exitedCard}>
@@ -136,7 +252,27 @@ export default function ChatView({
                   )}
                   <PlanCard state={state} />
                   {pending && <PermissionDock key={pending.id} chat={chat} item={pending} queued={waiting.length - 1} agent={AGENTS[state.agent].name} cwd={cwd} />}
-                  <Composer ref={composer} chat={chat} state={state} cwd={cwd} active={isActive} />
+                  {rewind && canRewind && (
+                    <RewindDock
+                      chat={chat}
+                      state={state}
+                      step={rewind}
+                      onPick={(id) => setRewind({ step: "confirm", id })}
+                      onChoose={doRewind}
+                      onClose={() => {
+                        setRewind(null);
+                        composer.current?.focus();
+                      }}
+                    />
+                  )}
+                  <Composer
+                    ref={composer}
+                    chat={chat}
+                    state={state}
+                    cwd={cwd}
+                    active={isActive}
+                    onDoubleEscape={canRewind ? () => setRewind({ step: "pick" }) : undefined}
+                  />
                   <div className={styles.footnote}>
                     {AGENTS[state.agent].name} can make mistakes and acts on this checkout. Review its changes before you commit.
                   </div>
@@ -597,6 +733,114 @@ function PermissionDock({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Rewind, docked above the composer like an approval: first which of your
+ * messages to go back to (newest first), then whether to take the code back
+ * with the conversation. Keys: ↑↓ and Enter to pick, 1/2 to choose, Esc out.
+ */
+function RewindDock({
+  chat,
+  state,
+  step,
+  onPick,
+  onChoose,
+  onClose,
+}: {
+  chat: Chat;
+  state: ChatState;
+  step: { step: "pick" } | { step: "confirm"; id: string };
+  onPick: (id: string) => void;
+  onChoose: (id: string, code: boolean) => void;
+  onClose: () => void;
+}) {
+  const messages = state.items.filter((i): i is Extract<ChatItem, { kind: "user" }> => i.kind === "user").reverse();
+  const [hover, setHover] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, [step.step]);
+
+  const target = step.step === "confirm" ? state.items.find((i) => i.id === step.id) : null;
+  const edits = step.step === "confirm" ? chat.editsAfter(step.id) : [];
+  const files = new Set(edits.flatMap((t) => t.content.filter((c) => c.type === "diff").map((c) => c.path)));
+
+  return (
+    <div
+      className={styles.rewindDock}
+      ref={ref}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (step.step === "pick" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          const d = e.key === "ArrowDown" ? 1 : -1;
+          setHover((h) => (h + d + messages.length) % messages.length);
+        } else if (step.step === "pick" && e.key === "Enter" && messages[hover]) {
+          e.preventDefault();
+          onPick(messages[hover].id);
+        } else if (step.step === "confirm" && (e.key === "1" || e.key === "Enter")) {
+          e.preventDefault();
+          onChoose(step.id, false);
+        } else if (step.step === "confirm" && e.key === "2" && edits.length) {
+          e.preventDefault();
+          onChoose(step.id, true);
+        }
+      }}
+    >
+      <div className={styles.permHead}>
+        <IconUndo size={13} />
+        <span>
+          <b>Rewind</b> {step.step === "pick" ? "to before which message?" : "to before this message"}
+        </span>
+        <span className={styles.permQueue}>esc to cancel</span>
+      </div>
+      {step.step === "pick" ? (
+        <div className={styles.rewindList}>
+          {messages.map((m, i) => {
+            const n = chat.editsAfter(m.id).length;
+            return (
+              <button
+                key={m.id}
+                className={`${styles.rewindItem}${i === hover ? ` ${styles.menuItemHover}` : ""}`}
+                onMouseEnter={() => setHover(i)}
+                onClick={() => onPick(m.id)}
+              >
+                <span className={styles.rewindText}>{m.text.split("\n")[0] || "(image)"}</span>
+                {n > 0 && <span className={styles.rewindEdits}>{n} {n === 1 ? "edit" : "edits"} after</span>}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className={styles.rewindQuote}>{target?.kind === "user" ? target.text : ""}</div>
+          <div className={styles.permOptions}>
+            <button className={styles.allowBtn} onClick={() => onChoose(step.id, false)}>
+              <span className={styles.keyHint}>1</span>
+              Restore conversation
+            </button>
+            {edits.length > 0 && (
+              <button className={styles.allowAltBtn} onClick={() => onChoose(step.id, true)}>
+                <span className={styles.keyHint}>2</span>
+                Restore conversation and code ({edits.length} {edits.length === 1 ? "edit" : "edits"}, {files.size} {files.size === 1 ? "file" : "files"})
+              </button>
+            )}
+            <button className={styles.rejectBtn} onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+          <div className={styles.rewindNote}>
+            The agent forgets everything from this message on; the conversation as it is now stays in History.
+            {edits.length > 0 && " Code is restored only where a file still holds exactly what the agent wrote."}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import * as api from "../../lib/tauri";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { Chat, ChatState, ImageAttachment } from "../../lib/acpChat";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { IconAt, IconClose, IconFile, IconPaperclip, IconSend, IconSlash, IconStop } from "../Icons";
 import { PickerMenu, type MenuItem } from "./Menu";
+import { UsageButton } from "./UsagePopover";
 import styles from "./Chat.module.css";
 
 /** What each permission mode is worth flagging as, at a glance. */
@@ -67,8 +69,12 @@ export const Composer = forwardRef<ComposerHandle, {
   placeholder?: string;
   /** The chat in front of the user: the one a file dropped on the window is for. */
   active?: boolean;
-}>(function Composer({ chat, state, cwd, centered, placeholder, active }, ref) {
+  /** Esc pressed twice in quick succession, as in Claude Code: rewind. */
+  onDoubleEscape?: () => void;
+}>(function Composer({ chat, state, cwd, centered, placeholder, active, onDoubleEscape }, ref) {
+  const lastEscape = useRef(0);
   const [draft, setDraft] = useState("");
+  const typeSize = useSettingsStore((st) => st.terminalFontSize);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
@@ -99,8 +105,13 @@ export const Composer = forwardRef<ComposerHandle, {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
-  }, [draft]);
+    // Under Settings → Type size the box is zoomed, and its measured content
+    // can round a pixel over its own height — enough for a scrollbar. It only
+    // scrolls once it is at its tallest.
+    const full = el.scrollHeight;
+    el.style.height = `${Math.min(full + 1, 280)}px`;
+    el.style.overflowY = full > 280 ? "auto" : "hidden";
+  }, [draft, typeSize]);
 
   const working = state.status === "working";
   const canSend = (state.status === "ready" || working) && (draft.trim().length > 0 || attachments.length > 0);
@@ -316,6 +327,17 @@ export const Composer = forwardRef<ComposerHandle, {
       chat.cancel();
       return;
     }
+    if (e.key === "Escape" && onDoubleEscape) {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastEscape.current < 500) {
+        lastEscape.current = 0;
+        onDoubleEscape();
+      } else {
+        lastEscape.current = now;
+      }
+      return;
+    }
     // Walk back through what was sent, as a shell does, while the draft is
     // either empty or itself a recalled message.
     const recalled = historyAt !== null && draft === chat.sent[historyAt];
@@ -489,7 +511,7 @@ export const Composer = forwardRef<ComposerHandle, {
         {effort && (
           <PickerMenu heading="Effort" items={items(effort)} value={effort.currentValue} onChange={(v) => chat.setOption("effort", v)} align="right" />
         )}
-        {state.usage && state.usage.size > 0 && <ContextRing used={state.usage.used} size={state.usage.size} cost={state.usage.cost} />}
+        {state.usage && state.usage.size > 0 && <UsageButton chat={chat} state={state} />}
         {/* One button that turns from send into stop and back, rather than
             two swapping places. */}
         <button
@@ -509,32 +531,3 @@ export const Composer = forwardRef<ComposerHandle, {
     </div>
   );
 });
-
-function ContextRing({ used, size, cost }: { used: number; size: number; cost?: number }) {
-  const pct = Math.min(1, used / size);
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const tone = pct > 0.85 ? "var(--red)" : pct > 0.6 ? "var(--yellow)" : "var(--text-dim)";
-  return (
-    <span
-      className={styles.ring}
-      title={`Context: ${used.toLocaleString()} of ${size.toLocaleString()} tokens (${Math.round(pct * 100)}%)${cost != null ? `\nSession cost: $${cost.toFixed(2)}` : ""}`}
-    >
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <circle cx="9" cy="9" r={r} fill="none" stroke="var(--border-hover)" strokeWidth="2" />
-        <circle
-          cx="9"
-          cy="9"
-          r={r}
-          fill="none"
-          stroke={tone}
-          strokeWidth="2"
-          strokeDasharray={`${c * pct} ${c}`}
-          strokeLinecap="round"
-          transform="rotate(-90 9 9)"
-        />
-      </svg>
-      <span className={styles.ringPct}>{Math.round(pct * 100)}%</span>
-    </span>
-  );
-}
