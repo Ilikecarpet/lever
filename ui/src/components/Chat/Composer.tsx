@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import * as api from "../../lib/tauri";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { Chat, ChatState, ImageAttachment } from "../../lib/acpChat";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -72,6 +73,7 @@ export const Composer = forwardRef<ComposerHandle, {
 }>(function Composer({ chat, state, cwd, centered, placeholder, active, onDoubleEscape }, ref) {
   const lastEscape = useRef(0);
   const [draft, setDraft] = useState("");
+  const typeSize = useSettingsStore((st) => st.terminalFontSize);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
@@ -102,8 +104,13 @@ export const Composer = forwardRef<ComposerHandle, {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
-  }, [draft]);
+    // Under Settings → Type size the box is zoomed, and its measured content
+    // can round a pixel over its own height — enough for a scrollbar. It only
+    // scrolls once it is at its tallest.
+    const full = el.scrollHeight;
+    el.style.height = `${Math.min(full + 1, 280)}px`;
+    el.style.overflowY = full > 280 ? "auto" : "hidden";
+  }, [draft, typeSize]);
 
   const working = state.status === "working";
   const canSend = (state.status === "ready" || working) && (draft.trim().length > 0 || attachments.length > 0);
