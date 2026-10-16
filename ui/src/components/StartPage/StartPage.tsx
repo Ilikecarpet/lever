@@ -78,12 +78,14 @@ export default function StartPage() {
 
   const handleOpen = async (id: string) => {
     await api.openProject(id);
-    await getCurrentWindow().close();
+    // Hidden, not closed: the new window closes this one once it has loaded.
+    // Closing here races WebKit's next frame and can crash Lever.
+    await getCurrentWindow().hide();
   };
 
   const handleOpenTerminal = useCallback(async () => {
     await api.openScratchTerminal();
-    await getCurrentWindow().close();
+    await getCurrentWindow().hide();
   }, []);
 
   useEffect(() => {
