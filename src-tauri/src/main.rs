@@ -1281,6 +1281,7 @@ fn keep_traffic_lights_positioned(window: &tauri::WebviewWindow) {
 fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
     set_in_dock(&app, true);
     if let Some(window) = app.get_webview_window("main") {
+        window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
     } else {
         tauri::WebviewWindowBuilder::new(
@@ -1295,6 +1296,23 @@ fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// The start page hides itself when it opens a window, and is closed here once
+/// that window has loaded. Closing it in the same moment the new window is
+/// built races WebKit's next frame for it, which crashes Lever.
+fn close_hidden_start_page<R: tauri::Runtime>(
+    window: tauri::WebviewWindow<R>,
+    payload: tauri::webview::PageLoadPayload<'_>,
+) {
+    if payload.event() != tauri::webview::PageLoadEvent::Finished {
+        return;
+    }
+    if let Some(start) = window.app_handle().get_webview_window("main") {
+        if !start.is_visible().unwrap_or(true) {
+            let _ = start.close();
+        }
+    }
 }
 
 #[tauri::command]
@@ -1322,6 +1340,7 @@ fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> R
     .title("Lever — Terminal")
     .inner_size(900.0, 600.0)
     .min_inner_size(500.0, 300.0)
+    .on_page_load(close_hidden_start_page)
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -1421,6 +1440,7 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
     .min_inner_size(600.0, 400.0)
     .title_bar_style(tauri::TitleBarStyle::Overlay)
     .hidden_title(true)
+    .on_page_load(close_hidden_start_page)
     .build()
     .map_err(|e| e.to_string())?;
 
