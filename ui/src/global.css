@@ -1,41 +1,41 @@
 :root {
-  /* Static defaults match the "Foundry" theme (the default when nothing is
+  /* Static defaults match the "Lever" theme (the default when nothing is
      stored) so first launch paints the right colors before JS runs.
      Returning users are covered by the boot script in index.html, which
      re-applies the persisted theme's variables pre-paint. */
-  --bg: #131110;
-  --sidebar-bg: #0e0d0c;
-  --surface: #1d1916;
-  --surface-hover: #272119;
-  --surface-raised: #221d18;
-  --terminal-bg: #0d0c0a;
+  --bg: #0e0e10;
+  --sidebar-bg: #18181b;
+  --surface: #222226;
+  --surface-hover: #2c2c31;
+  --surface-raised: #1c1c20;
+  --terminal-bg: #0e0e10;
 
   /* Borders */
-  --border: #2c2620;
-  --border-hover: #453b31;
+  --border: #2a2a2f;
+  --border-hover: #3b3b40;
 
   /* Text */
-  --text: #ece6de;
-  --text-dim: #a99e90;
-  --text-muted: #665c50;
+  --text: #f2f2f4;
+  --text-dim: #c4c4c9;
+  --text-muted: #8a8a91;
 
-  /* Accent — copper */
-  --accent: #d1885c;
-  --accent-hover: #e2a37b;
-  --accent-dim: rgba(209, 136, 92, 0.09);
-  --accent-subtle: rgba(209, 136, 92, 0.16);
-  --accent-fg: #1c1209;
+  /* Accent — the icon's red */
+  --accent: #ff4a3d;
+  --accent-hover: #ff7a6e;
+  --accent-dim: rgba(255, 74, 61, 0.09);
+  --accent-subtle: rgba(255, 74, 61, 0.16);
+  --accent-fg: #0e0e10;
 
   /* Status */
-  --green: #86c07a;
-  --green-dim: rgba(134, 192, 122, 0.1);
-  --red: #e5705e;
-  --red-dim: rgba(229, 112, 94, 0.1);
+  --green: #98c379;
+  --green-dim: rgba(152, 195, 121, 0.1);
+  --red: #fa7883;
+  --red-dim: rgba(250, 120, 131, 0.1);
   --red-fg: #ffffff;
-  --yellow: #dfa640;
-  --yellow-dim: rgba(223, 166, 64, 0.1);
-  --blue: #7aa5c9;
-  --blue-dim: rgba(122, 165, 201, 0.1);
+  --yellow: #ffc387;
+  --yellow-dim: rgba(255, 195, 135, 0.1);
+  --blue: #6bb8ff;
+  --blue-dim: rgba(107, 184, 255, 0.1);
 
   /* Typography */
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;

@@ -134,6 +134,65 @@ const black: ThemeDef = {
   },
 };
 
+/** Lever — the default, and the one theme not taken from a published scheme: its chrome
+ *  and accent are the app icon's own colours (docs/brand/icon.svg) — the
+ *  squircle's zinc greys, the beam's off-white, the fulcrum's red. Status
+ *  colours and the terminal palette are Black's, so only the brand parts are
+ *  authored here. The accent is the fulcrum's lighter red (#ff4a3d), the one
+ *  that reads as text on this background; errors keep Black's pinker red so
+ *  they don't look like accents. */
+const lever: ThemeDef = {
+  id: "lever",
+  label: "Lever",
+  swatch: "#0e0e10",
+  bg: "#0e0e10",
+  sidebarBg: "#18181b",
+  surface: "#222226",
+  surfaceHover: "#2c2c31",
+  surfaceRaised: "#1c1c20",
+  terminalBg: "#0e0e10",
+  border: "#2a2a2f",
+  borderHover: "#3b3b40",
+  text: "#f2f2f4",
+  textDim: "#c4c4c9",
+  textMuted: "#8a8a91",
+  accent: "#ff4a3d",
+  accentHover: "#ff7a6e",
+  accentDim: "rgba(255, 74, 61, 0.09)",
+  accentSubtle: "rgba(255, 74, 61, 0.16)",
+  accentForeground: "#0e0e10",
+  green: "#98c379",
+  greenDim: "rgba(152, 195, 121, 0.1)",
+  red: "#fa7883",
+  redDim: "rgba(250, 120, 131, 0.1)",
+  yellow: "#ffc387",
+  yellowDim: "rgba(255, 195, 135, 0.1)",
+  blue: "#6bb8ff",
+  blueDim: "rgba(107, 184, 255, 0.1)",
+  terminal: {
+    background: "#0e0e10",
+    foreground: "#f2f2f4",
+    cursor: "#ff4a3d",
+    selectionBackground: "rgba(255, 74, 61, 0.25)",
+    black: "#2a2a2f",
+    red: "#fa7883",
+    green: "#98c379",
+    yellow: "#ff9470",
+    blue: "#6bb8ff",
+    magenta: "#e799ff",
+    cyan: "#8af5ff",
+    white: "#f2f2f4",
+    brightBlack: "#8a8a91",
+    brightRed: "#fba8ad",
+    brightGreen: "#b9d4a8",
+    brightYellow: "#ffb7a4",
+    brightBlue: "#a2cdff",
+    brightMagenta: "#edbaff",
+    brightCyan: "#b1f8ff",
+    brightWhite: "#ffffff",
+  },
+};
+
 /** Charcoal — Steph Ango (https://github.com/kepano/flexoki) (base24). */
 const charcoal: ThemeDef = {
   id: "charcoal",
@@ -347,6 +406,7 @@ const daylight: ThemeDef = {
 };
 
 export const themes: ThemeDef[] = [
+  lever,
   black,
   charcoal,
   material,
@@ -434,7 +494,7 @@ const RETIRED_THEMES: Record<string, string> = {
 function getInitialThemeId(): string {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return "charcoal";
+    if (!stored) return "lever";
     if (themes.find((t) => t.id === stored)) return stored;
     const moved = RETIRED_THEMES[stored];
     if (moved) {
@@ -443,7 +503,7 @@ function getInitialThemeId(): string {
       return moved;
     }
   } catch {}
-  return "charcoal";
+  return "lever";
 }
 
 function findTheme(id: string): ThemeDef {

@@ -8,6 +8,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useUiStore, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from "../../stores/uiStore";
 import { useThemeStore, themes, type ThemeDef } from "../../stores/themeStore";
+import { Wordmark } from "../Wordmark";
 import { usePanelStore } from "../../stores/panelStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import { useWorktreeAgent, useWorktreeFocusedAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
@@ -322,7 +323,7 @@ export default function Sidebar() {
                     onClick={() => setTheme(t.id)}
                   >
                     <span className={styles.themeSwatch} style={{ background: swatchFill(t) }} />
-                    {t.label}
+                    {t.id === "lever" ? <Wordmark height={10} /> : t.label}
                     {activeThemeId === t.id && <span className={styles.themeCheck}>✓</span>}
                   </button>
                 ))}
