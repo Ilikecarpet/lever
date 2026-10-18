@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, ProjectExport, ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { Wordmark } from "../Wordmark";
 import styles from "./StartPage.module.css";
 
 function timeAgo(unix: number): string {
@@ -146,7 +147,7 @@ export default function StartPage() {
       <div className={styles.header}>
         <div className={styles.title}>
           <span className={styles.titlePrompt}>❯</span>
-          lever
+          <Wordmark height={26} />
           <span className={styles.titleCursor} aria-hidden="true" />
         </div>
         <div className={styles.subtitle}>

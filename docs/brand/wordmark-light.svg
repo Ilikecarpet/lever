@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 480 200">
+  <!-- Wordmark (light backgrounds): the v is flipped into the fulcrum -->
+  <g fill="none" stroke="#1c1c1f" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 0 V146 Q24 160 38 160"/>
+    <path d="M60 110 H160 A50 50 0 1 0 145.4 145.4"/>
+    <path d="M280 110 H380 A50 50 0 1 0 365.4 145.4"/>
+    <path d="M412 160 V60 M412 100 Q412 60 458 62"/>
+  </g>
+  <path d="M182 160 L222 60 L262 160" fill="none" stroke="#e8261c" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

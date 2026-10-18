@@ -2,7 +2,12 @@
   <img src="src-tauri/icons/128x128@2x.png" width="128" height="128" alt="Lever icon" />
 </p>
 
-<h1 align="center">Lever</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/wordmark-dark.svg" />
+    <img src="docs/brand/wordmark-light.svg" height="48" alt="Lever" />
+  </picture>
+</h1>
 
 <p align="center">
   A macOS app for running a project's dev services, terminals, Git worktrees and coding agents — all in one window.

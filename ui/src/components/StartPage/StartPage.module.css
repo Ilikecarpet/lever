@@ -14,10 +14,10 @@
   margin-bottom: 32px;
 }
 
-/* Wordmark set as a terminal prompt — mono, lowercase, live cursor */
+/* Wordmark set as a terminal prompt — live cursor after it */
 .title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 27px;
   font-weight: 600;
