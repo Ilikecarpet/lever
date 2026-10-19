@@ -10,17 +10,26 @@ export const PIVOT = { x: 12, y: 14 };
 /** Where a thing resting on the short arm sits, with the beam at rest. */
 const REST = { x: 6.14, y: 10.54 };
 
-/** The ways the lever can play while working. Each starts and ends at rest
- *  with nothing on the beam, so a new one can take over at the end of any
- *  loop: a thing drops in over the top edge onto the short arm, and the long
- *  arm is driven down to throw it out of the frame.
- *  - pop: straight up and out the top
- *  - fling: low across the frame and out the side */
-const MOVES = ["pop", "fling"] as const;
+/** The ways the lever can play while working, each with its own thing. Each
+ *  starts and ends at rest with nothing on the beam, so a new one can take over
+ *  at the end of any loop: the thing drops in over the top edge and leaves out
+ *  of the frame.
+ *  - fling: a ball lands on the short arm; the long arm is driven down and
+ *    throws it low across and out the side
+ *  - tip: a wedge lands on the long arm, tips the beam down with its weight,
+ *    and rolls off the end and out of the bottom
+ *  - juggle: a box lands on the short arm, is tapped up and caught twice,
+ *    then thrown low across and out the side like the fling */
+const MOVES = ["fling", "tip", "juggle"] as const;
 const THINGS = ["ball", "box", "wedge"] as const;
 type Move = (typeof MOVES)[number];
 type Thing = (typeof THINGS)[number];
-const pick = <T,>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
+const THING_FOR: Record<Move, Thing> = { fling: "ball", tip: "wedge", juggle: "box" };
+
+const pickPlay = (): { move: Move; thing: Thing } => {
+  const move = MOVES[Math.floor(Math.random() * MOVES.length)];
+  return { move, thing: THING_FOR[move] };
+};
 
 function ThingShape({ thing }: { thing: Thing }) {
   if (thing === "box") return <rect x={REST.x - 1.1} y={REST.y - 1.1} width="2.2" height="2.2" rx="0.45" />;
@@ -30,12 +39,12 @@ function ThingShape({ thing }: { thing: Thing }) {
 
 /**
  * Lever's mark, as in the app icon: the "l" laid down as a beam, resting on
- * the flipped "v" as its fulcrum. While `working`, it throws things off the
- * beam, picking the move and the thing at random each loop: the app's own way of saying an
+ * the flipped "v" as its fulcrum. While `working`, it plays with things
+ * dropped onto the beam, picking the move and the thing at random each loop: the app's own way of saying an
  * agent is busy. `size` is the height; the width follows the drawing.
  */
 export function LeverMark({ size = 16, working = false, className }: { size?: number; working?: boolean; className?: string }) {
-  const [play, setPlay] = useState(() => ({ move: pick(MOVES), thing: pick(THINGS) }));
+  const [play, setPlay] = useState(pickPlay);
   // The beam sits one stroke above the tip, so rocking about the tip keeps
   // it resting on the fulcrum. Its foot curls up at the short end.
   const beam = <path d={`M24 ${PIVOT.y - 2.6} H6.3 Q5 ${PIVOT.y - 2.6} 5 ${PIVOT.y - 3.9}`} />;
@@ -68,7 +77,7 @@ export function LeverMark({ size = 16, working = false, className }: { size?: nu
 
       {/* A faint trailing copy blurs the fast part of the rock. */}
       <g className={styles.ghost} filter="url(#lm-blur)">{beam}</g>
-      <g className={styles.beam} onAnimationIteration={() => setPlay({ move: pick(MOVES), thing: pick(THINGS) })}>
+      <g className={styles.beam} onAnimationIteration={() => setPlay(pickPlay())}>
         {beam}
       </g>
     </svg>

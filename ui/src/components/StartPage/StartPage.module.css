@@ -19,46 +19,15 @@
 .title {
   display: flex;
   align-items: center;
-  font-family: var(--font-mono);
-  font-size: 30px;
-  font-weight: 500;
+  gap: 14px;
   color: var(--text);
   margin-bottom: 18px;
-  /* Pull the prompt into the margin so the wordmark's stem lines up with the
-     subtitle, buttons and cards below. */
-  margin-left: -38px;
 }
 
-.titlePrompt {
-  width: 26px;
-  margin-right: 12px;
-  color: var(--accent);
-  font-size: 24px;
-  line-height: 1;
-  text-align: center;
-  user-select: none;
-}
-
-.titleCursor {
-  display: inline-block;
-  width: 15px;
-  height: 34px;
-  margin-left: 10px;
-  border-radius: 2px;
-  background: var(--accent);
-  align-self: center;
-  animation: promptBlink 1.1s steps(1) infinite;
-}
-
-@keyframes promptBlink {
-  0%, 55% { opacity: 1; }
-  56%, 100% { opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .titleCursor {
-    animation: none;
-  }
+/* The mark sits on the wordmark's baseline, a touch low, so the beam reads as
+   resting on the same ground as the letters. */
+.titleMark {
+  margin-top: 4px;
 }
 
 /* A fixed line, so the empty pre-load state and the filled one are the same

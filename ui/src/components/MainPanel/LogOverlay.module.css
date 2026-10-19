@@ -143,3 +143,9 @@
   position: absolute;
   inset: 0;
 }
+/* Breathing room on xterm's own element, which the fit addon subtracts when
+   sizing the grid; the left edge lines up with the header's name. */
+.termContainer :global(.xterm) {
+  height: 100%;
+  padding: 4px 6px 6px 16px;
+}

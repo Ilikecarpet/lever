@@ -6,6 +6,7 @@ import * as api from "../../lib/tauri";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { usePresence } from "../../hooks/usePresence";
 import { Wordmark } from "../Wordmark";
+import { LeverMark } from "../Chat/LeverMark";
 import { IconPlus } from "../Icons";
 import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./StartPage.module.css";
@@ -178,9 +179,10 @@ export default function StartPage() {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.title}>
-          <span className={styles.titlePrompt}>❯</span>
+          {/* The mark at work, as it is whenever an agent is — the start page
+              is the one place it plays just for being Lever. */}
+          <LeverMark size={44} working className={styles.titleMark} />
           <Wordmark height={38} />
-          <span className={styles.titleCursor} aria-hidden="true" />
         </div>
         {/* Holds its line while loading, so nothing below jumps when it fills. */}
         <div className={`${styles.subtitle}${loaded ? " lv-rise" : ""}`}>
