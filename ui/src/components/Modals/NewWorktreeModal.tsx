@@ -260,7 +260,7 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
               ? (adoptable ? "Opening…" : "Creating…")
               : staleDirPath
                 ? "Delete Folder & Create"
-                : (adoptable ? "Open Worktree" : "Create Worktree")}
+                : (adoptable ? "Open worktree" : "Create worktree")}
           </button>
         </div>
       </div>

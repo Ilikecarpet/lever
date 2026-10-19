@@ -108,12 +108,13 @@
   font-size: 12px;
   text-align: right;
   outline: none;
-  transition: border-color 0.2s var(--ease-out), background 0.2s var(--ease-out);
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
-/* Focus is neutral elevation, never accent — accent is the primary action. */
+/* The chat composer's focus ring, so every field in the app answers focus the
+   same way. */
 .numInput:focus {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 /* ---- Lever, matching the sidebar's service switch ---- */
