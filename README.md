@@ -24,6 +24,10 @@
 
 Lever replaces the mess of terminal tabs, hand-started services and scattered dev scripts with one window. Define your services once, group them, and start them with a click. Give each Git worktree its own copy of everything. Work with Claude Code or Codex in a terminal or in a native chat — and let them see and drive the same services you do.
 
+<p align="center">
+  <img src="docs/screenshots/workspace.png" alt="Lever with a project's services in the sidebar and a Claude chat that found and fixed a dev server crash" width="900" />
+</p>
+
 ## Features
 
 **Service Management**
@@ -33,6 +37,10 @@ Lever replaces the mess of terminal tabs, hand-started services and scattered de
 - Services outlive their windows: close a window and they keep running, reopen it and
   their output is still there (the newest 1 MB of each run)
 - Listening ports collected in the status bar and clickable — no hunting for which port a dev server landed on
+
+<p align="center">
+  <img src="docs/screenshots/services.png" alt="A running service's live log open under a chat" width="900" />
+</p>
 
 **Workspaces: terminals and chats**
 - Each tab is a terminal or an agent chat; Settings → Workspaces picks which one `Cmd+T` opens, and `Cmd+Shift+T` opens the other
@@ -56,18 +64,20 @@ Lever replaces the mess of terminal tabs, hand-started services and scattered de
   agent is working, names the conversation in the focused pane with the lines it has
   changed, and pulses when one finishes and nobody has been back — on the tab too, and
   the Dock bounces if Lever is in the background
-- Live meter in the status bar for the Claude Code session in the focused terminal:
-  model, context used, and plan usage left, side by side
+- Live meter in the status bar for the agent in the focused terminal or chat: model,
+  context used, and how much of your plan you've used, side by side
 - Breakdown of what fills the window — cached, newly written, fresh input, reply — and
   running session totals: turns, input/output tokens, cache reads and writes, subagent output
 - Read from Claude Code's own session files; nothing is attached to the process
 - Optional statusLine bridge for the exact context window (200k vs 1M), which is
   otherwise not recorded anywhere on disk — off by default, and it chains to any
   statusLine command you already use
-- With the bridge on, the plan's 5-hour and 7-day usage as Claude Code reports it,
-  with the time to each reset, plus the conversation's title and model name, running
-  cost at API list price, lines changed, effort and fast-mode flags, and whether the
-  prompt cache is still warm
+- Your plan's 5-hour and 7-day usage, with the time to each reset, read from Claude
+  Code itself every few minutes (no model call, no tokens) — shown from the moment
+  Lever opens, before any chat starts
+- With the bridge on, also the conversation's title and model name, running cost at
+  API list price, lines changed, effort and fast-mode flags, and whether the prompt
+  cache is still warm
 
 **Agent Access (MCP)**
 - Optional MCP server so an agent can see and drive your services — off by default,
@@ -125,17 +135,29 @@ Lever replaces the mess of terminal tabs, hand-started services and scattered de
   view diffs, stage and unstage files or everything, discard, and pull. Committing,
   pushing and branching stay in your terminal
 
+<p align="center">
+  <img src="docs/screenshots/git.png" alt="The Git panel beside a chat, with the changed file's diff open" width="900" />
+</p>
+
 **Project Launcher**
 - Start page with project cards showing service counts and last-opened time
 - Create projects from any folder with automatic Git detection
 - Import/export project configs as JSON
 - Clone and rename projects via right-click context menu
 
+<p align="center">
+  <img src="docs/screenshots/start.png" alt="The start page with project cards and the animated Lever mark" width="900" />
+</p>
+
 **And**
-- Themes: Foundry (default), Black, Charcoal, Material, Dracula and the light Daylight
+- Themes: Lever (default, in the icon's black and red), Black, Charcoal, Material, Dracula and the light Daylight
 - Terminal type size and scrollback in Settings, applied to open terminals straight away
 - Updates itself from GitHub releases (Settings → Updates)
 - A debug console of everything Lever runs on your behalf (Settings → Advanced)
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" alt="Lever's settings panel" width="900" />
+</p>
 
 ## Keyboard Shortcuts
 
