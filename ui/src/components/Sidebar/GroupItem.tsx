@@ -8,6 +8,8 @@ import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { useMenuPresence, useRiseOnMount } from "./motion";
 import { IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
+import ConfirmAccordion from "../ContextMenu/ConfirmAccordion";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./GroupItem.module.css";
 
 interface Props {
@@ -219,38 +221,32 @@ export default function GroupItem({ group, worktreeId }: Props) {
       {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={`${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-grp={group.id}
         >
-          <button className={styles.ctxItem} onClick={handleAddService}>
+          <button className={menuStyles.item} onClick={handleAddService}>
             Add service
           </button>
-          <button className={styles.ctxItem} onClick={handleStartRename}>
+          <button className={menuStyles.item} onClick={handleStartRename}>
             Rename group
           </button>
           <button
-            className={`${styles.ctxItem} ${styles.ctxItemDanger}`}
+            className={`${menuStyles.item} ${menuStyles.danger}`}
             onClick={() => setConfirmDelete((v) => !v)}
           >
             Delete group
           </button>
-          <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmInner}>
-              <div className={styles.confirmWarning}>
-                {group.services.length > 0
-                  ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
-                  : "This will delete this empty group."}
-              </div>
-              <div className={styles.confirmActions}>
-                <button className={`${styles.confirmCancel} lv-press`} onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-                <button className={`${styles.confirmYes} lv-press`} onClick={handleDeleteConfirm}>
-                  Yes, delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmAccordion
+            open={confirmDelete}
+            warning={
+              group.services.length > 0
+                ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
+                : "This will delete this empty group."
+            }
+            confirmLabel="Yes, delete"
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={handleDeleteConfirm}
+          />
         </div>
       )}
     </div>

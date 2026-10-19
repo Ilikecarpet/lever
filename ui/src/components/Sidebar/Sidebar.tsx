@@ -31,6 +31,7 @@ import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
 import ContextSubtitle from "./ContextSubtitle";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./Sidebar.module.css";
 
 /** Picker swatch: the theme's background is the main read, with an accent wedge
@@ -133,7 +134,7 @@ export default function Sidebar() {
     const repoPathForExport = project?.repo_path ?? "";
 
     const filePath = await save({
-      title: "Export Config",
+      title: "Export config",
       defaultPath: `${projectId}-config.json`,
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
@@ -293,19 +294,19 @@ export default function Sidebar() {
         </button>
 
         {projectMenu.mounted && (
-          <div className={`${styles.menu} lv-pop${projectMenu.closing ? " lv-closing" : ""}`}>
-            {projectName && <div className={styles.menuHeader} title={projectName}>{projectName}</div>}
-            <button className={styles.menuItem} onClick={handleHome}>
+          <div className={`${menuStyles.menu} ${styles.menu} lv-pop${projectMenu.closing ? " lv-closing" : ""}`}>
+            {projectName && <div className={menuStyles.header} title={projectName}>{projectName}</div>}
+            <button className={menuStyles.item} onClick={handleHome}>
               <IconFolder size={13} /> Projects
             </button>
-            <button className={styles.menuItem} onClick={handleExport}>
-              <IconExport size={13} /> Export Config
+            <button className={menuStyles.item} onClick={handleExport}>
+              <IconExport size={13} /> Export config
             </button>
-            <div className={styles.menuDivider} />
-            <button className={styles.menuItem} onClick={handleSettings}>
+            <div className={menuStyles.divider} />
+            <button className={menuStyles.item} onClick={handleSettings}>
               <IconGear size={13} /> Settings
             </button>
-            <button className={styles.menuItem} onClick={handleCheckUpdates}>
+            <button className={menuStyles.item} onClick={handleCheckUpdates}>
               <IconDownload size={13} />{" "}
               {updatePhase === "available"
                 ? `Update to ${updateVersion}`
@@ -313,9 +314,9 @@ export default function Sidebar() {
                   ? "Checking…"
                   : updatePhase === "downloading"
                     ? "Downloading…"
-                    : "Check for Updates"}
+                    : "Check for updates"}
             </button>
-            <div className={styles.menuDivider} />
+            <div className={menuStyles.divider} />
             <button
               className={styles.themeToggle}
               onClick={(e) => { e.stopPropagation(); setThemeExpanded((v) => !v); }}
@@ -401,11 +402,11 @@ export default function Sidebar() {
           {mainMenu.mounted && (
             <div
               ref={mainCtxMenuRef}
-              className={`${styles.mainCtxMenu} lv-pop${mainMenu.closing ? " lv-closing" : ""}`}
+              className={`${menuStyles.menu} ${styles.mainCtxMenu} lv-pop${mainMenu.closing ? " lv-closing" : ""}`}
               data-ctx-main-repo
             >
               <button
-                className={styles.mainCtxItem}
+                className={menuStyles.item}
                 onClick={() => {
                   setMainCtxMenu(null);
                   setAdding(true);

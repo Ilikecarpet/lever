@@ -152,43 +152,10 @@
   width: 120px;
 }
 
+/* Surface and rows come from ContextMenu.module.css. */
 .contextMenu {
   position: fixed;
-  background: var(--surface-raised);
-  border-radius: var(--radius-lg);
-  padding: 6px;
-  z-index: 1000;
-  box-shadow: var(--shadow-float);
   min-width: 160px;
-}
-
-.contextMenuItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  text-align: left;
-  font-family: inherit;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.contextMenuItem:hover {
-  background: var(--surface-hover);
-}
-
-.contextMenuDanger {
-  color: var(--red);
-}
-.contextMenuDanger:hover {
-  background: var(--red-dim);
 }
 
 /* Matches the sidebar's worktree dot — same signal, one level down. */

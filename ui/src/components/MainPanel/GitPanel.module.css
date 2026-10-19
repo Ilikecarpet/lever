@@ -487,15 +487,11 @@
   background: var(--red-dim);
 }
 
+/* Surface comes from ContextMenu.module.css. */
 .discardMenu {
   position: fixed;
-  background: var(--surface-raised);
-  border-radius: var(--radius-lg);
-  padding: 6px;
   min-width: 220px;
   max-width: 280px;
-  z-index: 1000;
-  box-shadow: var(--shadow-float);
 }
 .discardMenuWarning {
   padding: 6px 8px 10px;

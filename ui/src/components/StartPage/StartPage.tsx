@@ -7,6 +7,7 @@ import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { usePresence } from "../../hooks/usePresence";
 import { Wordmark } from "../Wordmark";
 import { IconPlus } from "../Icons";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./StartPage.module.css";
 
 function timeAgo(unix: number): string {
@@ -289,18 +290,18 @@ export default function StartPage() {
       {menu.mounted && shownMenu && (
         <div
           ref={contextMenuRef}
-          className={`${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
         >
-          <button className={styles.contextMenuItem} onClick={() => handleRename(shownMenu.project)}>
+          <button className={menuStyles.item} onClick={() => handleRename(shownMenu.project)}>
             Rename
           </button>
-          <button className={styles.contextMenuItem} onClick={() => handleClone(shownMenu.project)}>
+          <button className={menuStyles.item} onClick={() => handleClone(shownMenu.project)}>
             Clone
           </button>
-          <button className={styles.contextMenuItem} onClick={() => handleChangeRepoPath(shownMenu.project)}>
+          <button className={menuStyles.item} onClick={() => handleChangeRepoPath(shownMenu.project)}>
             Change repo path…
           </button>
-          <button className={styles.contextMenuDanger} onClick={() => handleDelete(shownMenu.project)}>
+          <button className={`${menuStyles.item} ${menuStyles.danger}`} onClick={() => handleDelete(shownMenu.project)}>
             Delete
           </button>
         </div>

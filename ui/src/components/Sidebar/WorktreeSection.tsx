@@ -18,6 +18,8 @@ import { afterFold } from "../../lib/revealOnSwitch";
 import { useConfigStore } from "../../stores/configStore";
 import { IconBranch, IconChevron, IconPlus } from "../Icons";
 import GroupItem from "./GroupItem";
+import ConfirmAccordion from "../ContextMenu/ConfirmAccordion";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./WorktreeSection.module.css";
 import ContextSubtitle from "./ContextSubtitle";
 
@@ -246,11 +248,11 @@ export default function WorktreeSection({ worktree }: Props) {
       {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={`${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-wt={worktree.id}
         >
           <button
-            className={styles.contextMenuItem}
+            className={menuStyles.item}
             onClick={() => {
               setContextMenu(null);
               setAdding(true);
@@ -258,50 +260,34 @@ export default function WorktreeSection({ worktree }: Props) {
           >
             Add group
           </button>
-          <div className={styles.contextMenuDivider} />
+          <div className={menuStyles.divider} />
           <button
-            className={styles.contextMenuItem}
+            className={menuStyles.item}
             onClick={() => setConfirmDelete((v) => v === "remove" ? null : "remove")}
           >
             Remove from sidebar
           </button>
-          <div className={`${styles.confirmAccordion}${confirmDelete === "remove" ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmInner}>
-              <div className={styles.confirmWarning}>
-                This will remove the worktree from the sidebar only.
-              </div>
-              <div className={styles.confirmActions}>
-                <button className={`${styles.confirmCancel} lv-press`} onClick={() => setConfirmDelete(null)}>
-                  Cancel
-                </button>
-                <button className={`${styles.confirmYes} lv-press`} onClick={() => handleRemove(false)}>
-                  Yes, remove
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmAccordion
+            open={confirmDelete === "remove"}
+            warning="This will remove the worktree from the sidebar only."
+            confirmLabel="Yes, remove"
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => handleRemove(false)}
+          />
 
           <button
-            className={`${styles.contextMenuItem} ${styles.contextMenuDanger}`}
+            className={`${menuStyles.item} ${menuStyles.danger}`}
             onClick={() => setConfirmDelete((v) => v === "disk" ? null : "disk")}
           >
             Remove + delete from disk
           </button>
-          <div className={`${styles.confirmAccordion}${confirmDelete === "disk" ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmInner}>
-              <div className={styles.confirmWarning}>
-                This will permanently delete the worktree files from disk.
-              </div>
-              <div className={styles.confirmActions}>
-                <button className={`${styles.confirmCancel} lv-press`} onClick={() => setConfirmDelete(null)}>
-                  Cancel
-                </button>
-                <button className={`${styles.confirmYes} lv-press`} onClick={() => handleRemove(true)}>
-                  Yes, delete from disk
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmAccordion
+            open={confirmDelete === "disk"}
+            warning="This will permanently delete the worktree files from disk."
+            confirmLabel="Yes, delete from disk"
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => handleRemove(true)}
+          />
         </div>
       )}
 

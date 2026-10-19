@@ -1,0 +1,121 @@
+/* Shared chrome for every context menu and popover menu: inset rows with
+   rounded hovers, as chat's menus have, so they read as one family.
+   Positioning (fixed at the cursor, or anchored under a trigger), min-width
+   and --lv-origin stay with each component; this is only the surface. */
+.menu {
+  padding: 6px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  z-index: 1000;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.item:hover {
+  background: var(--surface-hover);
+}
+.item svg {
+  color: var(--text-muted);
+}
+
+.danger {
+  color: var(--red);
+}
+.danger:hover {
+  background: var(--red-dim);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 4px;
+}
+
+/* Names what the menu acts on, above the actions. */
+.header {
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Confirmation accordion (ConfirmAccordion.tsx). Grid rows rather than a
+   max-height cap: the warning wraps to two or three lines in a narrow menu,
+   which an 80px ceiling clipped into the buttons. */
+.confirm {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s var(--ease-out);
+}
+.confirmInner {
+  overflow: hidden;
+  min-height: 0;
+}
+.confirmOpen {
+  grid-template-rows: 1fr;
+}
+
+.confirmWarning {
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.confirmActions {
+  display: flex;
+  gap: 6px;
+  padding: 4px 4px 4px;
+}
+
+.confirmCancel,
+.confirmYes {
+  flex: 1;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.25s var(--ease-spring);
+}
+
+.confirmCancel {
+  background: var(--surface-hover);
+  color: var(--text-dim);
+}
+.confirmCancel:hover {
+  background: var(--border-hover);
+  color: var(--text);
+}
+
+/* Removals confirm in red — every current use throws something away. */
+.confirmYesDanger {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.confirmYesDanger:hover {
+  background: var(--red);
+  color: var(--red-fg);
+}
+

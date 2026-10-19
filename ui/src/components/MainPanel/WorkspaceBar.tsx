@@ -10,6 +10,7 @@ import { useSettingsStore, otherPaneKind } from "../../stores/settingsStore";
 import { LeverMark } from "../Chat/LeverMark";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { usePresence } from "../../hooks/usePresence";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./WorkspaceBar.module.css";
 
 interface ContextMenu {
@@ -252,16 +253,16 @@ export default function WorkspaceBar() {
       {menuPresence.mounted && shownMenu && (
         <div
           ref={contextMenuRef}
-          className={`${styles.contextMenu} lv-pop${menuPresence.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.contextMenu} lv-pop${menuPresence.closing ? " lv-closing" : ""}`}
         >
           <button
-            className={styles.contextMenuItem}
+            className={menuStyles.item}
             onClick={() => startRename(shownMenu.wsId)}
           >
             Rename
           </button>
           <button
-            className={styles.contextMenuItem}
+            className={menuStyles.item}
             onClick={() => {
               closeWorkspace(shownMenu.wsId);
               setContextMenu(null);

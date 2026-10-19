@@ -5,6 +5,7 @@ import type { GitFileStatus } from "../../types";
 import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle, IconClose } from "../Icons";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { usePresence } from "../../hooks/usePresence";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./GitPanel.module.css";
 
 type SectionMode = "staged" | "unstaged";
@@ -328,7 +329,7 @@ function FileItem({
       {discardPresence.mounted && (
         <div
           ref={discardMenuRef}
-          className={`${styles.discardMenu} lv-pop${discardPresence.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.discardMenu} lv-pop${discardPresence.closing ? " lv-closing" : ""}`}
           data-discard-menu={file.path}
           onClick={(e) => e.stopPropagation()}
         >

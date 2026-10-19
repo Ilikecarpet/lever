@@ -366,42 +366,12 @@
   vertical-align: 1px;
 }
 
+/* Opens at the pointer, so it grows from its top-left corner. Surface and
+   rows come from ContextMenu.module.css. */
 .contextMenu {
   position: fixed;
-  background: var(--surface-raised);
-  border-radius: var(--radius-lg);
-  padding: 6px;
   min-width: 168px;
-  z-index: 1000;
-  box-shadow: var(--shadow-float);
-  /* Opens at the pointer, so it grows from its top-left corner. */
   --lv-origin: top left;
-}
-
-.contextMenuItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  text-align: left;
-  padding: 0 10px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  color: var(--text);
-  transition: background 0.1s;
-}
-
-.contextMenuItem:hover {
-  background: var(--surface-hover);
-}
-
-.contextMenuDanger {
-  composes: contextMenuItem;
-  color: var(--red);
-}
-.contextMenuDanger:hover {
-  background: var(--red-dim);
 }
 
 .renameInput {

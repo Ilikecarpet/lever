@@ -98,19 +98,6 @@
   color: var(--text);
 }
 
-/* Names the open project at the top of the menu, above the actions. */
-.menuHeader {
-  padding: 6px 10px 8px;
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border-bottom: 1px solid var(--border);
-}
-
 .projectChevron {
   color: var(--text-muted);
   display: inline-flex;
@@ -122,49 +109,16 @@
   transform: rotate(180deg);
 }
 
-/* Same chrome as the context menus; it hangs under the full-width project
-   button, so it grows from the top centre rather than a corner. */
+/* Same chrome as the context menus (ContextMenu.module.css); it hangs under
+   the full-width project button, so it grows from the top centre rather than
+   a corner. */
 .menu {
   position: absolute;
   top: 100%;
   left: 6px;
   right: 6px;
   margin-top: 2px;
-  padding: 6px;
-  background: var(--surface-raised);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
-  z-index: 1000;
   --lv-origin: top center;
-}
-
-.menuItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  height: 30px;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.menuItem:hover {
-  background: var(--surface-hover);
-}
-.menuItem svg {
-  color: var(--text-muted);
-}
-
-.menuDivider {
-  height: 1px;
-  background: var(--border);
-  margin: 5px 4px;
 }
 
 .themeToggle {
@@ -552,40 +506,13 @@
   color: var(--accent);
 }
 
-/* Context menu — the same chrome as every other sidebar menu, so they read
-   as one family: inset rows with rounded hovers, as chat's menus have. */
+/* Opens at the cursor, so it grows out of its top-left corner. Surface and
+   rows come from ContextMenu.module.css. */
 .mainCtxMenu {
   position: fixed;
   min-width: 180px;
-  padding: 6px;
-  background: var(--surface-raised);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
-  z-index: 1000;
-  /* Opens at the cursor, so it grows out of its top-left corner. */
   --lv-origin: top left;
 }
-
-.mainCtxItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  height: 30px;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.mainCtxItem:hover {
-  background: var(--surface-hover);
-}
-
 
 /* An agent in the main checkout finished and has not been looked at — the
    same dot a worktree's row carries. */

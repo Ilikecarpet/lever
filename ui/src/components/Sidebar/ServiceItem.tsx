@@ -7,6 +7,8 @@ import { usePanelStore } from "../../stores/panelStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { useMenuPresence, useRiseOnMount } from "./motion";
 import { IconPlay, IconStop } from "../Icons";
+import ConfirmAccordion from "../ContextMenu/ConfirmAccordion";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./ServiceItem.module.css";
 
 /** A task can start and finish faster than the eye can register, so its ring
@@ -181,39 +183,25 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
       {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={`${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
+          className={`${menuStyles.menu} ${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-svc={service.id}
         >
-          <button className={styles.ctxItem} onClick={handleEdit}>
+          <button className={menuStyles.item} onClick={handleEdit}>
             Edit
           </button>
           <button
-            className={`${styles.ctxItem} ${styles.ctxItemDanger}`}
+            className={`${menuStyles.item} ${menuStyles.danger}`}
             onClick={() => setConfirmDelete((v) => !v)}
           >
             Delete
           </button>
-          <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmInner}>
-              <div className={styles.confirmWarning}>
-                This will permanently remove this service.
-              </div>
-              <div className={styles.confirmActions}>
-                <button
-                  className={`${styles.confirmCancel} lv-press`}
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className={`${styles.confirmYes} lv-press`}
-                  onClick={handleDeleteConfirm}
-                >
-                  Yes, delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmAccordion
+            open={confirmDelete}
+            warning="This will permanently remove this service."
+            confirmLabel="Yes, delete"
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={handleDeleteConfirm}
+          />
         </div>
       )}
     </>
