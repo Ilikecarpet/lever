@@ -475,6 +475,19 @@ impl RateLimits {
     fn is_empty(&self) -> bool {
         self.five_hour.is_none() && self.seven_day.is_none()
     }
+
+    /// Two sources' readings, window by window, by the same rule `leading`
+    /// applies across bridge payloads.
+    pub fn merged(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(Self {
+                five_hour: leading(a.five_hour, b.five_hour),
+                seven_day: leading(a.seven_day, b.seven_day),
+            }),
+            (a, None) => a,
+            (None, b) => b,
+        }
+    }
 }
 
 /// Which of two readings of the same window to believe. See `read_rate_limits`
@@ -485,7 +498,11 @@ fn leading(cur: Option<RateLimitWindow>, cand: Option<RateLimitWindow>) -> Optio
         (None, cand) => return cand,
         (cur, None) => return cur,
     };
-    let believe_new = match n.resets_at.cmp(&c.resets_at) {
+    // Sources stamp the same reset a second or so apart (one rounds, one
+    // truncates), so resets within a minute are the same window.
+    let same_window = n.resets_at.abs_diff(c.resets_at) <= 60;
+    let order = if same_window { std::cmp::Ordering::Equal } else { n.resets_at.cmp(&c.resets_at) };
+    let believe_new = match order {
         // A session cannot report a window it has not reached yet, so the
         // furthest-out reset is the current window. A nearer one belongs to a
         // window that has already rolled and is still being re-stamped.
@@ -819,6 +836,17 @@ mod tests {
                 let _ = std::fs::remove_file(&self.0);
             }
         }
+    }
+
+    /// The live CLI reading said 43% with its reset a second early; a bridge
+    /// payload said 37% for the same window. The minute's slack keeps them one
+    /// window, so the higher (newer) figure wins rather than the later stamp.
+    #[test]
+    fn resets_a_second_apart_are_the_same_window() {
+        let live = RateLimitWindow { used_percentage: 43.0, resets_at: 1_792_372_199, reported_at: 20 };
+        let bridge = RateLimitWindow { used_percentage: 37.0, resets_at: 1_792_372_200, reported_at: 10 };
+        assert_eq!(leading(Some(live), Some(bridge)).unwrap().used_percentage, 43.0);
+        assert_eq!(leading(Some(bridge), Some(live)).unwrap().used_percentage, 43.0);
     }
 
     #[test]

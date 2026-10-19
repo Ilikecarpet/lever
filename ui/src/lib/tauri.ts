@@ -210,6 +210,11 @@ export function clearAgentAttention(ptyId: string): Promise<void> {
   return invoke<void>("clear_agent_attention", { ptyId });
 }
 
+/** Asks Claude Code for a fresh plan-usage reading; it shows up on a later poll. */
+export function refreshPlanUsage(): Promise<void> {
+  return invoke("refresh_plan_usage");
+}
+
 export function agentBridgeState(): Promise<BridgeState> {
   return invoke<BridgeState>("agent_bridge_state");
 }

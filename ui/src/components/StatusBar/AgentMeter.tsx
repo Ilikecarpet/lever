@@ -3,6 +3,7 @@ import { useFocusedPaneAgent } from "../../hooks/useAgentActivity";
 import { useSettingsStore, type MeterSection } from "../../stores/settingsStore";
 import { useServiceStore } from "../../stores/serviceStore";
 import { usePresence } from "../../hooks/usePresence";
+import { refreshPlanUsage } from "../../lib/tauri";
 import type { AgentUsage, RateLimitWindow, ReportedDetails } from "../../types";
 import styles from "./AgentMeter.module.css";
 
@@ -216,18 +217,104 @@ export default function AgentMeter() {
   }, []);
 
   const usage = agent?.usage;
-  const hasUsage = !!usage;
-
-  // Close rather than strand an open popover when focus moves to a pane whose
-  // terminal has no agent in it.
-  useEffect(() => {
-    if (!hasUsage) setOpen(false);
-  }, [hasUsage]);
-
-  if (!agent || !usage) return null;
   // A chat's agent says how big its window is with its first reply; before
   // that there is nothing to measure against.
-  if (usage.origin === "chat" && usage.contextLimit <= 0) return null;
+  const hasUsage = !!usage && !(usage.origin === "chat" && usage.contextLimit <= 0);
+
+  // The plan headline is the tighter window — the one that runs out first is
+  // the one you plan around. The weekly window stands in when Claude Code has
+  // not sent an hourly one.
+  const leadKey = limits?.fiveHour ? "5h" : limits?.sevenDay ? "7d" : null;
+  const lead = limits?.fiveHour ?? limits?.sevenDay ?? null;
+  const leadLive = !!lead && lead.resetsAt * 1000 > now;
+  const leadUsed = leadLive ? Math.min(lead!.usedPercentage / 100, 1) : 0;
+  // Shown as used, like the per-window rows, so every figure reads the same way.
+  const leadPct = leadLive ? Math.min(100, Math.round(lead!.usedPercentage)) : null;
+  // Each window ages from when its reading was seen, and the two can have been
+  // seen at different moments. The note below is a caveat, so it takes the more
+  // lagged of them — averaging or taking the fresher would bury the caveat.
+  const reportStamps = [limits?.fiveHour?.reportedAt, limits?.sevenDay?.reportedAt]
+    .filter((t): t is number => !!t);
+  const oldestReport = reportStamps.length > 0 ? Math.min(...reportStamps) * 1000 : 0;
+  const reportAge = oldestReport > 0 ? now - oldestReport : 0;
+
+  const showable = hasUsage || !!lead;
+
+  // Close rather than strand an open popover when focus moves somewhere with
+  // nothing left to show.
+  useEffect(() => {
+    if (!showable) setOpen(false);
+  }, [showable]);
+
+  const toggleOpen = () => {
+    // Opening is when the plan figures matter, so ask for fresh ones.
+    if (!open) refreshPlanUsage().catch(() => {});
+    setOpen((v) => !v);
+  };
+
+  const planGauge = lead && (
+    <span className={styles.gauge}>
+      <span className={styles.gaugeLabel}>{leadKey}</span>
+      <span className={styles.track}>
+        <span
+          className={`${styles.fill} ${pressure(leadUsed)}`}
+          style={{ width: `${leadLive ? Math.max(leadUsed * 100, 2) : 0}%` }}
+        />
+      </span>
+      <span className={`${styles.percent} ${pressure(leadUsed)}`}>{leadPct === null ? "—" : `${leadPct}%`}</span>
+    </span>
+  );
+
+  const planSection = limits && lead && (
+    <Section
+      id="plan"
+      title="Plan"
+      bar={{ fraction: leadUsed, cls: pressure(leadUsed) }}
+      value={
+        leadPct === null ? "—" : (
+          <>
+            <span className={`${styles.pct} ${pressure(leadUsed)}`}>{leadPct}%</span>
+            used
+          </>
+        )
+      }
+    >
+      {limits.fiveHour && <PlanWindow label="5 hour" win={limits.fiveHour} now={now} />}
+      {limits.sevenDay && <PlanWindow label="7 day" win={limits.sevenDay} now={now} />}
+      <p className={styles.note}>
+        Your account's usage as Claude Code reports it, read every few minutes
+        and whenever you open this.
+        {reportAge > STALE_AFTER_MS && ` Last read ${spanLabel(reportAge)} ago.`}
+      </p>
+    </Section>
+  );
+
+  // Before any agent has reported — a fresh chat, a plain terminal — the plan
+  // is still worth knowing, so the meter shows just that.
+  if (!hasUsage || !agent || !usage) {
+    if (!lead) return null;
+    return (
+      <div className={styles.wrap} ref={ref}>
+        <button
+          className={`${styles.meter}${open ? ` ${styles.meterOpen}` : ""}${leadUsed >= 0.9 ? ` ${styles.meterWarn}` : ""}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleOpen}
+          title={
+            leadPct !== null
+              ? `Plan: ${leadPct}% of the ${leadKey === "5h" ? "5-hour" : "7-day"} window used, resets in ${spanLabel(lead.resetsAt * 1000 - now)}`
+              : "Plan usage"
+          }
+        >
+          {planGauge}
+        </button>
+        {popover.mounted && (
+          <div className={`${styles.popover} lv-pop${popover.closing ? " lv-closing" : ""}`}>
+            {planSection}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // An explicit setting wins over the backend's guess, except that a session
   // which has already outgrown the chosen size keeps the larger one — a meter
@@ -243,22 +330,6 @@ export default function AgentMeter() {
   // is, but not how the last reply split it, nor the prompt cache's state.
   const fromChat = usage.origin === "chat";
 
-  // The plan headline is the tighter window — the one that runs out first is
-  // the one you plan around. The weekly window stands in when Claude Code has
-  // not sent an hourly one.
-  const leadKey = limits?.fiveHour ? "5h" : limits?.sevenDay ? "7d" : null;
-  const lead = limits?.fiveHour ?? limits?.sevenDay ?? null;
-  const leadLive = !!lead && lead.resetsAt * 1000 > now;
-  const leadUsed = leadLive ? Math.min(lead!.usedPercentage / 100, 1) : 0;
-  const leadLeft = leadLive ? Math.max(0, Math.round(100 - lead!.usedPercentage)) : null;
-  // Each window ages from when its reading was seen, and the two can have been
-  // seen at different moments. The note below is a caveat, so it takes the more
-  // lagged of them — averaging or taking the fresher would bury the caveat.
-  const reportStamps = [limits?.fiveHour?.reportedAt, limits?.sevenDay?.reportedAt]
-    .filter((t): t is number => !!t);
-  const oldestReport = reportStamps.length > 0 ? Math.min(...reportStamps) * 1000 : 0;
-  const reportAge = oldestReport > 0 ? now - oldestReport : 0;
-
   // The footer names the model when the bridge says which, else the CLI.
   const shortName = reported?.modelName ?? agent.name;
   const headName = reported?.title ?? usage.sessionName ?? agent.name;
@@ -271,8 +342,8 @@ export default function AgentMeter() {
 
   const tooltip = [
     `${headName} — ${exact(usage.contextTokens)} of ${windowLabel(limit)} context tokens`,
-    leadLeft !== null && lead
-      ? `Plan: ${leadLeft}% of the ${leadKey === "5h" ? "5-hour" : "7-day"} window left, resets in ${spanLabel(lead.resetsAt * 1000 - now)}`
+    leadPct !== null && lead
+      ? `Plan: ${leadPct}% of the ${leadKey === "5h" ? "5-hour" : "7-day"} window used, resets in ${spanLabel(lead.resetsAt * 1000 - now)}`
       : null,
   ].filter(Boolean).join("\n");
 
@@ -282,7 +353,7 @@ export default function AgentMeter() {
         className={`${styles.meter}${open ? ` ${styles.meterOpen}` : ""}${leadUsed >= 0.9 ? ` ${styles.meterWarn}` : ""}`}
         // Reading the numbers should not cost the terminal its keyboard focus.
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         title={tooltip}
       >
         <span className={`${styles.name}${agent.active ? ` ${styles.nameActive}` : ""}`}>
@@ -298,18 +369,7 @@ export default function AgentMeter() {
           </span>
           <span className={styles.percent}>{percent}%</span>
         </span>
-        {lead && (
-          <span className={styles.gauge}>
-            <span className={styles.gaugeLabel}>{leadKey}</span>
-            <span className={styles.track}>
-              <span
-                className={`${styles.fill} ${pressure(leadUsed)}`}
-                style={{ width: `${leadLive ? Math.max(leadUsed * 100, 2) : 0}%` }}
-              />
-            </span>
-            <span className={`${styles.percent} ${pressure(leadUsed)}`}>{leadLeft === null ? "—" : `${leadLeft}%`}</span>
-          </span>
-        )}
+        {planGauge}
       </button>
 
       {popover.mounted && (
@@ -367,34 +427,11 @@ export default function AgentMeter() {
                 ? `${exact(usage.contextTokens)} tokens, as the agent last reported them for this chat.`
                 : "Measured at the last reply — tool output since then is not counted."}
               {usage.contextLimitSource === "inferred" &&
-                " Window size assumed; turn on the Claude Code bridge in Settings to read the real one, along with your plan's remaining usage."}
+                " Window size assumed; turn on the Claude Code bridge in Settings to read the real one."}
             </p>
           </Section>
 
-          {limits && (
-            <Section
-              id="plan"
-              title="Plan"
-              bar={{ fraction: leadUsed, cls: pressure(leadUsed) }}
-              value={
-                leadLeft === null ? "—" : (
-                  <>
-                    <span className={`${styles.pct} ${pressure(leadUsed)}`}>{leadLeft}%</span>
-                    left
-                  </>
-                )
-              }
-            >
-              {limits.fiveHour && <PlanWindow label="5 hour" win={limits.fiveHour} now={now} />}
-              {limits.sevenDay && <PlanWindow label="7 day" win={limits.sevenDay} now={now} />}
-              <p className={styles.note}>
-                Your account's usage as Claude Code reports it — the highest reading across
-                every session, since an idle one keeps repeating the figure it last saw.
-                {reportAge > STALE_AFTER_MS &&
-                  ` Read ${spanLabel(reportAge)} ago; a session has to make a request to refresh it.`}
-              </p>
-            </Section>
-          )}
+          {planSection}
 
           {/* Nothing in Session is a share of a whole except the cache hit
               rate — how much of each turn was served from cache — so that is

@@ -275,8 +275,9 @@ export default function SettingsPanel() {
               Auto takes the real window from Claude Code when the bridge below
               is on. Without it, nothing on disk says whether a session is on the
               1M variant, so Auto starts at 200k and rescales only once a turn
-              proves it is larger. The bridge is also the only source for your
-              plan's 5-hour and 7-day usage, shown in the meter's popover.
+              proves it is larger. Your plan's 5-hour and 7-day usage, shown in
+              the meter's popover, is read from Claude Code every few minutes
+              either way.
             </div>
             <Toggle
               label="Read the context window and plan usage from Claude Code"

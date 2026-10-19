@@ -81,11 +81,13 @@
   background: var(--border);
 }
 
+/* Calm is neutral: the accent is a brand colour (red, in the Lever theme), so
+   it would read as a warning on a meter. Only pressure gets a colour. */
 .fill {
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--text-dim);
   transition: width 0.3s ease, background 0.2s;
 }
 .fill.medium {
@@ -232,7 +234,7 @@
   font-variant-numeric: tabular-nums;
 }
 .pct {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 500;
 }
 .pct.medium {
