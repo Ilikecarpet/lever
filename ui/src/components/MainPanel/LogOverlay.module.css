@@ -1,11 +1,16 @@
+/* Rises into place rather than growing: the panel takes its full height at
+   once, so the terminal fits a single time instead of on every frame. Only
+   transform and opacity move, which never trip the ResizeObserver. */
 @keyframes logSlideUp {
   from {
-    max-height: 0;
     opacity: 0;
+    transform: translateY(16px);
   }
+}
+@keyframes logSlideDown {
   to {
-    max-height: 75vh;
-    opacity: 1;
+    opacity: 0;
+    transform: translateY(16px);
   }
 }
 
@@ -19,7 +24,13 @@
   background: var(--bg);
   border-top: 1px solid var(--border);
   z-index: 10;
-  animation: logSlideUp 0.15s ease;
+  /* Backwards fill only, so no transform lingers to become the containing
+     block of the fixed-position resize overlay. */
+  animation: logSlideUp 0.3s var(--ease-out) backwards;
+}
+.logPanelClosing {
+  animation: logSlideDown 0.16s var(--ease-in) forwards;
+  pointer-events: none;
 }
 
 /* Grab zone straddling the panel's top border */
@@ -31,6 +42,7 @@
   height: 8px;
   cursor: ns-resize;
   z-index: 20;
+  transition: background var(--transition-fast);
 }
 .resizeHandle:hover {
   background: var(--accent-subtle);
@@ -45,25 +57,22 @@
 }
 
 .logHeader {
-  padding: 6px 14px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
+  height: 40px;
+  padding: 0 8px 0 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   flex-shrink: 0;
-  background: var(--sidebar-bg);
 }
 
 .logLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .logDot {
@@ -71,7 +80,6 @@
   height: 6px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 3px var(--green-dim);
 }
 
 .logHeaderActions {
@@ -83,30 +91,36 @@
 .logClose {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--text-muted);
   cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-sm);
-  line-height: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
-  transition: background 0.1s, color 0.1s;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .logClose:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
 
+/* Only shown when there is no terminal to attach: a quiet note in the middle
+   of the panel, matching the other empty states. */
 .logOutput {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   padding: 10px 14px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-dim);
+  word-break: break-word;
+  color: var(--text-muted);
   -webkit-user-select: text;
   user-select: text;
 }
@@ -128,4 +142,10 @@
 .termContainer {
   position: absolute;
   inset: 0;
+}
+/* Breathing room on xterm's own element, which the fit addon subtracts when
+   sizing the grid; the left edge lines up with the header's name. */
+.termContainer :global(.xterm) {
+  height: 100%;
+  padding: 4px 6px 6px 16px;
 }

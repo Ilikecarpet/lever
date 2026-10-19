@@ -1,86 +1,85 @@
+import { useState } from "react";
 import styles from "./LeverMark.module.css";
 
-/** The drawing's bounds: wide enough for the lever's whole swing. */
-const VIEW = { x: 1.5, y: 1, w: 28, h: 23 };
+/** The drawing's bounds: wide enough for the beam's whole rock. */
+const VIEW = { x: 3, y: 5.5, w: 23, h: 17 };
 
-/** The pivot the lever swings about, in drawing units. */
-export const PIVOT = { x: 12, y: 18.5 };
+/** The fulcrum's tip, which the beam rocks on, in drawing units. */
+export const PIVOT = { x: 12, y: 14 };
+
+/** Where a thing resting on the short arm sits, with the beam at rest. */
+const REST = { x: 6.14, y: 10.54 };
+
+/** The ways the lever can play while working, each with its own thing. Each
+ *  starts and ends at rest with nothing on the beam, so a new one can take over
+ *  at the end of any loop: the thing drops in over the top edge and leaves out
+ *  of the frame.
+ *  - fling: a ball lands on the short arm; the long arm is driven down and
+ *    throws it low across and out the side
+ *  - tip: a wedge lands on the long arm, tips the beam down with its weight,
+ *    and rolls off the end and out of the bottom
+ *  - juggle: a box lands on the short arm, is tapped up and caught twice,
+ *    then thrown low across and out the side like the fling */
+const MOVES = ["fling", "tip", "juggle"] as const;
+const THINGS = ["ball", "box", "wedge"] as const;
+type Move = (typeof MOVES)[number];
+type Thing = (typeof THINGS)[number];
+const THING_FOR: Record<Move, Thing> = { fling: "ball", tip: "wedge", juggle: "box" };
+
+const pickPlay = (): { move: Move; thing: Thing } => {
+  const move = MOVES[Math.floor(Math.random() * MOVES.length)];
+  return { move, thing: THING_FOR[move] };
+};
+
+function ThingShape({ thing }: { thing: Thing }) {
+  if (thing === "box") return <rect x={REST.x - 1.1} y={REST.y - 1.1} width="2.2" height="2.2" rx="0.45" />;
+  if (thing === "wedge") return <path d={`M${REST.x} ${REST.y - 1.4} L${REST.x + 1.3} ${REST.y + 1.06} H${REST.x - 1.3} Z`} />;
+  return <circle cx={REST.x} cy={REST.y} r="1.2" />;
+}
 
 /**
- * Lever's mark, seen side-on: a red knob on a chrome stick, pivoting out of
- * a metal base. While `working`, the lever is pulled down through its arc,
- * held, and springs back past rest — the app's own way of saying an agent is
- * busy. `size` is the height; the width follows the drawing.
+ * Lever's mark, as in the app icon: the "l" laid down as a beam, resting on
+ * the flipped "v" as its fulcrum. While `working`, it plays with things
+ * dropped onto the beam, picking the move and the thing at random each loop: the app's own way of saying an
+ * agent is busy. `size` is the height; the width follows the drawing.
  */
 export function LeverMark({ size = 16, working = false, className }: { size?: number; working?: boolean; className?: string }) {
-  const arm = (
-    <>
-      <rect x={PIVOT.x - 0.95} y={PIVOT.y - 13} width="1.9" height="13" rx="0.95" fill="url(#lm-chrome)" />
-      {/* The ball turns back against the stick, so its light stays put —
-          up and to the left — wherever the lever is. */}
-      <g className={styles.knob}>
-        <circle cx={PIVOT.x} cy={PIVOT.y - 13.2} r="3.7" fill="url(#lm-knob)" />
-        <ellipse cx={PIVOT.x - 1.25} cy={PIVOT.y - 14.6} rx="1.35" ry="0.9" fill="#fff" opacity="0.6" />
-      </g>
-    </>
-  );
+  const [play, setPlay] = useState(pickPlay);
+  // The beam sits one stroke above the tip, so rocking about the tip keeps
+  // it resting on the fulcrum. Its foot curls up at the short end.
+  const beam = <path d={`M24 ${PIVOT.y - 2.6} H6.3 Q5 ${PIVOT.y - 2.6} 5 ${PIVOT.y - 3.9}`} />;
   return (
     <svg
       width={(size * VIEW.w) / VIEW.h}
       height={size}
       viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`}
-      className={`${styles.mark}${working ? ` ${styles.working}` : ""}${className ? ` ${className}` : ""}`}
+      fill="none"
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`${styles.mark}${working ? ` ${styles.working} ${styles[play.move]}` : ""}${className ? ` ${className}` : ""}`}
       aria-hidden
     >
       <defs>
-        {/* The stick's chrome is lit across its width, and turns with it. */}
-        <linearGradient id="lm-chrome" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#7c7c7c" />
-          <stop offset="0.4" stopColor="#f4f4f4" />
-          <stop offset="0.7" stopColor="#c9c9c9" />
-          <stop offset="1" stopColor="#5f5f5f" />
-        </linearGradient>
-        <radialGradient id="lm-knob" cx="0.36" cy="0.3" r="0.78">
-          <stop offset="0" stopColor="#ff9a8b" />
-          <stop offset="0.4" stopColor="#e8392b" />
-          <stop offset="1" stopColor="#7e130d" />
-        </radialGradient>
-        {/* Light from above: the base's top face is lit, its front in shade. */}
-        <linearGradient id="lm-top" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#8a8a8a" />
-          <stop offset="1" stopColor="#5a5a5a" />
-        </linearGradient>
-        <linearGradient id="lm-front" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#3d3d3d" />
-          <stop offset="1" stopColor="#1c1c1c" />
-        </linearGradient>
         <filter id="lm-blur" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="0.7" />
         </filter>
-        <radialGradient id="lm-hub" cx="0.38" cy="0.32" r="0.8">
-          <stop offset="0" stopColor="#f2f2f2" />
-          <stop offset="0.55" stopColor="#9a9a9a" />
-          <stop offset="1" stopColor="#4a4a4a" />
-        </radialGradient>
       </defs>
 
-      <g className={styles.base}>
-        {/* the knob's shadow on the base's top face follows the swing */}
-        <ellipse cx={PIVOT.x} cy="18.4" rx="3" ry="0.55" className={styles.shadow} />
-        {/* top face, then front face, of the housing */}
-        <path d="M4.5 18 L20.5 18 L22 19.3 L3 19.3 Z" fill="url(#lm-top)" />
-        <rect x="3" y="19.3" width="19" height="3.7" rx="0.8" fill="url(#lm-front)" />
-        <rect x="3" y="19.3" width="19" height="0.45" fill="#fff" opacity="0.12" />
-        {/* the slot the stick swings in */}
-        <path d="M8.5 18.35 L16.5 18.35 L17 18.95 L8 18.95 Z" fill="#0b0b0b" />
+      <path d={`M7.5 21 L${PIVOT.x} ${PIVOT.y} L16.5 21`} className={styles.fulcrum} />
+
+      {/* The thing being played with: moved as a whole, spun about its centre. */}
+      <g className={styles.thing}>
+        <g className={styles.spin}>
+          <ThingShape thing={play.thing} />
+        </g>
       </g>
 
-      {/* A faint trailing copy blurs the fast part of the swing. */}
-      <g className={styles.ghost} filter="url(#lm-blur)">{arm}</g>
-      <g className={styles.arm}>{arm}</g>
-
-      <circle cx={PIVOT.x} cy={PIVOT.y} r="2.1" fill="url(#lm-hub)" className={styles.hub} />
-      <circle cx={PIVOT.x} cy={PIVOT.y} r="0.6" fill="#3a3a3a" className={styles.hub} />
+      {/* A faint trailing copy blurs the fast part of the rock. */}
+      <g className={styles.ghost} filter="url(#lm-blur)">{beam}</g>
+      <g className={styles.beam} onAnimationIteration={() => setPlay(pickPlay())}>
+        {beam}
+      </g>
     </svg>
   );
 }

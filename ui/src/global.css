@@ -1,41 +1,41 @@
 :root {
-  /* Static defaults match the "Foundry" theme (the default when nothing is
+  /* Static defaults match the "Lever" theme (the default when nothing is
      stored) so first launch paints the right colors before JS runs.
      Returning users are covered by the boot script in index.html, which
      re-applies the persisted theme's variables pre-paint. */
-  --bg: #131110;
-  --sidebar-bg: #0e0d0c;
-  --surface: #1d1916;
-  --surface-hover: #272119;
-  --surface-raised: #221d18;
-  --terminal-bg: #0d0c0a;
+  --bg: #0e0e10;
+  --sidebar-bg: #18181b;
+  --surface: #222226;
+  --surface-hover: #2c2c31;
+  --surface-raised: #1c1c20;
+  --terminal-bg: #0e0e10;
 
   /* Borders */
-  --border: #2c2620;
-  --border-hover: #453b31;
+  --border: #2a2a2f;
+  --border-hover: #3b3b40;
 
   /* Text */
-  --text: #ece6de;
-  --text-dim: #a99e90;
-  --text-muted: #665c50;
+  --text: #f2f2f4;
+  --text-dim: #c4c4c9;
+  --text-muted: #8a8a91;
 
-  /* Accent — copper */
-  --accent: #d1885c;
-  --accent-hover: #e2a37b;
-  --accent-dim: rgba(209, 136, 92, 0.09);
-  --accent-subtle: rgba(209, 136, 92, 0.16);
-  --accent-fg: #1c1209;
+  /* Accent — the icon's red */
+  --accent: #ff4a3d;
+  --accent-hover: #ff7a6e;
+  --accent-dim: rgba(255, 74, 61, 0.09);
+  --accent-subtle: rgba(255, 74, 61, 0.16);
+  --accent-fg: #0e0e10;
 
   /* Status */
-  --green: #86c07a;
-  --green-dim: rgba(134, 192, 122, 0.1);
-  --red: #e5705e;
-  --red-dim: rgba(229, 112, 94, 0.1);
+  --green: #98c379;
+  --green-dim: rgba(152, 195, 121, 0.1);
+  --red: #fa7883;
+  --red-dim: rgba(250, 120, 131, 0.1);
   --red-fg: #ffffff;
-  --yellow: #dfa640;
-  --yellow-dim: rgba(223, 166, 64, 0.1);
-  --blue: #7aa5c9;
-  --blue-dim: rgba(122, 165, 201, 0.1);
+  --yellow: #ffc387;
+  --yellow-dim: rgba(255, 195, 135, 0.1);
+  --blue: #6bb8ff;
+  --blue-dim: rgba(107, 184, 255, 0.1);
 
   /* Typography */
   --font-sans: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -55,6 +55,18 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.55);
+  /* Anything that floats over the app — menus, popovers, modals: a hairline
+     edge plus a soft, low drop, rather than a heavy blur. */
+  --shadow-float: 0 0 0 1px var(--border), 0 16px 40px -12px rgba(0, 0, 0, 0.6);
+
+  /* Motion — the chat's vocabulary, app-wide: things arrive on a long
+     ease-out, anything you press answers with a little spring, and things
+     leave quicker than they came. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --transition-fast: 0.12s;
+  --scrim: rgba(0, 0, 0, 0.5);
 }
 
 *,
@@ -138,6 +150,94 @@ select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Shared motion classes. Plain global names, so any component can add them
+   next to its module class: className={`${styles.menu} lv-pop`}. Exits need
+   the element kept mounted while it leaves — see hooks/usePresence.ts, which
+   supplies the `lv-closing` flag.
+
+   lv-pop    menus, popovers, suggestion lists: scale up from their trigger.
+             Set --lv-origin to the corner nearest the trigger.
+   lv-scrim  modal and flyout backdrops: fade.
+   lv-modal  modal cards: rise and settle.
+   lv-rise   anything mounting into a list or page: rise out of a blur.
+             Stagger with --i (45ms a step).
+   lv-press  buttons: a springy squish when pressed. */
+.lv-pop {
+  transform-origin: var(--lv-origin, top left);
+  animation: lv-pop-in 0.2s var(--ease-out) both;
+}
+.lv-pop.lv-closing {
+  animation: lv-pop-out 0.12s var(--ease-in) forwards;
+  pointer-events: none;
+}
+.lv-scrim {
+  animation: lv-fade-in 0.2s var(--ease-out) both;
+}
+.lv-scrim.lv-closing {
+  animation: lv-fade-out 0.16s var(--ease-in) forwards;
+  pointer-events: none;
+}
+.lv-modal {
+  animation: lv-modal-in 0.32s var(--ease-out) both;
+}
+.lv-modal.lv-closing {
+  animation: lv-modal-out 0.16s var(--ease-in) forwards;
+}
+.lv-rise {
+  animation: lv-rise 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.lv-press {
+  transition: transform 0.25s var(--ease-spring), background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast), opacity var(--transition-fast);
+}
+.lv-press:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+@keyframes lv-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+}
+@keyframes lv-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+@keyframes lv-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes lv-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes lv-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+    filter: blur(2px);
+  }
+}
+@keyframes lv-modal-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes lv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
 }
 
 /* Honour the OS "reduce motion" setting: collapses, the agent sweep, and

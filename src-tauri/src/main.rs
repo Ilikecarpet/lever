@@ -20,6 +20,7 @@ mod daemon;
 mod define;
 mod mcp;
 mod output;
+mod plan_usage;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
@@ -1730,6 +1731,9 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
     // (cheaper, more frequent) refresh.
     const AGENT_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
     const USAGE_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
+    /// How often `claude` is asked for the plan windows. Each ask spawns it
+    /// for about a second and a half, and the windows move slowly.
+    const PLAN_USAGE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(180);
     let (agent_names, usage, ports, attention, rate_limits) = {
         let mut cache = state.agent_cache.lock().unwrap();
         if cache.last_scan.map_or(true, |t| t.elapsed() >= AGENT_SCAN_INTERVAL) {
@@ -1743,7 +1747,12 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
                 .map(|(pty_id, (_, pid))| (pty_id.clone(), *pid))
                 .collect();
             cache.usage = cache.usage_tracker.collect(&live);
-            cache.rate_limits = agent_usage::read_rate_limits();
+            // The bridge only hears while a terminal session draws its status
+            // line; `claude` itself is asked every few minutes so the meter's
+            // windows stay current for people who live in Lever's chats.
+            plan_usage::refresh_if_stale(PLAN_USAGE_INTERVAL);
+            cache.rate_limits =
+                agent_usage::RateLimits::merged(agent_usage::read_rate_limits(), plan_usage::latest());
             cache.note_status_changes();
             cache.last_usage_scan = Some(std::time::Instant::now());
         }
@@ -1791,6 +1800,13 @@ fn poll(project_id: String, state: State<'_, AppState>) -> Result<PollResult, St
 #[tauri::command]
 fn clear_agent_attention(pty_id: String, state: State<'_, AppState>) {
     state.agent_cache.lock().unwrap().attention.remove(&pty_id);
+}
+
+/// Opening the meter asks for a fresh plan reading if the last is over half a
+/// minute old; the answer lands on a later poll.
+#[tauri::command]
+fn refresh_plan_usage() {
+    plan_usage::refresh_if_stale(std::time::Duration::from_secs(30));
 }
 
 #[tauri::command(async)]
@@ -2964,6 +2980,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             agent_bridge_state,
+            refresh_plan_usage,
             clear_agent_attention,
             install_agent_bridge,
             uninstall_agent_bridge,

@@ -5,8 +5,11 @@ import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { usePanelStore } from "../../stores/panelStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { useMenuPresence, useRiseOnMount } from "./motion";
 import { IconChevron } from "../Icons";
 import ServiceItem from "./ServiceItem";
+import ConfirmAccordion from "../ContextMenu/ConfirmAccordion";
+import menuStyles from "../ContextMenu/ContextMenu.module.css";
 import styles from "./GroupItem.module.css";
 
 interface Props {
@@ -21,7 +24,9 @@ export default function GroupItem({ group, worktreeId }: Props) {
   const [renaming, setRenaming] = useState(false);
   const renameRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
+  const menu = useMenuPresence(contextMenu);
+  useClampToViewport(contextMenuRef, menu.pos.x, menu.pos.y);
+  const rise = useRiseOnMount();
 
   const statuses = useServiceStore((s) => s.statuses);
   const startService = useServiceStore((s) => s.startService);
@@ -135,8 +140,10 @@ export default function GroupItem({ group, worktreeId }: Props) {
 
   return (
     <div className={styles.group}>
+      {/* The entrance rides on the header, not the group: a held transform or
+          filter on the group would capture the fixed-position menu inside it. */}
       <div
-        className={styles.groupHeader}
+        className={`${styles.groupHeader}${rise ? " lv-rise" : ""}`}
         onClick={() => setCollapsed((c) => !c)}
         onContextMenu={handleContextMenu}
       >
@@ -162,8 +169,9 @@ export default function GroupItem({ group, worktreeId }: Props) {
           ) : (
             group.label
           )}
-          {/* The count is only load-bearing while the levers are hidden. */}
-          {!renaming && collapsed && (
+          {/* How much of the group is up, readable without scanning the
+              lights — and the only signal left once the card is folded. */}
+          {!renaming && runningCount > 0 && (
             <span className={styles.groupCount}>
               {runningCount}/{group.services.length}
             </span>
@@ -210,41 +218,35 @@ export default function GroupItem({ group, worktreeId }: Props) {
         </div>
       </div>
 
-      {contextMenu && (
+      {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={styles.ctxMenu}
+          className={`${menuStyles.menu} ${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-grp={group.id}
         >
-          <button className={styles.ctxItem} onClick={handleAddService}>
+          <button className={menuStyles.item} onClick={handleAddService}>
             Add service
           </button>
-          <button className={styles.ctxItem} onClick={handleStartRename}>
+          <button className={menuStyles.item} onClick={handleStartRename}>
             Rename group
           </button>
           <button
-            className={`${styles.ctxItem} ${styles.ctxItemDanger}`}
+            className={`${menuStyles.item} ${menuStyles.danger}`}
             onClick={() => setConfirmDelete((v) => !v)}
           >
             Delete group
           </button>
-          <div className={`${styles.confirmAccordion}${confirmDelete ? ` ${styles.confirmOpen}` : ""}`}>
-            <div className={styles.confirmInner}>
-              <div className={styles.confirmWarning}>
-                {group.services.length > 0
-                  ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
-                  : "This will delete this empty group."}
-              </div>
-              <div className={styles.confirmActions}>
-                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-                <button className={styles.confirmYes} onClick={handleDeleteConfirm}>
-                  Yes, delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmAccordion
+            open={confirmDelete}
+            warning={
+              group.services.length > 0
+                ? `This will delete the group and its ${group.services.length} service${group.services.length !== 1 ? "s" : ""}.`
+                : "This will delete this empty group."
+            }
+            confirmLabel="Yes, delete"
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={handleDeleteConfirm}
+          />
         </div>
       )}
     </div>

@@ -60,7 +60,7 @@ export default function StatusBar() {
         {running}/{total} running
       </span>
       {shown.length > 0 && (
-        <span className={styles.ports}>
+        <span className={`${styles.ports} lv-rise`}>
           {portGroups.map(({ label, ports: svcPorts }) => (
             <span key={`${label}-${svcPorts[0]}`} className={styles.portGroup}>
               <span className={styles.portLabel}>{label}</span>
@@ -96,7 +96,7 @@ export default function StatusBar() {
           itself lives in Settings, which this points at. */}
       {(updatePhase === "available" || updatePhase === "downloading") && (
         <button
-          className={styles.update}
+          className={`${styles.update} lv-rise`}
           onClick={openSettings}
           title="Open Settings to install"
         >
@@ -110,21 +110,21 @@ export default function StatusBar() {
       <AgentMeter />
       <div className={styles.paneControls}>
         <button
-          className={styles.paneBtn}
+          className={`${styles.paneBtn} lv-press`}
           onClick={() => splitPane("vertical")}
           title="Split vertical (⌘D)"
         >
           <IconSplitV size={13} />
         </button>
         <button
-          className={styles.paneBtn}
+          className={`${styles.paneBtn} lv-press`}
           onClick={() => splitPane("horizontal")}
           title="Split horizontal (⌘⇧D)"
         >
           <IconSplitH size={13} />
         </button>
         <button
-          className={styles.paneBtn}
+          className={`${styles.paneBtn} lv-press`}
           onClick={closePane}
           title="Close pane (⌘W)"
         >

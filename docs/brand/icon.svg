@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Lever app icon: the "l" laid down, foot hook curling up at the low end, resting on the flipped "v" -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3b40"/><stop offset="1" stop-color="#18181b"/></linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4a3d"/><stop offset="1" stop-color="#b8160f"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <g transform="translate(512 512) scale(0.88) translate(-512 -512) translate(440 532)" fill="none" stroke-width="72" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-110 170 L0 0 L110 170" stroke="url(#red)"/>
+    <path transform="rotate(-18)" d="M420 -72 H-204 Q-240 -72 -240 -108" stroke="#f2f2f4"/>
+  </g>
+</svg>

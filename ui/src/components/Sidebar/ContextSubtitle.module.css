@@ -3,13 +3,15 @@
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-  font-size: 9px;
+  font-size: 11px;
+  line-height: 14px;
   font-weight: 400;
   color: var(--text-muted);
   white-space: nowrap;
 }
 .path {
   font-family: var(--font-mono);
+  font-size: 10.5px;
   overflow: hidden;
   text-overflow: ellipsis;
 }

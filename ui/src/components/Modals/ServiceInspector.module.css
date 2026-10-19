@@ -6,8 +6,7 @@
    that destroy. Focus is neutral elevation. */
 
 .detailName {
-  font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -20,15 +19,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 7px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-dim);
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 .crumbs i {
   font-style: normal;
   color: var(--text-muted);
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 /* The command, shown as the thing it is. It updates as you type, so what will
@@ -38,9 +36,9 @@
   align-items: baseline;
   gap: 9px;
   margin-top: 20px;
-  padding: 11px 14px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--terminal-bg);
   overflow-x: auto;
 }
@@ -65,14 +63,20 @@
 }
 .runCwd {
   margin-top: 6px;
-  padding-left: 2px;
+  padding-left: 4px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .fieldSet {
-  margin-top: 24px;
+  margin-top: 28px;
+}
+
+/* Section names sit a step further from their fields than a label does, so
+   "Identity" never reads as one more field label. */
+.fieldSet > :first-child {
+  margin-bottom: 14px;
 }
 
 .fRow {
@@ -88,32 +92,31 @@
 }
 .f label {
   display: block;
-  margin-bottom: 5px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
+  margin-bottom: 6px;
+  font-size: 12px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 .f input,
 .f select {
   width: 100%;
-  padding: 8px 11px;
+  height: 32px;
+  padding: 0 11px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   outline: none;
-  transition: border-color 0.15s, background 0.12s;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
-/* Focus is neutral elevation, never accent — accent is the primary action. */
+/* The chat composer's focus ring, so every field in the app answers focus the
+   same way. */
 .f input:focus,
 .f select:focus {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 .f input::placeholder {
   color: var(--text-muted);
@@ -134,29 +137,29 @@
    what the row becomes in the sidebar. */
 .seg {
   display: flex;
+  gap: 2px;
+  height: 32px;
+  padding: 2px;
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  overflow: hidden;
 }
 .segBtn {
   flex: 1;
-  padding: 7px 0;
   border: none;
-  background: var(--surface);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
 .segBtn:hover {
-  background: var(--surface-hover);
   color: var(--text-dim);
 }
 .segBtn + .segBtn {
-  border-left: 1px solid var(--border);
+  border-left: none;
 }
 .segBtnOn {
   background: var(--surface-hover);
@@ -171,7 +174,7 @@
   flex-shrink: 0;
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.2s ease;
+  transition: grid-template-rows 0.24s var(--ease-out);
 }
 .confirm[data-open="1"] {
   grid-template-rows: 1fr;
@@ -181,12 +184,12 @@
   min-height: 0;
 }
 .confirmBox {
-  padding: 12px 26px;
+  padding: 14px 24px 16px;
   border-top: 1px solid var(--border);
   background: var(--red-dim);
 }
 .confirmMsg {
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.55;
   color: var(--text-dim);
 }
@@ -197,17 +200,18 @@
 .confirmActions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
-  margin-top: 9px;
+  gap: 8px;
+  margin-top: 12px;
 }
 .confirmNo,
 .confirmYes {
-  padding: 5px 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  font-weight: 500;
+  background: var(--red-dim);
+  color: var(--red);
+}
+.confirmNo:active,
+.confirmYes:active {
+  transform: scale(0.96);
 }
 .confirmNo {
   font-weight: 500;

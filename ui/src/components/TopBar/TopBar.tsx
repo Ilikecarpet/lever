@@ -40,7 +40,7 @@ export default function TopBar() {
         <div className={styles.lightsSpacer} data-app-drag />
         <span className={styles.leftSpacer} data-app-drag />
         <button
-          className={styles.toggleBtn}
+          className={`${styles.toggleBtn} lv-press`}
           onClick={toggleSidebar}
           title={collapsed ? "Show sidebar (⌘B)" : "Hide sidebar (⌘B)"}
           aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}

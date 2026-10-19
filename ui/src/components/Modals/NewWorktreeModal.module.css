@@ -1,7 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9,52 +9,51 @@
 }
 
 .modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  border-radius: 16px;
   padding: 24px;
   width: 440px;
   max-width: 90vw;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
 }
 
 .title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text);
-  margin-bottom: 18px;
+  margin-bottom: 20px;
 }
 
 .field {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   position: relative;
 }
 
 .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   margin-bottom: 6px;
 }
 
 .input {
   width: 100%;
-  background: var(--terminal-bg);
+  height: 32px;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text);
-  font-size: 13px;
-  padding: 9px 12px;
+  font-size: 12.5px;
+  padding: 0 11px;
   outline: none;
   font-family: var(--font-mono);
   box-sizing: border-box;
-  transition: border-color 0.15s;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
 }
+/* The same focus ring as the chat composer. */
 .input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 .input:disabled {
   opacity: 0.55;
@@ -74,18 +73,27 @@ select.input {
   cursor: pointer;
 }
 
+/* Dressed like every other menu in the app, and it drops from the field it
+   belongs to. */
 .suggestions {
   position: absolute;
   z-index: 10;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  max-height: 160px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  max-height: 180px;
   overflow-y: auto;
-  margin-top: 2px;
+  margin-top: 6px;
   left: 0;
   right: 0;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-float);
+  --lv-origin: top center;
+}
+/* A quiet placeholder while git answers, rather than an empty pause. */
+.suggestionsLoading {
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .suggestion {
@@ -93,7 +101,9 @@ select.input {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 12px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   color: var(--text);
   cursor: pointer;
@@ -105,14 +115,13 @@ select.input {
    branch out directly, so there is no base to choose. */
 .remoteTag {
   flex: none;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 3px);
-  padding: 1px 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 1px 6px;
 }
 .suggestion:hover {
   background: var(--surface-hover);
@@ -122,25 +131,31 @@ select.input {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  margin-top: 20px;
+  margin-top: 24px;
 }
 
 .btn {
-  padding: 8px 18px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s, opacity 0.15s;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast),
+    opacity 0.15s, transform 0.25s var(--ease-spring);
 }
 
 .btnCancel {
   color: var(--text-dim);
-  background: var(--surface-hover);
+  background: transparent;
   border: 1px solid var(--border);
 }
 .btnCancel:hover {
-  background: var(--border);
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
   color: var(--text);
 }
 
@@ -149,8 +164,9 @@ select.input {
   background: var(--accent);
   border: 1px solid var(--accent);
 }
-.btnCreate:hover {
-  opacity: 0.9;
+.btnCreate:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 .btnCreate:disabled {
   opacity: 0.35;
@@ -164,24 +180,24 @@ select.input {
 }
 
 .adoptBadge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  color: var(--green, #22c55e);
-  margin-bottom: 10px;
+  color: var(--green);
+  margin-bottom: 12px;
+  line-height: 1.45;
 }
 
 .adoptPath {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--green, #22c55e);
+  color: var(--green);
   opacity: 0.85;
 }
 
 .infoBadge {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
   color: var(--text-dim);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   line-height: 1.45;
 }
 
@@ -192,17 +208,17 @@ select.input {
 }
 
 .hint {
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-top: 5px;
-  line-height: 1.4;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.45;
 }
 
 .warnBadge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--yellow);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   line-height: 1.45;
 }
 
