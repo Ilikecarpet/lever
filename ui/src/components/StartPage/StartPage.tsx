@@ -4,7 +4,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, ProjectExport, ProjectMeta } from "../../types";
 import * as api from "../../lib/tauri";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { usePresence } from "../../hooks/usePresence";
 import { Wordmark } from "../Wordmark";
+import { IconPlus } from "../Icons";
 import styles from "./StartPage.module.css";
 
 function timeAgo(unix: number): string {
@@ -14,6 +16,17 @@ function timeAgo(unix: number): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
   return new Date(unix * 1000).toLocaleDateString();
+}
+
+/** Cards past this many all land together; a longer cascade just feels slow. */
+const MAX_STAGGER = 8;
+
+/** Holds on to the last non-null value, so something can keep drawing it while
+ *  it animates out after the live value has already gone. */
+function useLast<T>(value: T | null): T | null {
+  const last = useRef(value);
+  if (value !== null) last.current = value;
+  return last.current;
 }
 
 function parseImportFile(text: string): {
@@ -41,6 +54,9 @@ function parseImportFile(text: string): {
 
 export default function StartPage() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  /** Until the first list arrives, an empty `projects` means "not yet", not
+   *  "none" — so the first-run copy must not show. */
+  const [loaded, setLoaded] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -53,12 +69,27 @@ export default function StartPage() {
   const [deleteTarget, setDeleteTarget] = useState<ProjectMeta | null>(null);
   const [cloneTarget, setCloneTarget] = useState<ProjectMeta | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
+
+  // Everything that pops up keeps its last contents while it animates away.
+  const menu = usePresence(!!contextMenu);
+  const shownMenu = useLast(contextMenu);
+  const createModal = usePresence(showCreateModal);
+  const importModal = usePresence(showImportModal);
+  const deleteModal = usePresence(!!deleteTarget);
+  const shownDelete = useLast(deleteTarget);
+  const cloneModal = usePresence(!!cloneTarget);
+  const shownClone = useLast(cloneTarget);
+
+  useClampToViewport(contextMenuRef, shownMenu?.x ?? 0, shownMenu?.y ?? 0);
 
   const refresh = useCallback(async () => {
-    const list = await api.listProjects();
-    list.sort((a, b) => b.last_opened - a.last_opened);
-    setProjects(list);
+    try {
+      const list = await api.listProjects();
+      list.sort((a, b) => b.last_opened - a.last_opened);
+      setProjects(list);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -147,37 +178,52 @@ export default function StartPage() {
       <div className={styles.header}>
         <div className={styles.title}>
           <span className={styles.titlePrompt}>❯</span>
-          <Wordmark height={26} />
+          <Wordmark height={38} />
           <span className={styles.titleCursor} aria-hidden="true" />
         </div>
-        <div className={styles.subtitle}>
-          {projects.length === 0
-            ? "A project points Lever at a repository and remembers its services, groups, and worktrees"
-            : "Select a project or create a new one"}
+        {/* Holds its line while loading, so nothing below jumps when it fills. */}
+        <div className={`${styles.subtitle}${loaded ? " lv-rise" : ""}`}>
+          {!loaded
+            ? null
+            : projects.length === 0
+              ? "A project points Lever at a repository and remembers its services, groups, and worktrees"
+              : "Select a project or create a new one"}
         </div>
       </div>
 
       <div className={styles.actions}>
-        <button className={styles.btnPrimary} onClick={() => setShowCreateModal(true)}>
-          + New Project
+        <button className={`${styles.btnPrimary} lv-press`} onClick={() => setShowCreateModal(true)}>
+          <IconPlus size={14} /> New project
         </button>
-        <button className={styles.btnSecondary} onClick={() => setShowImportModal(true)}>
-          Import Config
+        <button className={`${styles.btnSecondary} lv-press`} onClick={() => setShowImportModal(true)}>
+          Import config
         </button>
         <button
-          className={styles.btnSecondary}
+          className={`${styles.btnSecondary} lv-press`}
           onClick={handleOpenTerminal}
           title="Open a standalone terminal (Space)"
         >
-          Open Terminal <span className={styles.kbd}>Space</span>
+          Open terminal <span className={styles.kbd}>Space</span>
         </button>
       </div>
 
       <div className={styles.grid}>
-        {projects.map((p) => (
+        {/* Placeholders the size of a card. They only fade in if the list is
+            slow to arrive, so a quick load goes straight to the real cards. */}
+        {!loaded &&
+          [0, 1, 2].map((i) => (
+            <div key={i} className={styles.skeleton} style={{ "--j": i } as React.CSSProperties}>
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+
+        {loaded && projects.map((p, i) => (
           <div
             key={p.id}
-            className={styles.card}
+            className={`${styles.card} lv-rise`}
+            style={{ "--i": Math.min(i, MAX_STAGGER) } as React.CSSProperties}
             onClick={() => {
               if (renamingId !== p.id) handleOpen(p.id);
             }}
@@ -220,39 +266,49 @@ export default function StartPage() {
           </div>
         ))}
 
-        <div className={styles.emptyCard} onClick={() => setShowCreateModal(true)}>
-          <div className={styles.emptyCardContent}>
-            <div className={styles.emptyCardPlus}>+</div>
-            <div className={styles.emptyCardLabel}>
-              {projects.length === 0 ? "Create your first project" : "New Project"}
+        {loaded && (
+          <div
+            className={`${styles.emptyCard} lv-rise`}
+            style={{ "--i": Math.min(projects.length, MAX_STAGGER) } as React.CSSProperties}
+            onClick={() => setShowCreateModal(true)}
+          >
+            <div className={styles.emptyCardContent}>
+              <IconPlus size={20} className={styles.emptyCardPlus} />
+              <div className={styles.emptyCardLabel}>
+                {projects.length === 0 ? "Create your first project" : "New project"}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className={styles.hint}>
         Right-click a project for options · Press <span className={styles.kbd}>Space</span> for a quick terminal
       </div>
 
-      {contextMenu && (
-        <div ref={contextMenuRef} className={styles.contextMenu}>
-          <button className={styles.contextMenuItem} onClick={() => handleRename(contextMenu.project)}>
+      {menu.mounted && shownMenu && (
+        <div
+          ref={contextMenuRef}
+          className={`${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
+        >
+          <button className={styles.contextMenuItem} onClick={() => handleRename(shownMenu.project)}>
             Rename
           </button>
-          <button className={styles.contextMenuItem} onClick={() => handleClone(contextMenu.project)}>
+          <button className={styles.contextMenuItem} onClick={() => handleClone(shownMenu.project)}>
             Clone
           </button>
-          <button className={styles.contextMenuItem} onClick={() => handleChangeRepoPath(contextMenu.project)}>
+          <button className={styles.contextMenuItem} onClick={() => handleChangeRepoPath(shownMenu.project)}>
             Change repo path…
           </button>
-          <button className={styles.contextMenuDanger} onClick={() => handleDelete(contextMenu.project)}>
+          <button className={styles.contextMenuDanger} onClick={() => handleDelete(shownMenu.project)}>
             Delete
           </button>
         </div>
       )}
 
-      {showCreateModal && (
+      {createModal.mounted && (
         <CreateModal
+          closing={createModal.closing}
           onClose={() => setShowCreateModal(false)}
           onCreated={(id) => {
             setShowCreateModal(false);
@@ -262,8 +318,9 @@ export default function StartPage() {
         />
       )}
 
-      {showImportModal && (
+      {importModal.mounted && (
         <ImportModal
+          closing={importModal.closing}
           onClose={() => setShowImportModal(false)}
           onImported={() => {
             setShowImportModal(false);
@@ -272,9 +329,10 @@ export default function StartPage() {
         />
       )}
 
-      {deleteTarget && (
+      {deleteModal.mounted && shownDelete && (
         <ConfirmDeleteModal
-          project={deleteTarget}
+          project={shownDelete}
+          closing={deleteModal.closing}
           onClose={() => setDeleteTarget(null)}
           onDeleted={() => {
             setDeleteTarget(null);
@@ -283,9 +341,10 @@ export default function StartPage() {
         />
       )}
 
-      {cloneTarget && (
+      {cloneModal.mounted && shownClone && (
         <CloneModal
-          project={cloneTarget}
+          project={shownClone}
+          closing={cloneModal.closing}
           onClose={() => setCloneTarget(null)}
           onCloned={() => {
             setCloneTarget(null);
@@ -297,17 +356,42 @@ export default function StartPage() {
   );
 }
 
+/** Scrim and card shared by every modal here. A click only dismisses when it
+ *  both starts and ends on the scrim, so a drag out of a text field doesn't. */
+function ModalFrame({
+  closing,
+  onClose,
+  children,
+}: {
+  closing: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const mouseDownOnOverlay = useRef(false);
+  const leaving = closing ? " lv-closing" : "";
+  return (
+    <div
+      className={`${styles.modalOverlay} lv-scrim${leaving}`}
+      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
+      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
+    >
+      <div className={`${styles.modal} lv-modal${leaving}`}>{children}</div>
+    </div>
+  );
+}
+
 function ConfirmDeleteModal({
   project,
   onClose,
   onDeleted,
+  closing,
 }: {
+  closing: boolean;
   project: ProjectMeta;
   onClose: () => void;
   onDeleted: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const mouseDownOnOverlay = useRef(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -329,28 +413,22 @@ function ConfirmDeleteModal({
   };
 
   return (
-    <div
-      className={styles.modalOverlay}
-      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
-      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
-    >
-      <div className={styles.modal}>
-        <div className={styles.modalTitle}>Delete “{project.name}”?</div>
-        <div className={styles.modalBody}>
-          This removes the project and its Lever configuration (services,
-          groups, worktree list). Your repository on disk is not affected.
-          This cannot be undone.
-        </div>
-        <div className={styles.modalActions}>
-          <button className={styles.btnSecondary} onClick={onClose} autoFocus>
-            Cancel
-          </button>
-          <button className={styles.btnDanger} onClick={handleDelete} disabled={busy}>
-            {busy ? "Deleting…" : "Delete project"}
-          </button>
-        </div>
+    <ModalFrame closing={closing} onClose={onClose}>
+      <div className={styles.modalTitle}>Delete “{project.name}”?</div>
+      <div className={styles.modalBody}>
+        This removes the project and its Lever configuration (services,
+        groups, worktree list). Your repository on disk is not affected.
+        This cannot be undone.
       </div>
-    </div>
+      <div className={styles.modalActions}>
+        <button className={`${styles.btnSecondary} lv-press`} onClick={onClose} autoFocus>
+          Cancel
+        </button>
+        <button className={`${styles.btnDanger} lv-press`} onClick={handleDelete} disabled={busy}>
+          {busy ? "Deleting…" : "Delete project"}
+        </button>
+      </div>
+    </ModalFrame>
   );
 }
 
@@ -358,7 +436,9 @@ function CloneModal({
   project,
   onClose,
   onCloned,
+  closing,
 }: {
+  closing: boolean;
   project: ProjectMeta;
   onClose: () => void;
   onCloned: () => void;
@@ -366,8 +446,6 @@ function CloneModal({
   const [name, setName] = useState(`${project.name} (copy)`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const mouseDownOnOverlay = useRef(false);
-
   const handleClone = async () => {
     if (busy || !name.trim()) return;
     setBusy(true);
@@ -381,43 +459,39 @@ function CloneModal({
   };
 
   return (
-    <div
-      className={styles.modalOverlay}
-      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
-      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
-    >
-      <div className={styles.modal}>
-        <div className={styles.modalTitle}>Clone “{project.name}”</div>
-        <label className={styles.fieldLabel}>Name for the clone</label>
-        <input
-          className={styles.modalInput}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleClone();
-            if (e.key === "Escape") onClose();
-          }}
-          autoFocus
-          onFocus={(e) => e.target.select()}
-        />
-        {error && <div className={styles.modalError}>{error}</div>}
-        <div className={styles.modalActions}>
-          <button className={styles.btnSecondary} onClick={onClose}>
-            Cancel
-          </button>
-          <button className={styles.btnPrimary} onClick={handleClone} disabled={busy || !name.trim()}>
-            {busy ? "Cloning…" : "Clone"}
-          </button>
-        </div>
+    <ModalFrame closing={closing} onClose={onClose}>
+      <div className={styles.modalTitle}>Clone “{project.name}”</div>
+      <label className={styles.fieldLabel}>Name for the clone</label>
+      <input
+        className={styles.modalInput}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleClone();
+          if (e.key === "Escape") onClose();
+        }}
+        autoFocus
+        onFocus={(e) => e.target.select()}
+      />
+      {error && <div className={styles.modalError}>{error}</div>}
+      <div className={styles.modalActions}>
+        <button className={`${styles.btnSecondary} lv-press`} onClick={onClose}>
+          Cancel
+        </button>
+        <button className={`${styles.btnPrimary} lv-press`} onClick={handleClone} disabled={busy || !name.trim()}>
+          {busy ? "Cloning…" : "Clone"}
+        </button>
       </div>
-    </div>
+    </ModalFrame>
   );
 }
 
 function CreateModal({
   onClose,
   onCreated,
+  closing,
 }: {
+  closing: boolean;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
@@ -426,8 +500,6 @@ function CreateModal({
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
-  const mouseDownOnOverlay = useRef(false);
-
   const handlePickFolder = async () => {
     const selected = await open({ directory: true, multiple: false });
     if (!selected) return;
@@ -469,64 +541,60 @@ function CreateModal({
   };
 
   return (
-    <div
-      className={styles.modalOverlay}
-      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
-      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
-    >
-      <div className={styles.modal}>
-        <div className={styles.modalTitle}>New Project</div>
+    <ModalFrame closing={closing} onClose={onClose}>
+      <div className={styles.modalTitle}>New project</div>
 
-        <label className={styles.fieldLabel}>Folder</label>
-        <button
-          className={styles.folderPicker}
-          onClick={handlePickFolder}
-          type="button"
-        >
-          {folderPath ? (
-            <span className={styles.folderPath}>{folderPath}</span>
-          ) : (
-            <span className={styles.folderPlaceholder}>Choose a folder...</span>
-          )}
-          <span className={styles.folderBtn}>Browse</span>
-        </button>
-
-        {isGitRepo !== null && (
-          <div className={isGitRepo ? styles.gitBadge : styles.gitBadgeNone}>
-            {isGitRepo ? "Git repository detected" : "Not a git repository"}
-          </div>
+      <label className={styles.fieldLabel}>Folder</label>
+      <button
+        className={styles.folderPicker}
+        onClick={handlePickFolder}
+        type="button"
+      >
+        {folderPath ? (
+          <span className={styles.folderPath}>{folderPath}</span>
+        ) : (
+          <span className={styles.folderPlaceholder}>Choose a folder…</span>
         )}
+        <span className={styles.folderBtn}>Browse</span>
+      </button>
 
-        <label className={styles.fieldLabel}>Project Name</label>
-        <input
-          ref={nameRef}
-          className={styles.modalInput}
-          placeholder="Project name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSubmit();
-            if (e.key === "Escape") onClose();
-          }}
-        />
-        {error && <div className={styles.modalError}>{error}</div>}
-        <div className={styles.modalActions}>
-          <button className={styles.btnSecondary} onClick={onClose}>
-            Cancel
-          </button>
-          <button className={styles.btnPrimary} onClick={handleSubmit}>
-            Create
-          </button>
+      {isGitRepo !== null && (
+        <div className={isGitRepo ? styles.gitBadge : styles.gitBadgeNone}>
+          {isGitRepo ? "Git repository detected" : "Not a git repository"}
         </div>
+      )}
+
+      <label className={styles.fieldLabel}>Project name</label>
+      <input
+        ref={nameRef}
+        className={styles.modalInput}
+        placeholder="Project name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleSubmit();
+          if (e.key === "Escape") onClose();
+        }}
+      />
+      {error && <div className={styles.modalError}>{error}</div>}
+      <div className={styles.modalActions}>
+        <button className={`${styles.btnSecondary} lv-press`} onClick={onClose}>
+          Cancel
+        </button>
+        <button className={`${styles.btnPrimary} lv-press`} onClick={handleSubmit}>
+          Create
+        </button>
       </div>
-    </div>
+    </ModalFrame>
   );
 }
 
 function ImportModal({
   onClose,
   onImported,
+  closing,
 }: {
+  closing: boolean;
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -536,8 +604,6 @@ function ImportModal({
   const [isNewFormat, setIsNewFormat] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mouseDownOnOverlay = useRef(false);
-
   const handleFileChange = async () => {
     setError("");
     const file = fileInputRef.current?.files?.[0];
@@ -588,59 +654,53 @@ function ImportModal({
   };
 
   return (
-    <div
-      className={styles.modalOverlay}
-      onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
-      onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
-    >
-      <div className={styles.modal}>
-        <div className={styles.modalTitle}>Import Config</div>
+    <ModalFrame closing={closing} onClose={onClose}>
+      <div className={styles.modalTitle}>Import config</div>
 
-        <label className={styles.fieldLabel}>Config file</label>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json"
-          style={{ marginBottom: 12 }}
-          onChange={handleFileChange}
-        />
+      <label className={styles.fieldLabel}>Config file</label>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        style={{ marginBottom: 12 }}
+        onChange={handleFileChange}
+      />
 
-        <label className={styles.fieldLabel}>Project Name</label>
-        <input
-          className={styles.modalInput}
-          placeholder="Project name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+      <label className={styles.fieldLabel}>Project name</label>
+      <input
+        className={styles.modalInput}
+        placeholder="Project name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
 
-        {isNewFormat && (
-          <>
-            <label className={styles.fieldLabel}>Repository path</label>
-            <button
-              className={styles.folderPicker}
-              onClick={handlePickRepoPath}
-              type="button"
-            >
-              {repoPath ? (
-                <span className={styles.folderPath}>{repoPath}</span>
-              ) : (
-                <span className={styles.folderPlaceholder}>Choose a folder...</span>
-              )}
-              <span className={styles.folderBtn}>Browse</span>
-            </button>
-          </>
-        )}
-
-        {error && <div className={styles.modalError}>{error}</div>}
-        <div className={styles.modalActions}>
-          <button className={styles.btnSecondary} onClick={onClose}>
-            Cancel
+      {isNewFormat && (
+        <>
+          <label className={styles.fieldLabel}>Repository path</label>
+          <button
+            className={styles.folderPicker}
+            onClick={handlePickRepoPath}
+            type="button"
+          >
+            {repoPath ? (
+              <span className={styles.folderPath}>{repoPath}</span>
+            ) : (
+              <span className={styles.folderPlaceholder}>Choose a folder…</span>
+            )}
+            <span className={styles.folderBtn}>Browse</span>
           </button>
-          <button className={styles.btnPrimary} onClick={handleImport}>
-            Import
-          </button>
-        </div>
+        </>
+      )}
+
+      {error && <div className={styles.modalError}>{error}</div>}
+      <div className={styles.modalActions}>
+        <button className={`${styles.btnSecondary} lv-press`} onClick={onClose}>
+          Cancel
+        </button>
+        <button className={`${styles.btnPrimary} lv-press`} onClick={handleImport}>
+          Import
+        </button>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

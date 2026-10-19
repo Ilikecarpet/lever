@@ -1,122 +1,150 @@
+/* Each group is a soft card: its heading and its rows read as one unit, and
+   the gap between cards does the separating. Barely lifted off the chrome —
+   enough to hold things together, never enough to shout. */
 .group {
-  margin-bottom: 2px;
+  margin: 0 8px 8px;
+  padding: 3px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 .groupHeader {
-  padding: 8px 10px 4px;
+  height: 32px;
+  padding: 0 6px 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
   user-select: none;
-  border-radius: var(--radius-sm);
-  margin: 0 6px;
-  transition: background 0.1s;
+  border-radius: 9px;
+  transition: background 0.15s var(--ease-out);
 }
 .groupHeader:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
 }
 
 .groupChevron {
   color: var(--text-muted);
-  transition: transform 0.2s ease;
+  transition: transform 0.35s var(--ease-spring), opacity 0.15s;
   display: inline-flex;
-  margin-right: 5px;
+  margin-right: 2px;
   flex-shrink: 0;
+  opacity: 0.7;
+}
+.groupHeader:hover .groupChevron {
+  opacity: 1;
 }
 .groupChevronCollapsed {
   transform: rotate(-90deg);
 }
 
-/* The header is a divider, not a title: uppercase and letterspaced against the
-   rows' lowercase mono, with a rule running to the master. It reads as the
-   thing that separates groups rather than competing with the names inside. */
+/* Group names are headings for the rows beneath them: heavier and brighter
+   than a label, a step quieter than the service names. */
 .groupLabel {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--text-dim);
+  color: var(--text);
   display: flex;
   align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
+  gap: 4px;
+  flex-shrink: 1;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: color 0.15s;
+}
+.groupHeader:hover .groupLabel {
+  color: var(--text);
+}
+.groupChevron {
+  width: 14px;
+  justify-content: center;
 }
 
+/* Spacer between the label and the master; no rule. */
 .groupRule {
   flex: 1;
-  height: 1px;
   min-width: 8px;
-  background: var(--border);
-  margin: 0 4px;
 }
 
 /* Renaming happens in place, so the heading keeps its own type while you edit. */
 .renameInput {
   flex: 1;
   min-width: 0;
-  padding: 1px 5px;
+  height: 24px;
+  padding: 0 8px;
   background: var(--surface);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
   outline: none;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+
+/* Focus ring as on the chat composer, so every text field in the app answers
+   focus the same way. */
+.renameInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .groupCount {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--green);
   font-weight: 500;
-  background: var(--surface);
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 2px;
-  letter-spacing: 0;
+  background: var(--green-dim);
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 6px;
+  margin-left: 4px;
 }
 
 /* ---- Master fader ----
    One control instead of two icon buttons. The knob rides the fraction of the
    group that is up, and each half throws the whole group to that side — from
-   any position, in one click. */
+   any position, in one click. A refined pill, a size up from the row switches
+   so it reads as the group's master. */
 .master {
   --pct: 0;
+  --travel: 24px;
   position: relative;
-  width: 64px;
-  height: 18px;
+  width: 40px;
+  height: 16px;
   flex-shrink: 0;
-  border-radius: 9px;
+  border-radius: 999px;
   overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  transition: border-color 0.18s;
+  /* Off reads as a real control, not a hole in the sidebar. */
+  background: var(--border-hover);
+  transition: background 0.2s var(--ease-out);
 }
 
-/* The lit run is at full strength whatever the fraction: a group that is half
-   up looks half as wide, not half as bright. It ends at the centre of the knob
-   — knob travel is 46px starting 8px in, so that centre is 8px + pct × 46px —
-   which is what makes the knob read as the head of the lit run rather than a
-   marker floating somewhere past it. */
+/* The lit run ends at the centre of the knob — knob travel is 24px starting
+   8px in — so the knob reads as the head of the lit run. */
 .masterFill {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: calc(8px + var(--pct) * 46px);
-  border-radius: 9px 0 0 9px;
+  width: calc(8px + var(--pct) * var(--travel));
+  border-radius: 999px 0 0 999px;
   background: var(--green);
-  opacity: 0.3;
-  transition: width 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.18s;
+  opacity: 0.55;
+  transition: width 0.24s var(--ease-spring), opacity 0.18s;
 }
 /* Nothing running means nothing lit — no stub under the knob. */
 .master[data-any="0"] .masterFill {
+  opacity: 0;
+}
+.master[data-all="1"] {
+  background: var(--green);
+}
+.master[data-all="1"] .masterFill {
   opacity: 0;
 }
 
@@ -127,30 +155,26 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--text-dim);
   z-index: 3;
   pointer-events: none;
-  /* 64 − 2 border − 12 knob − 4 inset = 46px of travel */
-  transform: translateX(calc(var(--pct) * 46px));
-  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.2s,
-    opacity 0.14s;
-}
-/* The knob sits at the head of the lit run, so it takes the lit colour as soon
-   as anything is up; the border is what reserves "all of it". */
-.master[data-any="1"] {
-  border-color: var(--border-hover);
+  transform: translateX(calc(var(--pct) * var(--travel)));
+  transition: transform 0.24s var(--ease-spring), background 0.2s, opacity 0.14s;
 }
 .master[data-any="1"] .masterKnob {
-  background: var(--green);
-}
-.master[data-all="1"] {
-  border-color: var(--green);
+  background: white;
 }
 
 /* Reaching for the control is when you need to know what each side does, so
    the labels come up on hover and the knob steps back to stay out of them. */
 .master:hover .masterKnob {
-  opacity: 0.28;
+  opacity: 0;
+}
+.master:hover {
+  background: var(--surface-hover);
+}
+.master:hover .masterFill {
+  opacity: 0;
 }
 
 .masterZone {
@@ -163,6 +187,7 @@
   border: none;
   padding: 0;
   cursor: pointer;
+  transition: background 0.12s;
 }
 .masterZoneOff {
   left: 0;
@@ -180,22 +205,15 @@
 .masterLabel {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1;
   color: var(--text-dim);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.14s, color 0.12s;
-}
-.masterZoneOff .masterLabel {
-  left: 7px;
-}
-.masterZoneOn .masterLabel {
-  right: 7px;
 }
 .master:hover .masterLabel {
   opacity: 1;
@@ -226,7 +244,7 @@
   transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
 }
 .groupServicesInner {
-  padding: 2px 0;
+  padding: 0;
   overflow: hidden;
   min-height: 0;
 }
@@ -235,29 +253,35 @@
   opacity: 0;
 }
 
-/* Context menu */
+/* Context menu — the same chrome as every other sidebar menu, so they read
+   as one family: inset rows with rounded hovers, as chat's menus have. */
 .ctxMenu {
   position: fixed;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 4px 0;
-  min-width: 150px;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
   z-index: 1000;
-  box-shadow: var(--shadow-lg);
+  /* Opens at the cursor, so it grows out of its top-left corner. */
+  --lv-origin: top left;
 }
 
 .ctxItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 7px 12px;
-  font-size: 12px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
   color: var(--text);
   background: none;
   border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.15s, color 0.15s;
 }
 .ctxItem:hover {
   background: var(--surface-hover);
@@ -276,7 +300,7 @@
 .confirmAccordion {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.2s ease;
+  transition: grid-template-rows 0.22s var(--ease-out);
 }
 .confirmInner {
   overflow: hidden;
@@ -287,44 +311,46 @@
 }
 
 .confirmWarning {
-  padding: 6px 12px;
-  font-size: 11px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--text-muted);
 }
 
 .confirmActions {
   display: flex;
   gap: 6px;
-  padding: 4px 12px 8px;
+  padding: 4px 4px 4px;
 }
 
 .confirmCancel {
   flex: 1;
-  padding: 4px 0;
-  font-size: 11px;
+  height: 28px;
+  font-size: 12px;
   font-weight: 500;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: var(--surface-hover);
   color: var(--text-dim);
   border: none;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.15s, color 0.15s, transform 0.25s var(--ease-spring);
 }
 .confirmCancel:hover {
-  background: var(--border);
+  background: var(--border-hover);
+  color: var(--text);
 }
 
 .confirmYes {
   flex: 1;
-  padding: 4px 0;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 999px;
   background: var(--red-dim);
   color: var(--red);
   border: none;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.15s, color 0.15s, transform 0.25s var(--ease-spring);
 }
 .confirmYes:hover {
   background: var(--red);
@@ -341,6 +367,7 @@
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
+  transition: background 0.15s, color 0.15s;
 }
 .gitBranch:hover {
   background: var(--surface-hover);

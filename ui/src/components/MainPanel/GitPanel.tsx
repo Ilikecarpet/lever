@@ -4,6 +4,7 @@ import * as api from "../../lib/tauri";
 import type { GitFileStatus } from "../../types";
 import { IconBranch, IconFolder, IconPlus, IconMinus, IconUndo, IconCheckCircle, IconClose } from "../Icons";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { usePresence } from "../../hooks/usePresence";
 import styles from "./GitPanel.module.css";
 
 type SectionMode = "staged" | "unstaged";
@@ -133,6 +134,20 @@ function DiffView({ text }: { text: string }) {
   );
 }
 
+/** Placeholder rows that shimmer while git answers. Widths step down so the
+ *  block reads as text rather than a grid of identical bars. */
+function SkeletonRows({ count, label }: { count: number; label: string }) {
+  return (
+    <div className={styles.skeleton} role="status" aria-label={label}>
+      {Array.from({ length: count }, (_, j) => (
+        <span key={j} className={styles.skeletonRow} style={{ "--j": j } as React.CSSProperties}>
+          <span />
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function FileItem({
   file,
   repoPath,
@@ -147,6 +162,9 @@ function FileItem({
   onSelect: (path: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // The diff mounts on first open and stays, so closing animates its height
+  // rather than snapping shut.
+  const [diffOpened, setDiffOpened] = useState(false);
   const [diff, setDiff] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +172,13 @@ function FileItem({
   const [discardMenu, setDiscardMenu] = useState<{ x: number; y: number } | null>(null);
   const discardBtnRef = useRef<HTMLButtonElement | null>(null);
   const discardMenuRef = useRef<HTMLDivElement | null>(null);
-  useClampToViewport(discardMenuRef, discardMenu?.x ?? 0, discardMenu?.y ?? 0);
+  // While the menu animates out `discardMenu` is already null; remembering
+  // where it was keeps it from jumping to the corner on its way out.
+  const lastDiscardMenu = useRef(discardMenu);
+  if (discardMenu) lastDiscardMenu.current = discardMenu;
+  const discardPresence = usePresence(!!discardMenu);
+  const discardAt = discardMenu ?? lastDiscardMenu.current;
+  useClampToViewport(discardMenuRef, discardAt?.x ?? 0, discardAt?.y ?? 0);
   const stage = useGitStore((s) => s.stage);
   const unstage = useGitStore((s) => s.unstage);
   const discard = useGitStore((s) => s.discard);
@@ -201,6 +225,7 @@ function FileItem({
       return;
     }
     setExpanded(true);
+    setDiffOpened(true);
     if (diff !== null || loading) return;
     setLoading(true);
     setError(null);
@@ -268,7 +293,7 @@ function FileItem({
         role="button"
       >
         <button
-          className={`${styles.gitFileAction} ${file.staged ? styles.gitFileActionUnstage : styles.gitFileActionStage}`}
+          className={`${styles.gitFileAction} lv-press ${file.staged ? styles.gitFileActionUnstage : styles.gitFileActionStage}`}
           onClick={handleStageToggle}
           disabled={acting}
           title={file.staged ? "Unstage" : "Stage"}
@@ -279,7 +304,7 @@ function FileItem({
         {mode === "unstaged" && (
           <button
             ref={discardBtnRef}
-            className={`${styles.gitFileAction} ${styles.gitFileActionDiscard} ${discardMenu ? styles.gitFileActionDiscardActive : ""}`}
+            className={`${styles.gitFileAction} lv-press ${styles.gitFileActionDiscard} ${discardMenu ? styles.gitFileActionDiscardActive : ""}`}
             onClick={handleDiscardClick}
             disabled={acting}
             title={discardMenu ? "Cancel" : "Discard changes"}
@@ -288,7 +313,7 @@ function FileItem({
             <IconUndo size={10} />
           </button>
         )}
-        <span className={styles.gitFileChevron}>{expanded ? "▾" : "▸"}</span>
+        <span className={styles.gitFileChevron} aria-hidden>▸</span>
         <span className={`${styles.gitFileBadge} ${badgeCls}`}>{badge}</span>
         {file.is_dir && (
           <span className={styles.gitFileFolderIcon} title="Directory">
@@ -300,24 +325,24 @@ function FileItem({
           {file.is_dir && !file.path.endsWith("/") ? "/" : ""}
         </span>
       </div>
-      {discardMenu && (
+      {discardPresence.mounted && (
         <div
           ref={discardMenuRef}
-          className={styles.discardMenu}
+          className={`${styles.discardMenu} lv-pop${discardPresence.closing ? " lv-closing" : ""}`}
           data-discard-menu={file.path}
           onClick={(e) => e.stopPropagation()}
         >
           <div className={styles.discardMenuWarning}>{discardLabel}</div>
           <div className={styles.discardMenuActions}>
             <button
-              className={styles.discardMenuCancel}
+              className={`${styles.discardMenuCancel} lv-press`}
               onClick={handleCancelDiscard}
               disabled={acting}
             >
               Cancel
             </button>
             <button
-              className={styles.discardMenuYes}
+              className={`${styles.discardMenuYes} lv-press`}
               onClick={handleConfirmDiscard}
               disabled={acting}
             >
@@ -326,13 +351,17 @@ function FileItem({
           </div>
         </div>
       )}
-      {expanded && (
-        <div className={styles.diffContainer}>
-          {loading && <div className={styles.diffStatus}>Loading diff…</div>}
-          {error && <div className={styles.diffError}>{error}</div>}
-          {!loading && !error && diff !== null && <DiffView text={diff} />}
+      <div className={styles.diffCollapse} data-open={expanded}>
+        <div className={styles.diffCollapseInner}>
+          {(expanded || diffOpened) && (
+            <div className={styles.diffContainer}>
+              {loading && <SkeletonRows count={4} label="Loading diff" />}
+              {error && <div className={styles.diffError}>{error}</div>}
+              {!loading && !error && diff !== null && <DiffView text={diff} />}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </>
   );
 }
@@ -417,7 +446,7 @@ function ChangesSection({
         <span className={styles.gitSectionActions}>
           {selectionCount > 0 && (
             <button
-              className={styles.gitSectionAction}
+              className={`${styles.gitSectionAction} lv-press`}
               onClick={clearSelection}
               title="Clear selection"
             >
@@ -426,7 +455,7 @@ function ChangesSection({
           )}
           {files.length > 0 && (
             <button
-              className={`${styles.gitSectionAction} ${headerActionCls}`}
+              className={`${styles.gitSectionAction} lv-press ${headerActionCls}`}
               onClick={handleHeaderAction}
               title={headerActionLabel}
             >
@@ -493,6 +522,19 @@ export default function GitPanel() {
 
   const [width, setWidth] = useState<number>(getInitialGitWidth);
   const [resizing, setResizing] = useState(false);
+  // Which remote call is in flight, so its button can say so and not be
+  // pressed again on top of itself.
+  const [busy, setBusy] = useState<"fetch" | "pull" | null>(null);
+
+  const runRemote = async (which: "fetch" | "pull") => {
+    if (busy === which) return;
+    setBusy(which);
+    try {
+      await (which === "fetch" ? fetchGit() : pull());
+    } finally {
+      setBusy((b) => (b === which ? null : b));
+    }
+  };
 
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -530,11 +572,9 @@ export default function GitPanel() {
           onMouseDown={handleResizeStart}
           title="Drag to resize"
         />
-        <div className={styles.gitEmptyState}>
-          <span className={styles.gitEmptyIcon}>
-            <IconBranch size={28} />
-          </span>
-          <span className={styles.gitEmptyTitle}>Reading git status…</span>
+        <div className={styles.gitLoading}>
+          <span className={styles.skeletonHeader} />
+          <SkeletonRows count={5} label="Reading git status" />
         </div>
       </div>
     );
@@ -556,7 +596,8 @@ export default function GitPanel() {
           <span className={styles.branchMono}>{gitInfo.current_branch}</span>
           {gitInfo.is_dirty ? (
             <span className={styles.dirtyIndicator}>
-              &#9679; modified
+              <span className={styles.dirtyDot} />
+              modified
             </span>
           ) : (
             <span className={styles.cleanIndicator}>clean</span>
@@ -564,19 +605,25 @@ export default function GitPanel() {
         </h3>
         <div className={styles.gitActions}>
           <button
-            className={styles.actionBtn}
-            onClick={() => fetchGit()}
+            className={`${styles.actionBtn} lv-press`}
+            onClick={() => void runRemote("fetch")}
+            disabled={busy === "fetch"}
+            aria-busy={busy === "fetch"}
           >
+            {busy === "fetch" && <span className={styles.spinner} aria-hidden />}
             Fetch
           </button>
           <button
-            className={styles.actionBtn}
-            onClick={() => pull()}
+            className={`${styles.actionBtn} lv-press`}
+            onClick={() => void runRemote("pull")}
+            disabled={busy === "pull"}
+            aria-busy={busy === "pull"}
           >
+            {busy === "pull" && <span className={styles.spinner} aria-hidden />}
             Pull
           </button>
           <button
-            className={styles.gitCloseBtn}
+            className={`${styles.gitCloseBtn} lv-press`}
             onClick={() => setActiveGitGroup(null)}
             title="Close git panel (⌘G)"
             aria-label="Close git panel"

@@ -13,6 +13,8 @@ import { usePanelStore } from "../../stores/panelStore";
 import { useUpdateStore } from "../../stores/updateStore";
 import { useWorktreeAgent, useWorktreeFocusedAgent, useWorktreeNeedsAttention } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { usePresence } from "../../hooks/usePresence";
+import { markSidebarSettled, useMenuPresence } from "./motion";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
 import type { ProjectExport } from "../../types";
@@ -40,6 +42,7 @@ export default function Sidebar() {
   const groups = useConfigStore((s) => s.groups);
   const addGroup = useConfigStore((s) => s.addGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
+  const configLoaded = useConfigStore((s) => s.loaded);
 
   const gitInfo = useGitStore((s) => s.gitInfo);
   const repoPath = useGitStore((s) => s.repoPath);
@@ -85,6 +88,13 @@ export default function Sidebar() {
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [projectName, setProjectName] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
+  const projectMenu = usePresence(menuOpen);
+
+  // The rows of the first loaded config have rendered by the time this runs,
+  // so anything mounting from here on is a fresh addition and may rise in.
+  useEffect(() => {
+    if (configLoaded) markSidebarSettled();
+  }, [configLoaded]);
 
   useEffect(() => {
     const pid = api.getProjectId();
@@ -173,7 +183,8 @@ export default function Sidebar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mainCtxMenuRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(mainCtxMenuRef, mainCtxMenu?.x ?? 0, mainCtxMenu?.y ?? 0);
+  const mainMenu = useMenuPresence(mainCtxMenu);
+  useClampToViewport(mainCtxMenuRef, mainMenu.pos.x, mainMenu.pos.y);
 
   // Switching away collapses the main groups, so drop any half-typed new group
   // rather than leaving a focused input hidden inside the collapsed section.
@@ -273,14 +284,17 @@ export default function Sidebar() {
           onClick={() => setMenuOpen((o) => !o)}
           title={projectName || "Project menu"}
         >
-          <span className={styles.projectName}>{projectName || "lever"}</span>
-          <span className={styles.projectChevron}>
+          {/* The brand heads the sidebar; the project it's showing is named
+              at the top of this menu and on the context row below. */}
+          <Wordmark height={21} className={styles.projectMark} />
+          <span className={`${styles.projectChevron}${menuOpen ? ` ${styles.projectChevronOpen}` : ""}`}>
             <IconChevron size={10} />
           </span>
         </button>
 
-        {menuOpen && (
-          <div className={styles.menu}>
+        {projectMenu.mounted && (
+          <div className={`${styles.menu} lv-pop${projectMenu.closing ? " lv-closing" : ""}`}>
+            {projectName && <div className={styles.menuHeader} title={projectName}>{projectName}</div>}
             <button className={styles.menuItem} onClick={handleHome}>
               <IconFolder size={13} /> Projects
             </button>
@@ -353,7 +367,7 @@ export default function Sidebar() {
                 className={`${styles.mainContextBranch}${mainAgent?.active ? ` ${styles.agentBarActive}` : ""}`}
                 title={mainAgent ? `${mainAgent.name} is ${mainAgent.active ? "working" : "idle"}` : undefined}
               >
-                {gitInfo?.current_branch ?? "..."}
+                {gitInfo?.current_branch ?? <span className={styles.branchPending}>…</span>}
               </span>
               <ContextSubtitle path={repoPath} agent={mainFocusedAgent} />
             </span>
@@ -377,17 +391,17 @@ export default function Sidebar() {
               <span className={styles.mainContextDirty} title="Uncommitted changes" />
             )}
             <span
-              className={`${styles.mainContextGitBtn}${activeGitGroupId === MAIN_GIT_TARGET ? ` ${styles.mainContextGitBtnActive}` : ""}`}
+              className={`${styles.mainContextGitBtn} lv-press${activeGitGroupId === MAIN_GIT_TARGET ? ` ${styles.mainContextGitBtnActive}` : ""}`}
               onClick={handleOpenGitPanel}
               title={activeGitGroupId === MAIN_GIT_TARGET ? "Close git panel (⌘G)" : "Open git panel (⌘G)"}
             >
               <IconBranch size={12} />
             </span>
           </div>
-          {mainCtxMenu && (
+          {mainMenu.mounted && (
             <div
               ref={mainCtxMenuRef}
-              className={styles.mainCtxMenu}
+              className={`${styles.mainCtxMenu} lv-pop${mainMenu.closing ? " lv-closing" : ""}`}
               data-ctx-main-repo
             >
               <button
@@ -437,7 +451,7 @@ export default function Sidebar() {
             <div className={styles.sectionEyebrow}>
               <span>Worktrees</span>
               <button
-                className={styles.eyebrowAction}
+                className={`${styles.eyebrowAction} lv-press`}
                 onClick={() => setWorktreeModalOpen(true)}
                 title="New worktree"
                 aria-label="New worktree"

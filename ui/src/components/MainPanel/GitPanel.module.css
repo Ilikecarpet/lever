@@ -8,6 +8,16 @@
   background: var(--bg);
   border-left: 1px solid var(--border);
   overflow: hidden;
+  /* Backwards fill only: a transform left on the panel after it lands would
+     make it the containing block for the fixed-position overlay and menu. */
+  animation: gitSlideIn 0.4s var(--ease-out) backwards;
+}
+
+@keyframes gitSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
 }
 
 /* Grab zone straddling the panel's left border */
@@ -19,6 +29,7 @@
   width: 6px;
   cursor: col-resize;
   z-index: 20;
+  transition: background var(--transition-fast);
 }
 .resizeHandle:hover {
   background: var(--accent-subtle);
@@ -37,14 +48,14 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   margin-left: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, color 0.1s;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .gitCloseBtn:hover {
   background: var(--surface-hover);
@@ -53,15 +64,19 @@
 
 /* ---- Header ---- */
 .gitPanelHeader {
-  padding: 14px 18px;
+  height: 52px;
+  flex-shrink: 0;
+  padding: 0 10px 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
 }
 .gitPanelHeader h3 {
+  min-width: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -71,26 +86,49 @@
   gap: 6px;
 }
 .actionBtn {
-  padding: 4px 10px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
   cursor: pointer;
   font-weight: 500;
-  transition: background 0.1s, border-color 0.15s;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
-.actionBtn:hover {
+.actionBtn:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--border-hover);
+  color: var(--text);
+}
+/* In flight: dimmed and inert, with a spinner saying it is still going. */
+.actionBtn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.spinner {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-hover);
+  border-top-color: var(--accent);
+  animation: gitSpin 0.7s linear infinite;
+}
+@keyframes gitSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ---- Body ---- */
 .gitPanelBody {
   flex: 1;
   overflow-y: auto;
-  padding: 0;
+  padding: 0 0 8px;
   display: flex;
   flex-direction: column;
 }
@@ -108,16 +146,14 @@
 
 /* ---- Section ---- */
 .gitSection {
-  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
 }
 .gitSectionHeader {
-  padding: 8px 14px 8px 18px;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  height: 36px;
+  padding: 0 10px 0 18px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -130,12 +166,15 @@
   gap: 6px;
 }
 .gitSectionCount {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
+  line-height: 18px;
+  min-width: 18px;
+  text-align: center;
+  color: var(--text-muted);
   background: var(--surface);
-  padding: 1px 6px;
-  border-radius: 3px;
-  letter-spacing: 0;
+  padding: 0 5px;
+  border-radius: 6px;
 }
 .gitSectionActions {
   display: inline-flex;
@@ -143,65 +182,64 @@
   gap: 4px;
 }
 .gitSectionAction {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: normal;
-  padding: 3px 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  height: 24px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 .gitSectionAction:hover {
   background: var(--surface-hover);
-  border-color: var(--border-hover);
+  color: var(--text);
 }
 .gitSectionActionStage:hover {
-  border-color: var(--green);
   color: var(--green);
 }
 .gitSectionActionUnstage:hover {
-  border-color: var(--red);
   color: var(--red);
 }
 .gitSectionBody {
-  padding: 0 0 6px;
+  padding: 0 8px;
 }
 .gitSectionEmpty {
-  padding: 4px 18px 8px;
-  font-size: 11px;
+  padding: 2px 10px 6px;
+  font-size: 12px;
   color: var(--text-muted);
-  font-style: italic;
 }
 
 /* ---- File item ---- */
 .gitFileItem {
-  padding: 4px 18px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text-dim);
-  transition: background 0.1s;
+  transition: background 0.1s, color 0.1s;
   user-select: none;
 }
 .gitFileItem:hover {
   background: var(--surface-hover);
+  color: var(--text);
 }
 .gitFileBadge {
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 5px;
   font-family: var(--font-sans);
 }
 .badgeModified {
@@ -245,19 +283,67 @@
 }
 .gitEmptyTitle {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--text-dim);
+  font-weight: 500;
+  color: var(--text);
 }
 .gitEmptyHint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   max-width: 320px;
   line-height: 1.5;
 }
 
+/* First read of a repo: the shape of the panel, shimmering, until git answers. */
+.gitLoading {
+  padding: 10px 0;
+}
+.skeletonHeader {
+  display: block;
+  width: 72px;
+  height: 8px;
+  margin: 4px 18px 10px;
+  border-radius: 4px;
+}
+.skeleton {
+  padding: 4px 0;
+}
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 18px;
+}
+.skeletonRow span {
+  display: block;
+  height: 8px;
+  width: calc(78% - var(--j, 0) * 11%);
+  border-radius: 4px;
+}
+.skeletonHeader,
+.skeletonRow span {
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-hover) 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: gitShimmer 1.6s linear infinite;
+}
+.skeletonRow span {
+  animation-delay: calc(var(--j, 0) * 120ms);
+}
+/* The diff sits on --surface already, so its bars step one shade up. */
+.diffContainer .skeletonRow span {
+  background-image: linear-gradient(90deg, var(--surface-hover) 0%, var(--border) 50%, var(--surface-hover) 100%);
+}
+@keyframes gitShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 .gitHint {
-  padding: 10px 18px;
-  font-size: 10.5px;
+  padding: 6px 18px 12px;
+  font-size: 12px;
   color: var(--text-muted);
   user-select: none;
 }
@@ -266,44 +352,57 @@
 .gitShowMoreRow {
   display: flex;
   align-items: center;
+  gap: 2px;
+  padding: 2px 0 0;
 }
 .gitShowMore {
-  padding: 6px 18px;
-  font-size: 11px;
-  color: var(--accent);
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--text-dim);
   cursor: pointer;
   background: none;
   border: none;
   font-family: inherit;
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
-  transition: background 0.1s;
+  transition: background 0.1s, color 0.1s;
 }
 .gitShowMoreRow .gitShowMore:last-child {
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 .gitShowMore:hover {
   background: var(--surface-hover);
+  color: var(--text);
 }
 
 .dirtyIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--yellow);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.dirtyDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
 }
 .cleanIndicator {
   color: var(--green);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
 }
 .branchMono {
   font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- File item click affordance ---- */
@@ -311,7 +410,8 @@
   cursor: pointer;
 }
 .gitFileItemExpanded {
-  background: var(--surface-hover);
+  background: var(--surface);
+  color: var(--text);
 }
 .gitFileChevron {
   font-size: 9px;
@@ -320,6 +420,11 @@
   display: inline-flex;
   justify-content: center;
   font-family: var(--font-sans);
+  transition: transform 0.35s var(--ease-spring), color var(--transition-fast);
+}
+.gitFileItemExpanded .gitFileChevron {
+  transform: rotate(90deg);
+  color: var(--text-dim);
 }
 .gitFileFolderIcon {
   display: inline-flex;
@@ -329,27 +434,27 @@
 }
 
 .gitFileAction {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
   font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   color: var(--text-muted);
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
   flex-shrink: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 .gitFileAction:hover:not(:disabled) {
-  border-color: var(--border-hover);
-  background: var(--surface);
+  background: var(--border-hover);
+  color: var(--text);
 }
 .gitFileAction:disabled {
   opacity: 0.4;
@@ -357,64 +462,57 @@
 }
 .gitFileActionStage:hover:not(:disabled) {
   color: var(--green);
-  border-color: var(--green);
 }
 .gitFileActionUnstage:hover:not(:disabled) {
   color: var(--red);
-  border-color: var(--red);
 }
 .gitFileActionDiscard {
   font-size: 12px;
 }
 .gitFileActionDiscard:hover:not(:disabled) {
   color: var(--red);
-  border-color: var(--red);
 }
 
 .gitFileItemSelected {
-  background: var(--blue-dim);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--surface-hover);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-hover);
 }
 .gitFileItemSelected:hover {
-  background: var(--blue-dim);
+  background: var(--surface-hover);
 }
 
 .gitFileActionDiscardActive {
   color: var(--red);
-  border-color: var(--red);
   background: var(--red-dim);
 }
 
 .discardMenu {
   position: fixed;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 4px 0;
-  min-width: 200px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  min-width: 220px;
   max-width: 280px;
   z-index: 1000;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-float);
 }
 .discardMenuWarning {
-  padding: 8px 12px;
-  font-size: 11px;
-  color: var(--text-muted);
+  padding: 6px 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
 }
 .discardMenuActions {
   display: flex;
   gap: 6px;
-  padding: 4px 12px 8px;
+  padding: 0 2px 2px;
 }
 .discardMenuCancel,
 .discardMenuYes {
-  flex: 1;
-  padding: 4px 0;
-  font-size: 11px;
-  border-radius: var(--radius-sm);
-  border: none;
-  cursor: pointer;
-  transition: background 0.1s;
+  font-weight: 500;
+  background: var(--red-dim);
+  color: var(--red);
 }
 .discardMenuCancel:disabled,
 .discardMenuYes:disabled {
@@ -427,7 +525,8 @@
   color: var(--text-dim);
 }
 .discardMenuCancel:hover:not(:disabled) {
-  background: var(--border);
+  background: var(--border-hover);
+  color: var(--text);
 }
 .discardMenuYes {
   font-weight: 600;
@@ -440,20 +539,31 @@
 }
 
 /* ---- Diff view ---- */
+/* Height that animates to and from auto, as the chat's collapses do: a
+   one-row grid whose track goes from 0fr to 1fr. */
+.diffCollapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.38s var(--ease-out), opacity 0.25s ease;
+}
+.diffCollapse[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.diffCollapseInner {
+  min-height: 0;
+  overflow: hidden;
+}
 .diffContainer {
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
-}
-.diffStatus {
-  padding: 8px 18px;
-  font-size: 11px;
-  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  margin: 2px 0 6px;
+  overflow: hidden;
 }
 .diffError {
-  padding: 8px 18px;
-  font-size: 11px;
+  padding: 8px 12px;
+  font-size: 12px;
   color: var(--red);
   white-space: pre-wrap;
 }
@@ -477,10 +587,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 18px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
   margin: 4px 0 0;
   font-size: 11px;
 }
@@ -491,38 +599,34 @@
 .diffFilePath {
   font-family: var(--font-mono);
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .diffFileTag {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-family: var(--font-sans);
   font-weight: 500;
-  color: var(--accent);
-  background: var(--surface);
-  padding: 1px 6px;
-  border-radius: 3px;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  padding: 0 6px;
+  border-radius: 6px;
 }
 
 .diffHunk {
-  padding: 4px 18px;
+  padding: 3px 12px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 10.5px;
   font-family: var(--font-mono);
-  background: var(--bg);
-  border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--blue-dim) 60%, transparent);
   margin: 4px 0;
   user-select: none;
 }
 
 .diffInfo {
-  padding: 4px 18px;
+  padding: 4px 12px;
   color: var(--text-muted);
   font-style: italic;
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .diffAdd,
@@ -531,7 +635,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 0 18px;
+  padding: 0 12px;
   white-space: pre;
 }
 .diffAdd {

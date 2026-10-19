@@ -9,6 +9,7 @@ import { IconChat, IconClose, IconPlus, IconTerminal } from "../Icons";
 import { useSettingsStore, otherPaneKind } from "../../stores/settingsStore";
 import { LeverMark } from "../Chat/LeverMark";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { usePresence } from "../../hooks/usePresence";
 import styles from "./WorkspaceBar.module.css";
 
 interface ContextMenu {
@@ -42,7 +43,13 @@ export default function WorkspaceBar() {
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
+  // The menu outlives `contextMenu` by its exit animation; remembering the
+  // last one keeps it in place, and naming the same tab, on the way out.
+  const lastContextMenu = useRef(contextMenu);
+  if (contextMenu) lastContextMenu.current = contextMenu;
+  const menuPresence = usePresence(!!contextMenu);
+  const shownMenu = contextMenu ?? lastContextMenu.current;
+  useClampToViewport(contextMenuRef, shownMenu?.x ?? 0, shownMenu?.y ?? 0);
 
   // Drag state
   const dragState = useRef<{
@@ -208,7 +215,7 @@ export default function WorkspaceBar() {
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <span>
+            <span className={styles.tabLabel}>
               {ws.label}
               {(() => {
                 const leaf = findNode(ws.root, ws.activePaneId);
@@ -218,7 +225,7 @@ export default function WorkspaceBar() {
             </span>
           )}
           <button
-            className={styles.close}
+            className={`${styles.close} lv-press`}
             onClick={(e) => handleClose(e, ws.id)}
             title="Close workspace"
           >
@@ -227,14 +234,14 @@ export default function WorkspaceBar() {
         </div>
       ))}
       <button
-        className={styles.newBtn}
+        className={`${styles.newBtn} lv-press`}
         onClick={() => handleNew(defaultKind)}
         title={`New ${defaultKind === "chat" ? "chat" : "terminal"} (⌘T)`}
       >
         <IconPlus size={14} />
       </button>
       <button
-        className={styles.newBtn}
+        className={`${styles.newBtn} lv-press`}
         onClick={() => handleNew(otherKind)}
         title={`New ${otherKind === "chat" ? "chat" : "terminal"} (⌘⇧T)`}
       >
@@ -242,18 +249,21 @@ export default function WorkspaceBar() {
       </button>
       </div>
 
-      {contextMenu && (
-        <div ref={contextMenuRef} className={styles.contextMenu}>
+      {menuPresence.mounted && shownMenu && (
+        <div
+          ref={contextMenuRef}
+          className={`${styles.contextMenu} lv-pop${menuPresence.closing ? " lv-closing" : ""}`}
+        >
           <button
             className={styles.contextMenuItem}
-            onClick={() => startRename(contextMenu.wsId)}
+            onClick={() => startRename(shownMenu.wsId)}
           >
             Rename
           </button>
           <button
             className={styles.contextMenuItem}
             onClick={() => {
-              closeWorkspace(contextMenu.wsId);
+              closeWorkspace(shownMenu.wsId);
               setContextMenu(null);
             }}
           >

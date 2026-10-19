@@ -28,11 +28,13 @@ export default function MainPanel() {
           <div className={styles.paneArea}>
             {showEmpty && (
               <div className={styles.emptyState}>
-                <span className={styles.emptyIcon}>
+                <span className={`${styles.emptyIcon} lv-rise`} style={{ "--i": 0 } as React.CSSProperties}>
                   <IconTerminal size={32} />
                 </span>
-                <span className={styles.emptyTitle}>No workspaces open</span>
-                <span className={styles.emptyHint}>
+                <span className={`${styles.emptyTitle} lv-rise`} style={{ "--i": 1 } as React.CSSProperties}>
+                  No workspaces open
+                </span>
+                <span className={`${styles.emptyHint} lv-rise`} style={{ "--i": 2 } as React.CSSProperties}>
                   Press <kbd className={styles.emptyKbd}>⌘T</kbd> or click{" "}
                   <kbd className={styles.emptyKbd}>+</kbd> to open a {defaultKind === "chat" ? "chat" : "terminal"},{" "}
                   <kbd className={styles.emptyKbd}>⌘⇧T</kbd> for a {defaultKind === "chat" ? "terminal" : "chat"}
@@ -63,7 +65,9 @@ export default function MainPanel() {
           {showGitPanel && <GitPanel />}
         </div>
 
-        {activeServiceId && <ServiceTerminal />}
+        {/* Always rendered: it decides for itself when to show, so it can
+            stay up for its exit animation after the service is deselected. */}
+        <ServiceTerminal />
       </div>
     </div>
   );

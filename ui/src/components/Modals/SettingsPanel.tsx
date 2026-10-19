@@ -14,6 +14,7 @@ import type { ContextWindow } from "../../stores/settingsStore";
 import type { PaneKind } from "../../types/pane";
 import { useUiStore } from "../../stores/uiStore";
 import { useUpdateStore } from "../../stores/updateStore";
+import { usePresence } from "../../hooks/usePresence";
 import shell from "./Panel.module.css";
 import styles from "./SettingsPanel.module.css";
 
@@ -72,6 +73,7 @@ export default function SettingsPanel() {
   const mouseDownOnOverlay = useRef(false);
 
   const open = target?.kind === "settings";
+  const { mounted, closing } = usePresence(open);
 
   useEffect(() => {
     if (!open) return;
@@ -96,7 +98,9 @@ export default function SettingsPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
 
-  if (!open) return null;
+  // Stays mounted for the exit animation; nothing below depends on `open`, so
+  // the last state simply holds still while it slides away.
+  if (!mounted) return null;
 
   const handleChangeRepoPath = async () => {
     const projectId = api.getProjectId();
@@ -124,7 +128,7 @@ export default function SettingsPanel() {
 
   return (
     <div
-      className={shell.overlay}
+      className={`${shell.overlay}${closing ? ` ${shell.closing}` : ""}`}
       style={{ ["--hinge" as string]: `${hinge}px` }}
       onMouseDown={(e) => {
         mouseDownOnOverlay.current = e.target === e.currentTarget;
@@ -133,7 +137,7 @@ export default function SettingsPanel() {
         if (mouseDownOnOverlay.current && e.target === e.currentTarget) close();
       }}
     >
-      <div className={shell.scrim} />
+      <div className={`${shell.scrim} lv-scrim${closing ? " lv-closing" : ""}`} />
       <div className={shell.panel}>
         <div className={shell.header}>
           <span className={shell.title}>Settings</span>

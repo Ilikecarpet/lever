@@ -26,17 +26,23 @@
   flex-direction: column;
 }
 
-/* Top accent bar — visible only on active pane */
+/* Active-pane marker. A lone pane fills the canvas card, so it needs none;
+   only inside a split (a leaf within .paneChild) does the focused pane get
+   a thin accent rule along its top. */
 .leafPane::before {
   content: "";
-  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 2px;
-  flex-shrink: 0;
+  z-index: 2;
   background: transparent;
-  transition: background 0.15s;
+  pointer-events: none;
+  transition: background var(--transition-fast);
 }
 
-.leafActive::before {
+.paneChild .leafActive::before {
   background: var(--accent);
 }
 
@@ -44,6 +50,14 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  background: var(--terminal-bg);
+}
+
+/* Breathing room so text never runs into the card's rounded corners. Set on
+   xterm's own element, which the fit addon subtracts when sizing the grid. */
+.termContainer :global(.xterm) {
+  height: 100%;
+  padding: 10px 6px 6px 14px;
 }
 
 .chatUnavailable {
@@ -52,17 +66,19 @@
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
+  text-align: center;
+  padding: 24px;
   background: var(--terminal-bg);
 }
 
-/* A chat sits inset in its pane as a rounded card on the window's own
-   background, rather than running edge to edge like a terminal. */
+/* The canvas card is the chat's frame: the chat fills its pane edge to edge
+   rather than drawing a second rounded border inside the card's. */
 .chatLeaf {
-  padding: 0 6px 6px;
-  background: var(--bg);
+  background: var(--terminal-bg);
 }
 
-.chatLeaf::before {
-  margin: 0 -6px 6px;
+.leafPane.chatLeaf > * {
+  border: none;
+  border-radius: 0;
 }

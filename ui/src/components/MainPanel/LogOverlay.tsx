@@ -4,6 +4,7 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { ensureSvcTerm, parkSvcTerm } from "../../lib/svcTerminals";
+import { usePresence } from "../../hooks/usePresence";
 import { IconClose } from "../Icons";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./LogOverlay.module.css";
@@ -101,7 +102,7 @@ function getInitialLogHeight(): number | null {
 }
 
 export default function ServiceTerminal() {
-  const activeServiceId = useServiceStore((s) => s.activeServiceId);
+  const selectedServiceId = useServiceStore((s) => s.activeServiceId);
   const ptyIds = useServiceStore((s) => s.ptyIds);
   const statuses = useServiceStore((s) => s.statuses);
   const setActiveService = useServiceStore((s) => s.setActiveService);
@@ -112,6 +113,15 @@ export default function ServiceTerminal() {
   const panelRef = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | null>(getInitialLogHeight);
   const [resizing, setResizing] = useState(false);
+
+  // Closing slides the panel away rather than dropping it, so it outlives the
+  // selection by one short exit animation, still showing the service it was
+  // closed on. Its terminal is only parked when it finally unmounts, which is
+  // what closing did before, just a moment later.
+  const lastServiceId = useRef(selectedServiceId);
+  if (selectedServiceId) lastServiceId.current = selectedServiceId;
+  const { mounted, closing } = usePresence(!!selectedServiceId);
+  const activeServiceId = selectedServiceId ?? (mounted ? lastServiceId.current : null);
 
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -164,7 +174,7 @@ export default function ServiceTerminal() {
   return (
     <div
       ref={panelRef}
-      className={styles.logPanel}
+      className={`${styles.logPanel}${closing ? ` ${styles.logPanelClosing}` : ""}`}
       style={height != null ? { flex: "0 0 auto", height } : undefined}
     >
       <div
@@ -180,7 +190,7 @@ export default function ServiceTerminal() {
         </span>
         <div className={styles.logHeaderActions}>
           <button
-            className={styles.logClose}
+            className={`${styles.logClose} lv-press`}
             onClick={() => setActiveService(null)}
             title="Close"
           >

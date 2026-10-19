@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import * as api from "../../lib/tauri";
 import { useGitStore } from "../../stores/gitStore";
+import { usePresence } from "../../hooks/usePresence";
 import styles from "./NewWorktreeModal.module.css";
 
 interface Props {
@@ -23,6 +24,8 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
   const [path, setPath] = useState("");
   const [pathEdited, setPathEdited] = useState(false);
   const [branches, setBranches] = useState<api.BranchEntry[]>([]);
+  /** False until the branch list arrives, so the suggestions can say so. */
+  const [branchesLoaded, setBranchesLoaded] = useState(false);
   const [baseBranch, setBaseBranch] = useState("");
   const [existing, setExisting] = useState<api.ExistingWorktree[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -41,10 +44,14 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     setError("");
     setStaleDirPath("");
     setCreating(false);
+    setBranchesLoaded(false);
 
     const pid = api.getProjectId();
     if (pid) {
-      api.listBranches(pid).then(setBranches).catch(() => setBranches([]));
+      api.listBranches(pid)
+        .then(setBranches)
+        .catch(() => setBranches([]))
+        .finally(() => setBranchesLoaded(true));
       api.listExistingWorktrees(pid).then(setExisting).catch(() => setExisting([]));
       api.getDefaultBranch(pid)
         .then((d) => { if (d) setBaseBranch(d); })
@@ -79,7 +86,10 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
     }
   }, [branch, repoPath, pathEdited]);
 
-  if (!open) return null;
+  // Kept mounted while it animates out. The form is only reset on open, so
+  // it holds its last state during the exit.
+  const { mounted, closing } = usePresence(open);
+  if (!mounted) return null;
 
   const filteredBranches = branch
     ? branches.filter(
@@ -120,15 +130,15 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
 
   return (
     <div
-      className={styles.overlay}
+      className={`${styles.overlay} lv-scrim${closing ? " lv-closing" : ""}`}
       onMouseDown={(e) => { mouseDownOnOverlay.current = e.target === e.currentTarget; }}
       onMouseUp={(e) => { if (mouseDownOnOverlay.current && e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className={styles.modal}
+        className={`${styles.modal} lv-modal${closing ? " lv-closing" : ""}`}
         onKeyDown={handleKeyDown}
       >
-        <div className={styles.title}>New Worktree</div>
+        <div className={styles.title}>New worktree</div>
 
         <div className={styles.field}>
           <div className={styles.label}>Branch</div>
@@ -145,8 +155,13 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
           />
-          {showSuggestions && filteredBranches.length > 0 && (
-            <div className={styles.suggestions}>
+          {showSuggestions && !branchesLoaded && (
+            <div className={`${styles.suggestions} ${styles.suggestionsLoading} lv-pop`}>
+              Loading branches…
+            </div>
+          )}
+          {showSuggestions && branchesLoaded && filteredBranches.length > 0 && (
+            <div className={`${styles.suggestions} lv-pop`}>
               {filteredBranches.slice(0, 10).map((b) => (
                 <div
                   key={b.remoteRef ?? b.name}
@@ -231,18 +246,18 @@ export default function NewWorktreeModal({ open, onClose, onCreate }: Props) {
 
         <div className={styles.actions}>
           <button
-            className={`${styles.btn} ${styles.btnCancel}`}
+            className={`${styles.btn} ${styles.btnCancel} lv-press`}
             onClick={onClose}
           >
             Cancel
           </button>
           <button
-            className={`${styles.btn} ${styles.btnCreate}`}
+            className={`${styles.btn} ${styles.btnCreate} lv-press`}
             onClick={() => handleCreate(!!staleDirPath)}
             disabled={!branch.trim() || (!adoptable && !path.trim()) || !!namespaceConflict || creating}
           >
             {creating
-              ? (adoptable ? "Opening..." : "Creating...")
+              ? (adoptable ? "Opening…" : "Creating…")
               : staleDirPath
                 ? "Delete Folder & Create"
                 : (adoptable ? "Open Worktree" : "Create Worktree")}

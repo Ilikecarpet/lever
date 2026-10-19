@@ -12,6 +12,7 @@ import {
   useWorktreeNeedsAttention,
 } from "../../hooks/useAgentActivity";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { useMenuPresence, useRiseOnMount } from "./motion";
 import { switchContext } from "../../lib/switchContext";
 import { afterFold } from "../../lib/revealOnSwitch";
 import { useConfigStore } from "../../stores/configStore";
@@ -70,7 +71,9 @@ export default function WorktreeSection({ worktree }: Props) {
   const addWorktreeGroup = useWorktreeStore((s) => s.addWorktreeGroup);
   const saveConfig = useConfigStore((s) => s.saveConfig);
   const rowRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
+  const menu = useMenuPresence(contextMenu);
+  useClampToViewport(contextMenuRef, menu.pos.x, menu.pos.y);
+  const rise = useRiseOnMount();
 
   const isActive = activeWorktreeId === worktree.id;
 
@@ -162,7 +165,7 @@ export default function WorktreeSection({ worktree }: Props) {
     <>
       <div
         ref={rowRef}
-        className={`${styles.sectionDivider}${isActive ? ` ${styles.sectionDividerActive}` : ` ${styles.sectionDividerInactive}`}`}
+        className={`${styles.sectionDivider}${isActive ? ` ${styles.sectionDividerActive}` : ` ${styles.sectionDividerInactive}`}${rise ? " lv-rise" : ""}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
@@ -199,7 +202,7 @@ export default function WorktreeSection({ worktree }: Props) {
           <span className={styles.worktreeDirty} title="Uncommitted changes" />
         )}
         <span
-          className={`${styles.worktreeGitBtn}${gitOpen ? ` ${styles.worktreeGitBtnActive}` : ""}`}
+          className={`${styles.worktreeGitBtn} lv-press${gitOpen ? ` ${styles.worktreeGitBtnActive}` : ""}`}
           onClick={handleOpenGitPanel}
           title={gitOpen ? "Close git panel" : "Open git panel"}
         >
@@ -240,10 +243,10 @@ export default function WorktreeSection({ worktree }: Props) {
         </div>
       </div>
 
-      {contextMenu && (
+      {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={styles.contextMenu}
+          className={`${styles.contextMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-wt={worktree.id}
         >
           <button
@@ -268,10 +271,10 @@ export default function WorktreeSection({ worktree }: Props) {
                 This will remove the worktree from the sidebar only.
               </div>
               <div className={styles.confirmActions}>
-                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                <button className={`${styles.confirmCancel} lv-press`} onClick={() => setConfirmDelete(null)}>
                   Cancel
                 </button>
-                <button className={styles.confirmYes} onClick={() => handleRemove(false)}>
+                <button className={`${styles.confirmYes} lv-press`} onClick={() => handleRemove(false)}>
                   Yes, remove
                 </button>
               </div>
@@ -290,10 +293,10 @@ export default function WorktreeSection({ worktree }: Props) {
                 This will permanently delete the worktree files from disk.
               </div>
               <div className={styles.confirmActions}>
-                <button className={styles.confirmCancel} onClick={() => setConfirmDelete(null)}>
+                <button className={`${styles.confirmCancel} lv-press`} onClick={() => setConfirmDelete(null)}>
                   Cancel
                 </button>
-                <button className={styles.confirmYesDanger} onClick={() => handleRemove(true)}>
+                <button className={`${styles.confirmYes} lv-press`} onClick={() => handleRemove(true)}>
                   Yes, delete from disk
                 </button>
               </div>

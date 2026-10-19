@@ -1,11 +1,11 @@
-/* Unified header drawn into the hidden macOS title bar */
+/* Unified header drawn into the hidden macOS title bar. Part of the chrome
+   surface: no rule beneath it — the canvas card's own edge does that job. */
 .topbar {
   display: flex;
   align-items: stretch;
   height: var(--topbar-h);
   flex-shrink: 0;
   background: var(--sidebar-bg);
-  border-bottom: 1px solid var(--border);
   user-select: none;
 }
 
@@ -14,8 +14,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 6px;
-  border-right: 1px solid var(--border);
+  padding-right: 8px;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -37,13 +36,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s, background 0.1s;
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
 .toggleBtn:hover {
   color: var(--text);

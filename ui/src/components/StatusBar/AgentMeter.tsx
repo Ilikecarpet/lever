@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { useFocusedPaneAgent } from "../../hooks/useAgentActivity";
 import { useSettingsStore, type MeterSection } from "../../stores/settingsStore";
 import { useServiceStore } from "../../stores/serviceStore";
+import { usePresence } from "../../hooks/usePresence";
 import type { AgentUsage, RateLimitWindow, ReportedDetails } from "../../types";
 import styles from "./AgentMeter.module.css";
 
@@ -185,6 +186,7 @@ export default function AgentMeter() {
   const sessionCollapsed = useSettingsStore((s) => s.agentMeterCollapsed.includes("session"));
   const limits = useServiceStore((s) => s.rateLimits);
   const [open, setOpen] = useState(false);
+  const popover = usePresence(open);
   const ref = useRef<HTMLDivElement>(null);
 
   // Nothing here is a control, so the popover closes on any click that lands
@@ -310,8 +312,8 @@ export default function AgentMeter() {
         )}
       </button>
 
-      {open && (
-        <div className={styles.popover}>
+      {popover.mounted && (
+        <div className={`${styles.popover} lv-pop${popover.closing ? " lv-closing" : ""}`}>
           <div className={styles.head}>
             <span className={styles.headName} title={headName}>{headName}</span>
             <span className={styles.headMeta}>

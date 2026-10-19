@@ -5,6 +5,8 @@ import { useConfigStore } from "../../stores/configStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { usePanelStore } from "../../stores/panelStore";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
+import { useMenuPresence, useRiseOnMount } from "./motion";
+import { IconPlay, IconStop } from "../Icons";
 import styles from "./ServiceItem.module.css";
 
 /** A task can start and finish faster than the eye can register, so its ring
@@ -34,7 +36,9 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  useClampToViewport(contextMenuRef, contextMenu?.x ?? 0, contextMenu?.y ?? 0);
+  const menu = useMenuPresence(contextMenu);
+  useClampToViewport(contextMenuRef, menu.pos.x, menu.pos.y);
+  const rise = useRiseOnMount();
 
   const isRunning = status === "running";
   const isActive = activeServiceId === service.id;
@@ -81,7 +85,7 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
     setActiveService(isActive ? null : service.id);
   };
 
-  /** The lever (services) and the ring (tasks) both toggle; the row itself
+  /** The lever (services) and the run button (tasks) both toggle; the row itself
    *  still just focuses the terminal. */
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -129,28 +133,40 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
   return (
     <>
       <div
-        className={`${styles.svcItem}${isActive ? ` ${styles.svcItemActive}` : ""}${isRunning ? ` ${styles.svcItemRunning}` : ""}`}
+        className={`${styles.svcItem}${isActive ? ` ${styles.svcItemActive}` : ""}${isRunning ? ` ${styles.svcItemRunning}` : ""}${rise ? " lv-rise" : ""}`}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
+        {/* The light: what this row is doing, readable down the whole list at
+            a glance. A service is lit while it runs; a task spins while it
+            runs and rings out once when it ends. */}
+        <span
+          className={styles.light}
+          data-kind={isTask ? "task" : "service"}
+          data-state={
+            isTask
+              ? spinning ? "running" : done ? "done" : "idle"
+              : inFlight ? "pending" : isRunning ? "running" : "stopped"
+          }
+          aria-hidden
+        />
         <span className={styles.svcName} title={service.label}>
           {service.label}
         </span>
-        {isTask && <span className={styles.svcKind}>task</span>}
 
         {isTask ? (
           <button
-            className={`${styles.ringWrap}${spinning ? ` ${styles.spinning}` : ""}${done ? ` ${styles.done}` : ""}`}
+            className={`${styles.run} lv-press${spinning ? ` ${styles.runActive}` : ""}`}
             onClick={handleToggle}
             title={spinning ? "Stop task" : "Run task"}
             aria-label={spinning ? `Stop ${service.label}` : `Run ${service.label}`}
           >
-            <span className={styles.fire}>▶</span>
-            <span className={styles.ring} />
+            {spinning ? <IconStop size={8} /> : <IconPlay size={8} />}
+            <span>{spinning ? "Stop" : "Run"}</span>
           </button>
         ) : (
           <button
-            className={`${styles.lever}${isRunning ? ` ${styles.leverOn}` : ""}${inFlight ? ` ${styles.leverMid}` : ""}`}
+            className={`${styles.lever} lv-press${isRunning ? ` ${styles.leverOn}` : ""}${inFlight ? ` ${styles.leverMid}` : ""}`}
             onClick={handleToggle}
             role="switch"
             aria-checked={isRunning}
@@ -162,10 +178,10 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
         )}
       </div>
 
-      {contextMenu && (
+      {menu.mounted && (
         <div
           ref={contextMenuRef}
-          className={styles.ctxMenu}
+          className={`${styles.ctxMenu} lv-pop${menu.closing ? " lv-closing" : ""}`}
           data-ctx-svc={service.id}
         >
           <button className={styles.ctxItem} onClick={handleEdit}>
@@ -184,13 +200,13 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
               </div>
               <div className={styles.confirmActions}>
                 <button
-                  className={styles.confirmCancel}
+                  className={`${styles.confirmCancel} lv-press`}
                   onClick={() => setConfirmDelete(false)}
                 >
                   Cancel
                 </button>
                 <button
-                  className={styles.confirmYes}
+                  className={`${styles.confirmYes} lv-press`}
                   onClick={handleDeleteConfirm}
                 >
                   Yes, delete

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { onDebugLog, type DebugLogEvent } from "../../lib/tauri";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { IconClose } from "../Icons";
 import styles from "./DebugConsole.module.css";
 
 interface LogLine {
@@ -52,28 +53,29 @@ export default function DebugConsole() {
   if (!enabled) return null;
 
   return (
-    <div className={styles.panel}>
+    <div className={`${styles.panel} lv-rise`}>
       <div className={styles.header}>
         <div className={styles.title}>
           <span className={styles.dot} />
           Debug console
         </div>
         <button
-          className={styles.btn}
+          className={`${styles.btn} lv-press`}
           onClick={() => setCollapsed((c) => !c)}
           title={collapsed ? "Expand" : "Collapse"}
         >
           {collapsed ? "Show" : "Hide"}
         </button>
-        <button className={styles.btn} onClick={() => setLines([])} title="Clear output">
+        <button className={`${styles.btn} lv-press`} onClick={() => setLines([])} title="Clear output">
           Clear
         </button>
         <button
-          className={styles.btn}
+          className={`${styles.btn} ${styles.iconBtn} lv-press`}
           onClick={() => setDebugConsole(false)}
           title="Disable the debug console (re-enable from the Lever menu)"
+          aria-label="Disable the debug console"
         >
-          ✕
+          <IconClose size={11} />
         </button>
       </div>
       {!collapsed && (

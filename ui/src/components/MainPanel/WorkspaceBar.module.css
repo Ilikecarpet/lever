@@ -1,9 +1,12 @@
-/* Lives inside the TopBar, which owns background and border */
+/* Lives inside the TopBar, which owns the chrome background. Tabs sit on the
+   chrome above the canvas card as quiet pills. */
 .bar {
   display: flex;
   flex: 1;
   min-width: 0;
   align-items: stretch;
+  /* Lines the first tab up with the canvas card's left edge below. */
+  padding: 0 6px;
 }
 
 /* Tabs scroll on their own so the context chip stays pinned */
@@ -12,122 +15,151 @@
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
 }
 .tabScroll::-webkit-scrollbar {
   height: 0;
 }
 
 .tab {
-  padding: 0 14px;
-  height: 100%;
+  padding: 0 6px 0 8px;
+  height: 28px;
+  max-width: 280px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   font-weight: 500;
   user-select: none;
-  /* Active state is a copper underline, not a pill */
-  box-shadow: inset 0 -2px 0 transparent;
-  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast), background var(--transition-fast);
+  /* A new tab fades up into the bar. Reordering moves the existing element,
+     so dragging never replays it. */
+  animation: tabIn 0.3s var(--ease-out) backwards;
+}
+@keyframes tabIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 .tab:hover {
-  color: var(--text-dim);
-  background: var(--surface);
-}
-.tabActive {
   color: var(--text);
-  background: var(--accent-dim);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: var(--surface-hover);
+}
+.tabActive,
+.tabActive:hover {
+  color: var(--text);
+  background: var(--surface);
 }
 .tabDragging {
   opacity: 0.4;
 }
 
-/* ⌘N affordance — mono index chip */
+.tabLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ⌘N affordance — a kbd hint, so mono */
 .tabIndex {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   color: var(--text-muted);
-  background: var(--surface);
-  border-radius: 3px;
-  padding: 2px 4px;
+  min-width: 8px;
+  text-align: center;
   user-select: none;
 }
+/* The active tab's marker: its index picks up the accent. */
 .tabActive .tabIndex {
   color: var(--accent);
-  background: var(--accent-dim);
 }
 .paneTitle {
   color: var(--text-muted);
   font-weight: 400;
 }
 
-/* Always visible close — subtle when idle */
+/* Always present, quiet until the tab is hovered or active */
 .close {
-  opacity: 0.3;
-  color: var(--text-dim);
-  padding: 0 2px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  justify-content: center;
+  opacity: 0;
+  color: var(--text-muted);
+  padding: 0;
   cursor: pointer;
   background: none;
   border: none;
   line-height: 1;
-  border-radius: var(--radius-sm);
-  transition: opacity 0.1s, background 0.1s;
+  border-radius: 6px;
   display: flex;
   align-items: center;
+  transition: opacity var(--transition-fast), background var(--transition-fast),
+    color var(--transition-fast);
 }
-.tab:hover .close {
-  opacity: 0.6;
+.tab:hover .close,
+.tabActive .close {
+  opacity: 1;
 }
 .close:hover {
-  opacity: 1 !important;
-  background: var(--red-dim);
-  color: var(--red);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.tabActive .close:hover {
+  background: var(--surface-hover);
 }
 
 .newBtn {
-  padding: 0 10px;
-  height: 100%;
+  width: 28px;
+  height: 28px;
+  flex: none;
   display: flex;
   align-items: center;
+  justify-content: center;
   color: var(--text-muted);
   cursor: pointer;
   background: none;
   border: none;
-  transition: color 0.15s;
+  border-radius: var(--radius-md);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.tab + .newBtn {
+  margin-left: 4px;
 }
 .newBtn:hover {
-  color: var(--accent);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .renameInput {
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
   font-family: inherit;
   font-weight: 500;
   padding: 2px 6px;
   outline: none;
-  width: 110px;
+  width: 120px;
 }
 
 .contextMenu {
   position: fixed;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 4px 0;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  padding: 6px;
   z-index: 1000;
-  box-shadow: var(--shadow-lg);
-  min-width: 140px;
+  box-shadow: var(--shadow-float);
+  min-width: 160px;
 }
 
 .contextMenuItem {
@@ -135,15 +167,17 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 7px 12px;
-  font-size: 12px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
   color: var(--text);
   background: none;
   border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: background 0.1s;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .contextMenuItem:hover {

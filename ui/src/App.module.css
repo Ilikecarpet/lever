@@ -1,5 +1,10 @@
+/* The chrome surface: sidebar, the gaps around the canvas, and (via their own
+   modules) the top and status bars all share --sidebar-bg, so the main panel
+   reads as a card floating inside one continuous frame. */
 .layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
+  background: var(--sidebar-bg);
 }

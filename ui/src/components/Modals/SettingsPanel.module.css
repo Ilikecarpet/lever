@@ -2,7 +2,7 @@
    from Panel.module.css, shared with the service inspector. */
 
 .section {
-  margin-bottom: 30px;
+  margin-bottom: 28px;
 }
 .section:last-child {
   margin-bottom: 0;
@@ -10,9 +10,9 @@
 
 .row {
   display: flex;
-  align-items: flex-start;
-  gap: 18px;
-  padding: 10px 0;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
 }
 .row + .row {
   border-top: 1px solid var(--border);
@@ -23,12 +23,13 @@
   min-width: 0;
 }
 .rowLabel {
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text);
 }
 .rowSub {
-  margin-top: 3px;
-  font-size: 10.5px;
+  margin-top: 2px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -38,15 +39,17 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  height: 32px;
+  padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  overflow: hidden;
   background: var(--surface);
 }
 .stepBtn {
   width: 26px;
   height: 26px;
   border: none;
+  border-radius: 6px;
   background: none;
   color: var(--text-dim);
   font-size: 13px;
@@ -67,24 +70,21 @@
   color: var(--text-dim);
 }
 .stepValue {
-  min-width: 28px;
+  min-width: 30px;
   text-align: center;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  padding: 5px 0;
 }
 
 /* The setting is about legibility, so it is set in the thing being changed. */
 .preview {
-  margin: 4px 0 6px;
-  padding: 10px 13px;
+  margin: 2px 0 8px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--terminal-bg);
-  font-family: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+  font-family: var(--font-mono);
   line-height: 1.4;
   color: var(--text);
   white-space: nowrap;
@@ -98,7 +98,8 @@
 .numInput {
   flex-shrink: 0;
   width: 88px;
-  padding: 6px 10px;
+  height: 32px;
+  padding: 0 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -107,7 +108,7 @@
   font-size: 12px;
   text-align: right;
   outline: none;
-  transition: border-color 0.15s, background 0.12s;
+  transition: border-color 0.2s var(--ease-out), background 0.2s var(--ease-out);
 }
 /* Focus is neutral elevation, never accent — accent is the primary action. */
 .numInput:focus {
@@ -118,39 +119,39 @@
 /* ---- Lever, matching the sidebar's service switch ---- */
 .lever {
   position: relative;
-  width: 30px;
-  height: 17px;
+  width: 28px;
+  height: 16px;
   flex-shrink: 0;
-  margin-top: 2px;
-  border-radius: 9px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-hover);
+  border: none;
   padding: 0;
   cursor: pointer;
-  transition: background 0.18s, border-color 0.18s;
+  transition: background 0.18s;
 }
 .leverKnob {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.18s;
+  transition: transform 0.24s var(--ease-spring), background 0.18s;
 }
 .leverOn {
-  background: var(--green-dim);
-  border-color: var(--green);
+  background: var(--green);
 }
 .leverOn .leverKnob {
-  transform: translateX(13px);
-  background: var(--green);
+  transform: translateX(12px);
+  background: #fff;
 }
 
 .pathValue {
-  margin-bottom: 12px;
-  padding: 9px 12px;
+  margin: 6px 0 12px;
+  height: 32px;
+  line-height: 30px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -169,9 +170,8 @@
 .progressTrack {
   margin-top: 10px;
   height: 4px;
-  border-radius: 2px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-hover);
   overflow: hidden;
 }
 .progressFill {
@@ -197,42 +197,42 @@
   flex: none;
   gap: 2px;
   padding: 2px;
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 
 .segment {
   background: none;
   border: none;
-  padding: 3px 9px;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition: color 0.12s, background 0.12s;
 }
 .segment:hover {
-  color: var(--text);
-  background: var(--surface-hover);
+  color: var(--text-dim);
 }
 .segmentOn,
 .segmentOn:hover {
-  color: var(--accent-fg);
-  background: var(--accent);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 /* Only shown when a settings change actually failed, so it carries the reason
    rather than a generic "something went wrong". */
 .settingError {
   margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
   background: var(--red-dim);
   color: var(--red);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .lever:disabled {
@@ -244,13 +244,13 @@
 .settingCommand {
   display: block;
   margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 11.5px;
+  line-height: 1.45;
   word-break: break-all;
   user-select: text;
 }

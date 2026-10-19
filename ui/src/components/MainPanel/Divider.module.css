@@ -1,42 +1,43 @@
-/* Divider — wider hit area via padding, thin visual line */
+/* Divider — a hairline in the layout, with a wider invisible grab zone that
+   overhangs both neighbouring panes. */
 .divider {
   flex-shrink: 0;
-  z-index: 1;
+  z-index: 3;
   position: relative;
-}
-
-/* The visible line */
-.divider::after {
-  content: "";
-  position: absolute;
   background: var(--border);
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
 }
-.divider:hover::after,
-.dividerActive::after {
+.divider:hover,
+.dividerActive {
   background: var(--accent);
 }
 
+/* The grab zone */
+.divider::after {
+  content: "";
+  position: absolute;
+}
+
 .vertical {
-  width: 8px;
+  width: 1px;
   cursor: col-resize;
 }
 .vertical::after {
-  left: 3px;
   top: 0;
   bottom: 0;
-  width: 2px;
+  left: -4px;
+  right: -4px;
 }
 
 .horizontal {
-  height: 8px;
+  height: 1px;
   cursor: row-resize;
 }
 .horizontal::after {
-  top: 3px;
   left: 0;
   right: 0;
-  height: 2px;
+  top: -4px;
+  bottom: -4px;
 }
 
 .dragOverlay {

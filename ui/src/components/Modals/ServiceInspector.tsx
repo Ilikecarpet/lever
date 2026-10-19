@@ -5,6 +5,8 @@ import { useServiceStore } from "../../stores/serviceStore";
 import { useGitStore } from "../../stores/gitStore";
 import { useUiStore } from "../../stores/uiStore";
 import { usePanelStore } from "../../stores/panelStore";
+import type { PanelTarget } from "../../stores/panelStore";
+import { usePresence } from "../../hooks/usePresence";
 import type { ServiceDef, ServiceGroup } from "../../types";
 import shell from "./Panel.module.css";
 import styles from "./ServiceInspector.module.css";
@@ -129,6 +131,14 @@ export default function ServiceInspector() {
   const nameRef = useRef<HTMLInputElement>(null);
   const mouseDownOnOverlay = useRef(false);
 
+  const open = !!target && target.kind !== "settings";
+  const { mounted, closing } = usePresence(open);
+  // The store clears `target` the moment the panel is dismissed, but the panel
+  // is still on screen while it slides out. It keeps drawing whatever it was
+  // last pointed at, so the exit shows the same content, not a blank card.
+  const lastShown = useRef<Exclude<PanelTarget, { kind: "settings" }> | null>(null);
+  if (target && target.kind !== "settings") lastShown.current = target;
+
   const sections: Section[] = useMemo(
     () => [
       { label: currentBranch, worktreeId: null, groups: mainGroups },
@@ -182,7 +192,7 @@ export default function ServiceInspector() {
   // Deliberately re-subscribed every render: closing commits whatever is in the
   // draft, so the handler has to see the current one, not the one from mount.
   useEffect(() => {
-    if (!target) return;
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleDone();
     };
@@ -190,7 +200,8 @@ export default function ServiceInspector() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  if (!target || target.kind === "settings") return null;
+  if (!mounted || !lastShown.current) return null;
+  const shown = lastShown.current;
 
   // --- Store dispatch, section-aware ---------------------------------------
 
@@ -319,11 +330,11 @@ export default function ServiceInspector() {
   const whereGroup = where ? findGroup(where.worktreeId, where.groupId) : null;
 
   const heading =
-    target.kind === "new" ? "New service" : draft.label.trim() || "Untitled";
+    shown.kind === "new" ? "New service" : draft.label.trim() || "Untitled";
 
   return (
     <div
-      className={shell.overlay}
+      className={`${shell.overlay}${closing ? ` ${shell.closing}` : ""}`}
       style={{ ["--hinge" as string]: `${hinge}px` }}
       onMouseDown={(e) => {
         mouseDownOnOverlay.current = e.target === e.currentTarget;
@@ -334,11 +345,11 @@ export default function ServiceInspector() {
     >
       {/* Dims the main panel only. The sidebar stays lit — it is where the
           panel came from, and it is still the navigation while this is open. */}
-      <div className={shell.scrim} />
+      <div className={`${shell.scrim} lv-scrim${closing ? " lv-closing" : ""}`} />
       <div className={shell.panel}>
         <div className={shell.header}>
           <span className={shell.title}>
-            {target.kind === "new" ? "New service" : "Edit service"}
+            {shown.kind === "new" ? "New service" : "Edit service"}
           </span>
           <span className={shell.spacer} />
           <button className={shell.btn} onClick={handleDone}>
@@ -389,7 +400,6 @@ export default function ServiceInspector() {
                     <label htmlFor="si-group">Group</label>
                     <select
                       id="si-group"
-                      className={styles.mono}
                       value={draft.target}
                       onChange={(e) => setDraft({ ...draft, target: e.target.value })}
                     >
@@ -491,7 +501,7 @@ export default function ServiceInspector() {
         </div>
 
         <div className={shell.footer}>
-              {target.kind === "service" && (
+              {shown.kind === "service" && (
                 <button
                   className={`${shell.btn} ${shell.btnDanger} ${shell.btnSm}`}
                   onClick={() => setConfirmDelete((v) => !v)}
@@ -500,7 +510,7 @@ export default function ServiceInspector() {
                 </button>
               )}
               <span className={shell.spacer} />
-              {dirty && target.kind === "service" && (
+              {dirty && shown.kind === "service" && (
                 <button
                   className={`${shell.btn} ${shell.btnGhost}`}
                   onClick={() => setDraft(baseline)}
@@ -511,9 +521,9 @@ export default function ServiceInspector() {
               <button
                 className={`${shell.btn} ${shell.btnPrimary}`}
                 onClick={handleSave}
-                disabled={!draftValid || (target.kind === "service" && !dirty)}
+                disabled={!draftValid || (shown.kind === "service" && !dirty)}
               >
-                {target.kind === "new" ? "Add service" : dirty ? "Save" : "Saved"}
+                {shown.kind === "new" ? "Add service" : dirty ? "Save" : "Saved"}
               </button>
             </div>
 
@@ -522,8 +532,8 @@ export default function ServiceInspector() {
                 <div className={styles.confirmBox}>
                   <div className={styles.confirmMsg}>
                     Delete <b>{draft.label.trim() || "this service"}</b> permanently.
-                    {target.kind === "service" &&
-                      (statuses[target.serviceId] ?? "stopped") === "running" &&
+                    {shown.kind === "service" &&
+                      (statuses[shown.serviceId] ?? "stopped") === "running" &&
                       " It is running — it will be stopped first."}
                   </div>
                   <div className={styles.confirmActions}>

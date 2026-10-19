@@ -4,24 +4,22 @@
   align-items: center;
 }
 
-/* Sits in the status bar's mono register, alongside the service count. */
+/* Sits in the status bar's register, alongside the service count. */
 .meter {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   background: none;
   border: none;
-  padding: 2px 6px;
+  padding: 0 8px;
   height: 20px;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font: inherit;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 11.5px;
   color: var(--text-muted);
   white-space: nowrap;
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
 .meter:hover,
 .meterOpen {
@@ -72,7 +70,7 @@
 }
 
 .track {
-  width: 42px;
+  width: 36px;
   height: 4px;
   border-radius: 2px;
   background: var(--surface-hover);
@@ -108,11 +106,13 @@
   bottom: calc(100% + 8px);
   right: 0;
   z-index: 1000;
-  width: 268px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  width: 284px;
+  padding: 6px;
+  background: var(--surface-raised);
+  /* Opens upward out of the status bar chip, so it grows from that corner. */
+  --lv-origin: bottom right;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
   cursor: default;
 }
@@ -120,22 +120,23 @@
 .head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
+  gap: 3px;
+  padding: 8px 10px 10px;
 }
 .headName {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .headMeta {
   display: flex;
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -148,20 +149,22 @@
    not alerts. */
 .chip {
   flex: none;
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--surface-hover);
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--text-dim);
-  font-size: 9px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 17px;
 }
 
 .section {
-  padding: 10px 12px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 .section + .section {
-  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
 .sectionHead {
@@ -174,12 +177,14 @@
   background: none;
   border: none;
   font: inherit;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   text-align: left;
+}
+.sectionTitle {
+  transition: color var(--transition-fast);
 }
 .sectionHead:hover .sectionTitle {
   color: var(--text-dim);
@@ -210,7 +215,7 @@
   font-size: 12px;
   line-height: 1;
   transform: rotate(90deg);
-  transition: transform 0.12s ease;
+  transition: transform 0.35s var(--ease-spring);
   color: var(--text-muted);
 }
 .sectionCollapsed .chevron {
@@ -222,8 +227,7 @@
   gap: 6px;
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 0;
-  text-transform: none;
+  font-weight: 400;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -257,8 +261,8 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 2px 0;
-  font-size: 11px;
+  padding: 3px 0;
+  font-size: 12px;
   color: var(--text-dim);
 }
 .rowLabel {
@@ -281,7 +285,7 @@
   margin-top: 6px;
 }
 .planReset {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -328,8 +332,8 @@
 
 .note {
   margin-top: 8px;
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 11.5px;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
