@@ -248,7 +248,7 @@ const ItemView = memo(function ItemView({
 function renderMentions(text: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(/(^|\s)(@[\w./-]+)/g)) {
+  for (const m of text.matchAll(/(^|\s)(@[\w./-]+|\/[\w:.-]+(?=\s|$))/g)) {
     const at = (m.index ?? 0) + m[1].length;
     if (at > last) out.push(text.slice(last, at));
     out.push(
