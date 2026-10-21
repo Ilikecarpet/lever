@@ -1,3 +1,4 @@
+import { renderTokens } from "./tokens";
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { editedFiles, lineCounts, lineDiff, shortPath, shortenPaths, type ChatItem, type ToolContent, type ToolItem } from "../../lib/acpChat";
 
@@ -195,7 +196,7 @@ const ItemView = memo(function ItemView({
                 ))}
               </div>
             )}
-            {item.text && <div className={styles.userText}>{renderMentions(item.text)}</div>}
+            {item.text && <div className={styles.userText}>{renderTokens(item.text, styles.mention)}</div>}
           </div>
           {item.text && (
             <div className={styles.msgActions}>
@@ -245,23 +246,6 @@ const ItemView = memo(function ItemView({
 });
 
 /** @path mentions in a sent message, set apart the way they were typed. */
-function renderMentions(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let last = 0;
-  for (const m of text.matchAll(/(^|\s)(@[\w./-]+|\/[\w:.-]+(?=\s|$))/g)) {
-    const at = (m.index ?? 0) + m[1].length;
-    if (at > last) out.push(text.slice(last, at));
-    out.push(
-      <span key={at} className={styles.mention}>
-        {m[2]}
-      </span>
-    );
-    last = at + m[2].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
 function LiveStatus({ startedAt, quiet }: { startedAt: number | null; quiet: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

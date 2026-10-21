@@ -7,6 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { IconAt, IconClose, IconFile, IconPaperclip, IconSend, IconSlash, IconStop } from "../Icons";
 import { PickerMenu, type MenuItem } from "./Menu";
 import { UsageButton } from "./UsagePopover";
+import { renderTokens } from "./tokens";
 import styles from "./Chat.module.css";
 
 /** What each permission mode is worth flagging as, at a glance. */
@@ -152,7 +153,7 @@ export const Composer = forwardRef<ComposerHandle, {
     return null;
   }, [slashQuery?.[2], fileQuery?.[2], files, state.commands, caret]);
 
-  const suggestKey = suggest ? `${suggest.type}:${suggest.query}` : null;
+  const suggestKey = suggest ? `${suggest.type}:${suggest.start}:${suggest.query}` : null;
   const showSuggest = suggest && dismissed !== suggestKey;
 
   useEffect(() => setPick(0), [suggestKey]);
@@ -172,21 +173,14 @@ export const Composer = forwardRef<ComposerHandle, {
   // The textarea can't colour its own text, so a copy of the draft sits
   // behind it with the known commands and mentions marked up.
   const backdropRef = useRef<HTMLDivElement>(null);
-  const highlighted = useMemo(() => {
-    const known = new Set(state.commands.map((c) => c.name));
-    const out: React.ReactNode[] = [];
-    let last = 0;
-    for (const m of draft.matchAll(/(^|\s)(\/([\w:.-]+)|@[\w./-]+)(?=\s|$)/g)) {
-      if (m[3] !== undefined && !known.has(m[3])) continue;
-      const at = (m.index ?? 0) + m[1].length;
-      if (at > last) out.push(draft.slice(last, at));
-      out.push(<mark key={at} className={styles.inputToken}>{m[2]}</mark>);
-      last = at + m[2].length;
-    }
-    // A trailing newline needs something after it to take up its line.
-    out.push(draft.slice(last) + "\u200b");
-    return out;
-  }, [draft, state.commands]);
+  const known = useMemo(() => new Set(state.commands.map((c) => c.name)), [state.commands]);
+  // A trailing newline needs something after it to take up its line.
+  const highlighted = useMemo(() => renderTokens(draft + "\u200b", styles.inputToken, known), [draft, known]);
+  // Drafts set in code (history, completion) move the textarea without a
+  // scroll event.
+  useLayoutEffect(() => {
+    if (backdropRef.current && inputRef.current) backdropRef.current.scrollTop = inputRef.current.scrollTop;
+  }, [draft]);
 
   // --- attachments ---------------------------------------------------------
 
