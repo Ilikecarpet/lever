@@ -15,6 +15,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-request-user-attention",
     "core:window:allow-close",
+    "core:window:allow-hide",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
     "dialog:default",
