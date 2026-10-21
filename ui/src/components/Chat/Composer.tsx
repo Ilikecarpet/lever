@@ -7,6 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { IconAt, IconClose, IconFile, IconPaperclip, IconSend, IconSlash, IconStop } from "../Icons";
 import { PickerMenu, type MenuItem } from "./Menu";
 import { UsageButton } from "./UsagePopover";
+import { renderTokens } from "./tokens";
 import styles from "./Chat.module.css";
 
 /** What each permission mode is worth flagging as, at a glance. */
@@ -35,7 +36,7 @@ export interface ComposerHandle {
 }
 
 type Suggest =
-  | { type: "slash"; query: string; items: { name: string; description?: string }[] }
+  | { type: "slash"; query: string; start: number; items: { name: string; description?: string }[] }
   | { type: "file"; query: string; start: number; items: string[] };
 
 /** Fuzzy match a path: every query character in order, scored so filename
@@ -120,7 +121,9 @@ export const Composer = forwardRef<ComposerHandle, {
 
   const before = draft.slice(0, caret);
   const fileQuery = before.match(/(^|\s)@([\w./-]*)$/);
-  const slashQuery = draft.match(/^\/(\S*)$/);
+  // A command can be typed anywhere a word starts, not only at the head of
+  // the message.
+  const slashQuery = before.match(/(^|\s)\/([\w:.-]*)$/);
 
   useEffect(() => {
     if (fileQuery && files === null) {
@@ -131,11 +134,11 @@ export const Composer = forwardRef<ComposerHandle, {
 
   const suggest: Suggest | null = useMemo(() => {
     if (slashQuery && state.commands.length) {
-      const q = slashQuery[1].toLowerCase();
+      const q = slashQuery[2].toLowerCase();
       const items = state.commands.filter((c) => c.name.toLowerCase().includes(q))
         .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
         .slice(0, 8);
-      return items.length ? { type: "slash", query: q, items } : null;
+      return items.length ? { type: "slash", query: q, start: caret - slashQuery[2].length - 1, items } : null;
     }
     if (fileQuery && files) {
       const q = fileQuery[2].toLowerCase();
@@ -148,30 +151,36 @@ export const Composer = forwardRef<ComposerHandle, {
       return items.length ? { type: "file", query: q, start: caret - fileQuery[2].length - 1, items } : null;
     }
     return null;
-  }, [slashQuery?.[1], fileQuery?.[2], files, state.commands, caret]);
+  }, [slashQuery?.[2], fileQuery?.[2], files, state.commands, caret]);
 
-  const suggestKey = suggest ? `${suggest.type}:${suggest.query}` : null;
+  const suggestKey = suggest ? `${suggest.type}:${suggest.start}:${suggest.query}` : null;
   const showSuggest = suggest && dismissed !== suggestKey;
 
   useEffect(() => setPick(0), [suggestKey]);
 
   const accept = (i: number) => {
     if (!suggest) return;
-    if (suggest.type === "slash") {
-      const t = `/${suggest.items[i].name} `;
-      setDraft(t);
-      setCaret(t.length);
-    } else {
-      const path = suggest.items[i];
-      const t = `${draft.slice(0, suggest.start)}@${path} ${draft.slice(caret)}`;
-      const at = suggest.start + path.length + 2;
-      setDraft(t);
-      requestAnimationFrame(() => {
-        inputRef.current?.setSelectionRange(at, at);
-        setCaret(at);
-      });
-    }
+    const token = suggest.type === "slash" ? `/${suggest.items[i].name}` : `@${suggest.items[i]}`;
+    const t = `${draft.slice(0, suggest.start)}${token} ${draft.slice(caret)}`;
+    const at = suggest.start + token.length + 1;
+    setDraft(t);
+    requestAnimationFrame(() => {
+      inputRef.current?.setSelectionRange(at, at);
+      setCaret(at);
+    });
   };
+
+  // The textarea can't colour its own text, so a copy of the draft sits
+  // behind it with the known commands and mentions marked up.
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const known = useMemo(() => new Set(state.commands.map((c) => c.name)), [state.commands]);
+  // A trailing newline needs something after it to take up its line.
+  const highlighted = useMemo(() => renderTokens(draft + "\u200b", styles.inputToken, known), [draft, known]);
+  // Drafts set in code (history, completion) move the textarea without a
+  // scroll event.
+  useLayoutEffect(() => {
+    if (backdropRef.current && inputRef.current) backdropRef.current.scrollTop = inputRef.current.scrollTop;
+  }, [draft]);
 
   // --- attachments ---------------------------------------------------------
 
@@ -290,6 +299,7 @@ export const Composer = forwardRef<ComposerHandle, {
     setAttachments([]);
     setCaret(0);
     setHistoryAt(null);
+    setDismissed(null);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -461,9 +471,16 @@ export const Composer = forwardRef<ComposerHandle, {
       )}
       {attachError && <div className={styles.attachError}>{attachError}</div>}
 
+      <div className={styles.inputWrap}>
+      <div ref={backdropRef} className={`${styles.input} ${styles.inputBackdrop}`} aria-hidden>
+        {highlighted}
+      </div>
       <textarea
         ref={inputRef}
-        className={styles.input}
+        className={`${styles.input} ${styles.inputOverlay}`}
+        onScroll={(e) => {
+          if (backdropRef.current) backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+        }}
         rows={centered ? 2 : 1}
         value={draft}
         placeholder={
@@ -490,6 +507,7 @@ export const Composer = forwardRef<ComposerHandle, {
         }}
         spellCheck={false}
       />
+      </div>
 
       <div className={styles.toolbar}>
         <button className={styles.toolBtn} title="Attach files or images (or drop them here)" onClick={pickFiles}>

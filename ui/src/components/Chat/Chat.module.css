@@ -573,6 +573,7 @@
 }
 
 .mention {
+  background: none;
   color: var(--accent);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1720,6 +1721,43 @@
   color: var(--text);
   font: inherit;
   line-height: 1.5;
+}
+
+.inputWrap {
+  position: relative;
+}
+
+/* Sits exactly under the textarea, same box and type, showing the draft
+   with its commands and mentions coloured; the textarea's own text is
+   transparent so only its caret and selection show over it. */
+.inputBackdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  color: var(--text);
+}
+
+/* Both reserve the scrollbar's width, so they wrap the same once the
+   textarea scrolls. */
+.inputBackdrop,
+.inputOverlay {
+  scrollbar-gutter: stable;
+}
+
+.inputOverlay {
+  position: relative;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.inputToken {
+  font: inherit;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 3px;
 }
 
 .input::placeholder {
