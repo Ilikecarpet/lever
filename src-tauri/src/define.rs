@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn ids_are_unique_across_worktrees() {
-        let mut config = AppConfig { groups: vec![group("g", &["web"])], worktrees: vec![] };
+        let mut config = AppConfig { groups: vec![group("g", &["web"])], worktrees: vec![], databases: vec![] };
         config.worktrees.push(super::super::WorktreeDef {
             id: "wt".into(), branch: "b".into(), path: "/x".into(), groups: vec![group("g", &["web-2"])],
         });
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn a_service_is_found_by_id_or_by_a_label_naming_one() {
-        let config = AppConfig { groups: vec![group("g", &["web", "Api"])], worktrees: vec![] };
+        let config = AppConfig { groups: vec![group("g", &["web", "Api"])], worktrees: vec![], databases: vec![] };
         assert_eq!(find(&config, &Checkout::Main, "web").unwrap(), "web");
         assert_eq!(find(&config, &Checkout::Main, "api").unwrap(), "Api");
         assert!(find(&config, &Checkout::Main, "db").is_err());
