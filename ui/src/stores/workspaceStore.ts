@@ -12,12 +12,14 @@ import {
 } from "../lib/paneTree";
 import { destroyPty } from "../hooks/usePty";
 import { destroyChat } from "../lib/acpChat";
+import { useDbStore } from "./dbStore";
 import { useSettingsStore } from "./settingsStore";
 
 /** Whatever the pane holds — shell or chat — goes with it. */
 function destroyPane(paneId: string) {
   destroyPty(paneId);
   destroyChat(paneId);
+  useDbStore.getState().dropPane(paneId);
 }
 
 interface WorkspaceState {
@@ -26,6 +28,11 @@ interface WorkspaceState {
 
   addWorkspace: (kind?: PaneKind) => string;
   addWorkspaceForWorktree: (worktreeId: string, kind?: PaneKind) => string;
+  /** Focuses the connection's tab in a context, opening one if it has none. */
+  openDatabase: (connId: string, label: string, worktreeId: string | null) => string;
+  /** Closes every tab on a connection, when it is deleted. */
+  closeDatabase: (connId: string) => void;
+  renameDatabase: (connId: string, label: string) => void;
   closeWorkspace: (id: string) => void;
   closeWorktreeWorkspaces: (worktreeId: string) => void;
   setActiveWorkspace: (id: string | null) => void;
@@ -89,6 +96,51 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       activeWorkspaceId: ws.id,
     }));
     return ws.id;
+  },
+
+  openDatabase: (connId, label, worktreeId) => {
+    const existing = get().workspaces.find(
+      (w) => w.worktreeId === worktreeId && w.root.type === "leaf" && w.root.dbConnId === connId
+    );
+    if (existing) {
+      set({ activeWorkspaceId: existing.id });
+      return existing.id;
+    }
+    const leaf = { ...makeLeaf("db"), dbConnId: connId };
+    const ws: Workspace = { id: nextId("ws"), label, root: leaf, activePaneId: leaf.id, worktreeId };
+    set((s) => ({ workspaces: [...s.workspaces, ws], activeWorkspaceId: ws.id }));
+    return ws.id;
+  },
+
+  closeDatabase: (connId) => {
+    const onIt = get().workspaces.filter((w) =>
+      collectLeaves(w.root).some((l) => l.dbConnId === connId)
+    );
+    for (const ws of onIt) {
+      if (ws.root.type === "leaf") {
+        get().closeWorkspace(ws.id);
+        continue;
+      }
+      // Split with a terminal: only the database pane goes.
+      for (const leaf of collectLeaves(ws.root).filter((l) => l.dbConnId === connId)) {
+        const root = removeNode(ws.root, leaf.id);
+        if (!root) continue;
+        destroyPane(leaf.id);
+        set((s) => ({
+          workspaces: s.workspaces.map((w) =>
+            w.id === ws.id ? { ...w, root, activePaneId: collectLeaves(root)[0].id } : w
+          ),
+        }));
+      }
+    }
+  },
+
+  renameDatabase: (connId, label) => {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.root.type === "leaf" && w.root.dbConnId === connId ? { ...w, label } : w
+      ),
+    }));
   },
 
   closeWorkspace: (id) => {

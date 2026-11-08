@@ -1,0 +1,272 @@
+/* Schema search: replaces the tree while you type. Ranked results in
+   sections, with the kind tabs above them — tables first, so a table named
+   like a common word is never buried under the columns that share it. */
+
+.root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: searchIn 0.18s var(--ease-out);
+}
+@keyframes searchIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.scopes {
+  display: flex;
+  gap: 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 10px 6px;
+  padding: 2px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.scopes::-webkit-scrollbar {
+  display: none;
+}
+.scope {
+  flex: 1 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+.scope:hover {
+  color: var(--text-dim);
+}
+.scopeOn,
+.scopeOn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.scopeEmpty:not(.scopeOn) {
+  opacity: 0.5;
+}
+.scopeCount {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.scopeOn .scopeCount {
+  color: var(--text-dim);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 10px;
+  scrollbar-gutter: stable;
+}
+.list::-webkit-scrollbar {
+  width: 4px;
+}
+.list::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 4px;
+}
+
+.section + .section {
+  margin-top: 8px;
+}
+.sectionHead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--sidebar-bg) 70%, var(--terminal-bg));
+}
+.sectionCount {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.hit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.hitColumn {
+  height: 34px;
+}
+.hitActive {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.hitIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.hitActive .hitIcon {
+  color: var(--text-dim);
+}
+.hitName {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.hitLabel {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hitColumn .hitName {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.hitParent {
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hitNs {
+  flex-shrink: 0;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-radius: 4px;
+}
+.hitMeta,
+.hitType {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.hitType {
+  font-family: var(--font-mono);
+}
+
+.pk {
+  display: inline-flex;
+  color: var(--yellow);
+}
+.fk {
+  display: inline-flex;
+  color: var(--blue);
+}
+.colDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--border-hover);
+}
+
+.mark {
+  background: var(--accent-subtle);
+  color: var(--text);
+  border-radius: 2px;
+}
+
+.more {
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin-top: 2px;
+  padding: 0 8px 0 30px;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  transition: color 0.12s, background 0.12s;
+}
+.more:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.capNote {
+  padding: 8px 8px 0 30px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.empty {
+  padding: 22px 12px;
+  text-align: center;
+}
+.emptyTitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.emptyLink {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-decoration-color: var(--border-hover);
+  text-underline-offset: 2px;
+}
+.emptyLink:hover {
+  color: var(--text);
+}
+
+.foot {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 7px 14px 9px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  box-shadow: inset 0 1px 0 var(--border);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.foot kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 4px;
+  padding: 0 4px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-align: center;
+  line-height: 15px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-radius: 4px;
+}

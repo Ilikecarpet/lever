@@ -9,6 +9,7 @@ import { findNode } from "../../lib/paneTree";
 import * as api from "../../lib/tauri";
 import Divider from "./Divider";
 import ChatView from "../Chat/ChatView";
+import DbView from "../Db/DbView";
 import { useChatMetaStore } from "../../stores/chatMetaStore";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./PaneView.module.css";
@@ -92,6 +93,18 @@ function ChatLeaf({ id, isActive, visible, worktreeId }: { id: string; isActive:
   );
 }
 
+function DbLeaf({ id, connId, isActive, visible, worktreeId }: { id: string; connId: string; isActive: boolean; visible: boolean; worktreeId: string | null }) {
+  const setActivePane = useWorkspaceStore((s) => s.setActivePane);
+  return (
+    <div
+      className={`${styles.leafPane} ${styles.chatLeaf}${isActive ? ` ${styles.leafActive}` : ""}`}
+      onMouseDown={() => setActivePane(id)}
+    >
+      <DbView paneId={id} connId={connId} worktreeId={worktreeId} isActive={visible && isActive} />
+    </div>
+  );
+}
+
 interface PaneViewProps {
   node: PaneNode;
   activePaneId: string;
@@ -101,6 +114,9 @@ interface PaneViewProps {
 
 export default function PaneView({ node, activePaneId, visible = true, worktreeId = null }: PaneViewProps) {
   if (node.type === "leaf") {
+    if (node.kind === "db" && node.dbConnId) {
+      return <DbLeaf id={node.id} connId={node.dbConnId} isActive={node.id === activePaneId} visible={visible} worktreeId={worktreeId} />;
+    }
     if (node.kind === "chat") {
       return <ChatLeaf id={node.id} isActive={node.id === activePaneId} visible={visible} worktreeId={worktreeId} />;
     }

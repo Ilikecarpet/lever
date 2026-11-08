@@ -131,13 +131,13 @@ export default function ServiceInspector() {
   const nameRef = useRef<HTMLInputElement>(null);
   const mouseDownOnOverlay = useRef(false);
 
-  const open = !!target && target.kind !== "settings";
+  const open = !!target && (target.kind === "service" || target.kind === "new");
   const { mounted, closing } = usePresence(open);
   // The store clears `target` the moment the panel is dismissed, but the panel
   // is still on screen while it slides out. It keeps drawing whatever it was
   // last pointed at, so the exit shows the same content, not a blank card.
-  const lastShown = useRef<Exclude<PanelTarget, { kind: "settings" }> | null>(null);
-  if (target && target.kind !== "settings") lastShown.current = target;
+  const lastShown = useRef<Extract<PanelTarget, { kind: "service" | "new" }> | null>(null);
+  if (target && (target.kind === "service" || target.kind === "new")) lastShown.current = target;
 
   const sections: Section[] = useMemo(
     () => [
@@ -165,8 +165,8 @@ export default function ServiceInspector() {
   // whatever is being typed.
   useEffect(() => {
     setConfirmDelete(false);
-    // "settings" is a different panel's target; this one ignores it.
-    if (!target || target.kind === "settings") return;
+    // Settings and databases are other panels' targets; this one ignores them.
+    if (!target || (target.kind !== "service" && target.kind !== "new")) return;
 
     if (target.kind === "new") {
       const next = { ...emptyForm, target: encodeTarget(target.worktreeId, target.groupId) };

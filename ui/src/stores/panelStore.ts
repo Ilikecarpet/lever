@@ -7,13 +7,16 @@ import { create } from "zustand";
 export type PanelTarget =
   | { kind: "service"; worktreeId: string | null; groupId: string; serviceId: string }
   | { kind: "new"; worktreeId: string | null; groupId: string }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  /** A database connection's editor; `connId` null is a new one. */
+  | { kind: "db"; connId: string | null };
 
 interface PanelState {
   target: PanelTarget | null;
   editService: (worktreeId: string | null, groupId: string, serviceId: string) => void;
   addService: (worktreeId: string | null, groupId: string) => void;
   openSettings: () => void;
+  editDatabase: (connId: string | null) => void;
   close: () => void;
 }
 
@@ -25,5 +28,6 @@ export const usePanelStore = create<PanelState>((set) => ({
   addService: (worktreeId, groupId) =>
     set({ target: { kind: "new", worktreeId, groupId } }),
   openSettings: () => set({ target: { kind: "settings" } }),
+  editDatabase: (connId) => set({ target: { kind: "db", connId } }),
   close: () => set({ target: null }),
 }));

@@ -13,6 +13,14 @@ import type {
   GitRepoInfo,
   ProjectMeta,
   WorktreeDef,
+  DbConnectionDef,
+  DbSchema,
+  DbQueryOutput,
+  DbBrowseRequest,
+  DbBrowseOutput,
+  DbError,
+  DbRowChange,
+  DbApplyOutput,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -348,6 +356,59 @@ export function gitPull(path: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // Event listener helper
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Databases
+// ---------------------------------------------------------------------------
+
+/** Database commands reject with a DbError; anything else becomes one. */
+export function toDbError(e: unknown): DbError {
+  if (e && typeof e === "object" && "message" in e) return e as DbError;
+  return { message: String(e), detail: null, hint: null, position: null, cancelled: false };
+}
+
+export function dbTest(connection: DbConnectionDef, password: string | null, worktreeId: string | null): Promise<string> {
+  return invoke<string>("db_test", { projectId: _projectId, connection, password, worktreeId });
+}
+
+export function dbHasPassword(connId: string): Promise<boolean> {
+  return invoke<boolean>("db_has_password", { projectId: _projectId, connId });
+}
+
+export function dbSetPassword(connId: string, password: string | null): Promise<void> {
+  return invoke<void>("db_set_password", { projectId: _projectId, connId, password });
+}
+
+export function dbDisconnect(connId: string, remove = false): Promise<void> {
+  return invoke<void>("db_disconnect", { projectId: _projectId, connId, remove });
+}
+
+export function dbSchema(connId: string, worktreeId: string | null, refresh = false): Promise<DbSchema> {
+  return invoke<DbSchema>("db_schema", { projectId: _projectId, connId, worktreeId, refresh });
+}
+
+export function dbQuery(connId: string, worktreeId: string | null, sql: string, maxRows?: number): Promise<DbQueryOutput> {
+  return invoke<DbQueryOutput>("db_query", { projectId: _projectId, connId, worktreeId, sql, maxRows: maxRows ?? null });
+}
+
+export function dbBrowse(connId: string, worktreeId: string | null, request: DbBrowseRequest): Promise<DbBrowseOutput> {
+  return invoke<DbBrowseOutput>("db_browse", { projectId: _projectId, connId, worktreeId, request });
+}
+
+export function dbApply(
+  connId: string,
+  worktreeId: string | null,
+  namespace: string,
+  table: string,
+  changes: DbRowChange[],
+  dryRun = false
+): Promise<DbApplyOutput> {
+  return invoke<DbApplyOutput>("db_apply", { projectId: _projectId, connId, worktreeId, namespace, table, changes, dryRun });
+}
+
+export function dbCancel(connId: string, worktreeId: string | null): Promise<void> {
+  return invoke<void>("db_cancel", { projectId: _projectId, connId, worktreeId });
+}
 
 export function tauriListen<T>(
   event: string,

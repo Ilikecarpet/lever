@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import type { AppConfig, ServiceDef, ServiceGroup, WorktreeDef } from "../types";
+import type { AppConfig, DbConnectionDef, ServiceDef, ServiceGroup, WorktreeDef } from "../types";
 import * as api from "../lib/tauri";
 import { useWorktreeStore } from "./worktreeStore";
 
 interface ConfigState {
   groups: ServiceGroup[];
+  databases: DbConnectionDef[];
   loaded: boolean;
 
   loadConfig: () => Promise<void>;
@@ -22,16 +23,21 @@ interface ConfigState {
   ) => void;
   moveService: (serviceId: string, fromGroupId: string, toGroupId: string) => void;
   removeService: (groupId: string, serviceId: string) => void;
+
+  /** Adds the connection, or replaces the one with its id. */
+  putDatabase: (db: DbConnectionDef) => void;
+  removeDatabase: (id: string) => void;
 }
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
   groups: [],
+  databases: [],
   loaded: false,
 
   loadConfig: async () => {
     try {
       const config = await api.getConfig();
-      set({ groups: config.groups, loaded: true });
+      set({ groups: config.groups, databases: config.databases ?? [], loaded: true });
       useWorktreeStore.getState().setWorktrees(config.worktrees ?? []);
     } catch {
       set({ groups: [], loaded: true });
@@ -40,7 +46,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
   saveConfig: async () => {
     const worktrees = useWorktreeStore.getState().worktrees;
-    const config: AppConfig = { groups: get().groups, worktrees };
+    const config: AppConfig = { groups: get().groups, worktrees, databases: get().databases };
     await api.saveConfig(config);
   },
 
@@ -114,5 +120,17 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           : g
       ),
     }));
+  },
+
+  putDatabase: (db) => {
+    set((s) => ({
+      databases: s.databases.some((d) => d.id === db.id)
+        ? s.databases.map((d) => (d.id === db.id ? db : d))
+        : [...s.databases, db],
+    }));
+  },
+
+  removeDatabase: (id) => {
+    set((s) => ({ databases: s.databases.filter((d) => d.id !== id) }));
   },
 }));
