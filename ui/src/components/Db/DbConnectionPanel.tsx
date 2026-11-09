@@ -8,7 +8,7 @@ import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useDbStore } from "../../stores/dbStore";
 import { usePresence } from "../../hooks/usePresence";
 import * as api from "../../lib/tauri";
-import { ENGINE_LABEL, ENGINE_PORT, buildUrl, parseUrl, type UrlParts } from "../../lib/sql";
+import { ENGINE_LABEL, ENGINE_PORT, buildUrl, getParam, parseUrl, setParam, type UrlParts } from "../../lib/sql";
 import type { DbColor, DbConnectionDef, DbEngine } from "../../types";
 import { IconCheck, IconDatabase, IconFolder, IconLock } from "../Icons";
 import shell from "../Modals/Panel.module.css";
@@ -27,6 +27,7 @@ interface Draft {
   /** Typed this session; empty keeps whatever the Keychain holds. */
   password: string;
   readOnly: boolean;
+  caCert: string;
   agentAccess: boolean;
   color: DbColor | null;
 }
@@ -41,9 +42,19 @@ const emptyDraft: Draft = {
   parts: emptyParts,
   password: "",
   readOnly: false,
+  caCert: "",
   agentAccess: true,
   color: null,
 };
+
+/** Postgres sslmode, in the order of how much they check. */
+const SSL_MODES: { id: string | null; label: string; hint: string }[] = [
+  { id: null, label: "Default", hint: "Encrypts when the server offers it; the certificate isn't checked. Right for local databases." },
+  { id: "disable", label: "Off", hint: "Never encrypts." },
+  { id: "require", label: "Require", hint: "Always encrypts; the certificate isn't checked." },
+  { id: "verify-ca", label: "Verify CA", hint: "The certificate must come from a trusted authority — macOS's, or the CA file below." },
+  { id: "verify-full", label: "Verify full", hint: "As Verify CA, and the certificate must name this host. The setting for production." },
+];
 
 const COLORS: { id: DbColor | null; label: string }[] = [
   { id: null, label: "None" },
@@ -66,6 +77,7 @@ function draftFor(def: DbConnectionDef): Draft {
     parts: parts ?? emptyParts,
     password: "",
     readOnly: def.read_only,
+    caCert: def.ca_cert ?? "",
     agentAccess: def.agent_access,
     color: def.color,
   };
@@ -205,6 +217,7 @@ export default function DbConnectionPanel() {
     engine: draft.engine,
     url,
     read_only: draft.readOnly,
+    ca_cert: draft.caCert.trim() || null,
     agent_access: draft.agentAccess,
     color: draft.color,
   });
@@ -285,6 +298,19 @@ export default function DbConnectionPanel() {
     });
     if (typeof picked === "string") set({ url: picked });
   };
+
+  const browseCa = async () => {
+    const picked = await openDialog({
+      title: "Choose the CA certificate",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "Certificates", extensions: ["pem", "crt", "cer", "der"] }, { name: "All files", extensions: ["*"] }],
+    });
+    if (typeof picked === "string") set({ caCert: picked });
+  };
+
+  const sslMode = draft.engine === "postgres" ? getParam(draft.mode === "url" ? draft.url.split("?")[1] ?? "" : draft.parts.params, "sslmode") : null;
+  const sslHint = SSL_MODES.find((m) => m.id === sslMode)?.hint;
 
   const heading = draft.name.trim() || (isNew ? "New database" : "Untitled");
   const passwordPlaceholder = clearPassword
@@ -435,6 +461,26 @@ export default function DbConnectionPanel() {
                   <label htmlFor="db-name-db">Database</label>
                   <input id="db-name-db" className={form.mono} value={draft.parts.database} onChange={(e) => setPart({ database: e.target.value })} placeholder={draft.engine === "mysql" ? "app" : "postgres"} />
                 </div>
+                {draft.engine === "postgres" && (
+                  <div className={form.f}>
+                    <label>Encryption</label>
+                    <div className={form.seg} role="radiogroup" aria-label="Encryption">
+                      {SSL_MODES.map((m) => (
+                        <button
+                          key={m.label}
+                          type="button"
+                          role="radio"
+                          aria-checked={sslMode === m.id}
+                          className={`${form.segBtn}${sslMode === m.id ? ` ${form.segBtnOn}` : ""}`}
+                          onClick={() => setPart({ params: setParam(draft.parts.params, "sslmode", m.id) })}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className={shell.hint}>{sslHint ?? `sslmode=${sslMode} — set in the URL.`}</div>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -470,6 +516,29 @@ export default function DbConnectionPanel() {
                   />
                 </div>
               </>
+            )}
+
+            {draft.engine !== "sqlite" && (
+              <div className={form.f}>
+                <label htmlFor="db-ca">CA certificate</label>
+                <div className={styles.fileRow}>
+                  <input
+                    id="db-ca"
+                    className={form.mono}
+                    value={draft.caCert}
+                    onChange={(e) => set({ caCert: e.target.value })}
+                    placeholder="Optional — macOS's trusted authorities are used without one"
+                  />
+                  <button className={`${shell.btn} ${shell.btnSm}`} onClick={browseCa}>
+                    <IconFolder size={12} /> Choose…
+                  </button>
+                </div>
+                <div className={shell.hint}>
+                  {draft.engine === "postgres"
+                    ? "For a provider's own authority — AWS RDS's global-bundle.pem, Supabase's CA. Checked when encryption is Verify CA or Verify full."
+                    : "For a server with its own authority. Setting one turns on TLS, checked against it."}
+                </div>
+              </div>
             )}
 
             {draft.engine !== "sqlite" && (
@@ -516,7 +585,7 @@ export default function DbConnectionPanel() {
               onChange={(v) => set({ agentAccess: v })}
             />
             <Toggle
-              label="Read-only here too"
+              label="Read-only"
               sub="Refuse writes from the console as well — for a database you only ever look at."
               on={draft.readOnly}
               onChange={(v) => set({ readOnly: v })}

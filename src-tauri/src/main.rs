@@ -3064,6 +3064,7 @@ fn main() {
             acp::acp_read_text,
             acp::acp_revert_edit,
             db::db_test,
+            db::db_list_databases,
             db::db_has_password,
             db::db_set_password,
             db::db_disconnect,
@@ -3071,6 +3072,8 @@ fn main() {
             db::db_query,
             db::db_browse,
             db::db_apply,
+            db::db_search_values,
+            db::db_cancel_value_search,
             db::db_cancel,
         ])
         .on_window_event(|window, event| {

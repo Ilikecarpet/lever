@@ -21,6 +21,7 @@ import type {
   DbError,
   DbRowChange,
   DbApplyOutput,
+  DbValueSearchSummary,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -383,31 +384,53 @@ export function dbDisconnect(connId: string, remove = false): Promise<void> {
   return invoke<void>("db_disconnect", { projectId: _projectId, connId, remove });
 }
 
-export function dbSchema(connId: string, worktreeId: string | null, refresh = false): Promise<DbSchema> {
-  return invoke<DbSchema>("db_schema", { projectId: _projectId, connId, worktreeId, refresh });
+/** The server's other databases (Postgres), and which one the URL names. */
+export function dbListDatabases(connId: string, worktreeId: string | null): Promise<{ home: string; databases: { name: string; size: string | null }[] }> {
+  return invoke("db_list_databases", { projectId: _projectId, connId, worktreeId });
 }
 
-export function dbQuery(connId: string, worktreeId: string | null, sql: string, maxRows?: number): Promise<DbQueryOutput> {
-  return invoke<DbQueryOutput>("db_query", { projectId: _projectId, connId, worktreeId, sql, maxRows: maxRows ?? null });
+export function dbSchema(connId: string, worktreeId: string | null, database: string | null, refresh = false): Promise<DbSchema> {
+  return invoke<DbSchema>("db_schema", { projectId: _projectId, connId, worktreeId, database, refresh });
 }
 
-export function dbBrowse(connId: string, worktreeId: string | null, request: DbBrowseRequest): Promise<DbBrowseOutput> {
-  return invoke<DbBrowseOutput>("db_browse", { projectId: _projectId, connId, worktreeId, request });
+export function dbQuery(connId: string, worktreeId: string | null, database: string | null, sql: string, maxRows?: number): Promise<DbQueryOutput> {
+  return invoke<DbQueryOutput>("db_query", { projectId: _projectId, connId, worktreeId, database, sql, maxRows: maxRows ?? null });
+}
+
+export function dbBrowse(connId: string, worktreeId: string | null, database: string | null, request: DbBrowseRequest): Promise<DbBrowseOutput> {
+  return invoke<DbBrowseOutput>("db_browse", { projectId: _projectId, connId, worktreeId, database, request });
 }
 
 export function dbApply(
   connId: string,
   worktreeId: string | null,
+  database: string | null,
   namespace: string,
   table: string,
   changes: DbRowChange[],
   dryRun = false
 ): Promise<DbApplyOutput> {
-  return invoke<DbApplyOutput>("db_apply", { projectId: _projectId, connId, worktreeId, namespace, table, changes, dryRun });
+  return invoke<DbApplyOutput>("db_apply", { projectId: _projectId, connId, worktreeId, database, namespace, table, changes, dryRun });
 }
 
-export function dbCancel(connId: string, worktreeId: string | null): Promise<void> {
-  return invoke<void>("db_cancel", { projectId: _projectId, connId, worktreeId });
+export function dbSearchValues(
+  connId: string,
+  worktreeId: string | null,
+  database: string | null,
+  searchId: string,
+  query: string,
+  exact: boolean,
+  skipLarge: boolean
+): Promise<DbValueSearchSummary> {
+  return invoke<DbValueSearchSummary>("db_search_values", { projectId: _projectId, connId, worktreeId, database, searchId, query, exact, skipLarge });
+}
+
+export function dbCancelValueSearch(connId: string, worktreeId: string | null, database: string | null, searchId: string): Promise<void> {
+  return invoke<void>("db_cancel_value_search", { projectId: _projectId, connId, worktreeId, database, searchId });
+}
+
+export function dbCancel(connId: string, worktreeId: string | null, database: string | null): Promise<void> {
+  return invoke<void>("db_cancel", { projectId: _projectId, connId, worktreeId, database });
 }
 
 export function tauriListen<T>(

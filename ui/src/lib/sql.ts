@@ -195,6 +195,22 @@ export function buildUrl(engine: DbEngine, p: UrlParts): string {
   return `${scheme}://${auth}${p.host || "localhost"}${port}${db}${params}`;
 }
 
+/** One option from a URL's query string. */
+export function getParam(params: string, key: string): string | null {
+  for (const pair of params.split("&")) {
+    const [k, v = ""] = pair.split("=");
+    if (k === key) return decodeURIComponent(v);
+  }
+  return null;
+}
+
+/** Sets or (with null) removes one option, keeping the others as typed. */
+export function setParam(params: string, key: string, value: string | null): string {
+  const rest = params.split("&").filter((p) => p && p.split("=")[0] !== key);
+  if (value !== null) rest.push(`${key}=${encodeURIComponent(value)}`);
+  return rest.join("&");
+}
+
 export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }

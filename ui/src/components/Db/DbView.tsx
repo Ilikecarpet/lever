@@ -7,6 +7,8 @@ import { usePanelStore } from "../../stores/panelStore";
 import {
   useDbStore,
   useSchema,
+  useValueSearch,
+  useDatabaseChoice,
   editCount,
   PAGE_SIZE,
   type ConsoleTab,
@@ -18,6 +20,7 @@ import { splitStatements, statementAt, tableRef, quoteIdent, quoteLiteral, ENGIN
 import type { DbConnectionDef, DbSchema, DbTableInfo, DbError } from "../../types";
 import { useClampToViewport } from "../../hooks/useClampToViewport";
 import { usePresence } from "../../hooks/usePresence";
+import * as api from "../../lib/tauri";
 import SqlEditor, { markError, flashRange } from "./SqlEditor";
 import DataGrid, { type GridEditing } from "./DataGrid";
 import SchemaSearch, { type SchemaSearchHandle, type SearchScope } from "./SchemaSearch";
@@ -38,7 +41,6 @@ import {
   IconView,
   IconFilter,
   IconCommand,
-  IconSparkle,
   IconCheck,
 } from "../Icons";
 import menuStyles from "../ContextMenu/ContextMenu.module.css";
@@ -95,7 +97,8 @@ interface Props {
 
 export default function DbView({ paneId, connId, worktreeId, isActive }: Props) {
   const def = useConfigStore((s) => s.databases.find((d) => d.id === connId));
-  const target = useMemo<DbTarget>(() => ({ connId, worktreeId }), [connId, worktreeId]);
+  const database = useDatabaseChoice(connId, worktreeId);
+  const target = useMemo<DbTarget>(() => ({ connId, worktreeId, database }), [connId, worktreeId, database]);
   const schemaEntry = useSchema(target);
   const loadSchema = useDbStore((s) => s.loadSchema);
   const pane = useDbStore((s) => s.panes[paneId]);
@@ -188,6 +191,9 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
   const searchRef = useRef<SchemaSearchHandle>(null);
+  const valueSearch = useValueSearch(target);
+  const startValueSearch = useDbStore((s) => s.startValueSearch);
+  const cancelValueSearch = useDbStore((s) => s.cancelValueSearch);
   const filterRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<{ x: number; y: number; ns: string; table: DbTableInfo } | null>(null);
@@ -248,6 +254,26 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
             <span className={styles.connBranch} title="The checkout this connection is resolved in">
               {checkout}
             </span>
+            {schema?.transport && (
+              <>
+                <i>·</i>
+                <span
+                  className={styles.connTls}
+                  data-level={!schema.transport.encrypted ? "plain" : schema.transport.verified === "none" ? "open" : "verified"}
+                  title={
+                    !schema.transport.encrypted
+                      ? "Not encrypted. Fine on this machine; for a remote server, set Encryption to Verify full."
+                      : schema.transport.verified === "full"
+                        ? "Encrypted, and the server's certificate is trusted and names this host"
+                        : schema.transport.verified === "ca"
+                          ? "Encrypted, and the server's certificate comes from a trusted authority (host name not checked)"
+                          : "Encrypted, but the server's certificate isn't checked — set Encryption to Verify full to check it"
+                  }
+                >
+                  <IconLock size={10} />
+                </span>
+              </>
+            )}
           </span>
         </div>
         <button
@@ -260,18 +286,15 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
         </button>
       </div>
 
-      {(def.read_only || def.agent_access) && (
+      {def.engine === "postgres" && (
+        <DatabasePicker def={def} target={target} paneId={paneId} />
+      )}
+
+      {def.read_only && (
         <div className={styles.badges}>
-          {def.read_only && (
-            <span className={styles.badge} title="Writes are refused for this connection">
-              <IconLock size={10} /> Read-only
-            </span>
-          )}
-          {def.agent_access && (
-            <span className={styles.badge} title="Agents can read this database over Lever's MCP server">
-              <IconSparkle size={10} /> Agents can read
-            </span>
-          )}
+          <span className={styles.badge} title="Writes are refused for this connection">
+            <IconLock size={10} /> Read-only
+          </span>
         </div>
       )}
 
@@ -289,7 +312,13 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
             }
             if (needle && searchRef.current?.key(e)) e.preventDefault();
           }}
-          placeholder={schema ? `Search ${formatCount(tableCount)} table${tableCount === 1 ? "" : "s"} and their columns` : "Search"}
+          placeholder={
+            scope === "values"
+              ? "Find a value in any table"
+              : schema
+                ? `Search ${formatCount(tableCount)} table${tableCount === 1 ? "" : "s"} and their columns`
+                : "Search"
+          }
           spellCheck={false}
         />
         {filter && (
@@ -307,6 +336,23 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
           scope={scope}
           onScope={setScope}
           onOpen={(ns, table) => openTable(paneId, target, ns, table)}
+          values={valueSearch}
+          risky={def.color === "red"}
+          onValueSearch={(exact, skipLarge) => startValueSearch(target, filter.trim(), exact, skipLarge)}
+          onCancelValues={() => cancelValueSearch(target)}
+          onOpenHit={(hit, exact) => {
+            const q = valueSearch?.query ?? filter.trim();
+            // Contains reuses the table's own row search; an exact value
+            // becomes a WHERE on the columns it was found in.
+            if (!exact) {
+              openTable(paneId, target, hit.namespace, hit.table, { search: q });
+              return;
+            }
+            const asText = (c: string) =>
+              def.engine === "postgres" ? `${quoteIdent(def.engine, c)}::text` : `CAST(${quoteIdent(def.engine, c)} AS ${def.engine === "mysql" ? "CHAR" : "TEXT"})`;
+            const where = hit.columns.map((c) => `${asText(c)} = ${quoteLiteral(q)}`).join(" OR ");
+            openTable(paneId, target, hit.namespace, hit.table, { where });
+          }}
         />
       ) : (
       <div className={styles.tree}>
@@ -476,6 +522,110 @@ function Explorer({ width, def, target, paneId, schema, loading, error }: Explor
         </div>
       )}
     </aside>
+  );
+}
+
+/** Switches between the databases on one Postgres server, as DataGrip's tree
+ *  does. The URL's database is home; picking another is remembered per
+ *  connection and checkout. */
+function DatabasePicker({ def, target, paneId }: { def: DbConnectionDef; target: DbTarget; paneId: string }) {
+  const chooseDatabase = useDbStore((s) => s.chooseDatabase);
+  const dirty = useDbStore((s) =>
+    (s.panes[paneId]?.tabs ?? []).some((t) => t.kind === "table" && editCount(t.pending) > 0)
+  );
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<{ home: string; databases: { name: string; size: string | null }[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const presence = usePresence(open);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // The home database's name comes from the server, so ask once up front.
+  const load = useCallback(() => {
+    setError(null);
+    api
+      .dbListDatabases(target.connId, target.worktreeId)
+      .then(setList)
+      .catch((e) => setError(api.toDbError(e).message));
+  }, [target.connId, target.worktreeId]);
+  useEffect(() => {
+    load();
+  }, [load, def.url]);
+
+  useEffect(() => {
+    if (!open) return;
+    setFilter("");
+    load();
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open, load]);
+
+  const shown = target.database ?? list?.home ?? "…";
+  const items = (list?.databases ?? []).filter((d) => d.name.toLowerCase().includes(filter.trim().toLowerCase()));
+  const pick = (name: string) => {
+    setOpen(false);
+    if (name === shown) return;
+    chooseDatabase(paneId, target.connId, target.worktreeId, name === list?.home ? null : name);
+  };
+
+  return (
+    <div className={styles.dbPicker} ref={ref}>
+      <button
+        className={`${styles.dbPickerBtn}${open ? ` ${styles.dbPickerOpen}` : ""} lv-press`}
+        onClick={() => !dirty && setOpen((o) => !o)}
+        disabled={dirty}
+        title={dirty ? "Submit or revert your edits before switching databases" : "Switch database on this server"}
+      >
+        <span className={styles.dbPickerLabel}>Database</span>
+        <span className={styles.dbPickerName}>{shown}</span>
+        {target.database && <span className={styles.dbPickerAway} title={`The connection's URL names ${list?.home ?? "another database"}`} />}
+        <span className={styles.dbPickerChev} style={{ transform: open ? "rotate(-90deg)" : "rotate(90deg)" }}>
+          <IconChevronRight size={9} />
+        </span>
+      </button>
+      {presence.mounted && (
+        <div className={`${menuStyles.menu} ${styles.dbMenu} lv-pop${presence.closing ? " lv-closing" : ""}`}>
+          {(list?.databases.length ?? 0) > 8 && (
+            <div className={styles.dbMenuFilter}>
+              <IconSearch size={11} />
+              <input
+                autoFocus
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Enter" && items[0]) pick(items[0].name);
+                }}
+                placeholder="Filter databases"
+                spellCheck={false}
+              />
+            </div>
+          )}
+          {error && <div className={styles.dbMenuError}>{error}</div>}
+          {!list && !error && <div className={styles.dbMenuEmpty}>Loading…</div>}
+          <div className={styles.dbMenuList}>
+            {items.map((d) => (
+              <button
+                key={d.name}
+                className={`${menuStyles.item} ${styles.dbMenuItem}${d.name === shown ? ` ${styles.dbMenuItemOn}` : ""}`}
+                onClick={() => pick(d.name)}
+                disabled={!d.size && d.name !== list?.home}
+                title={!d.size && d.name !== list?.home ? "This role can't connect to it" : undefined}
+              >
+                <span className={styles.dbMenuCheck}>{d.name === shown && <IconCheck size={11} />}</span>
+                <span className={styles.dbMenuName}>{d.name}</span>
+                {d.name === list?.home && <span className={styles.dbMenuHome}>URL</span>}
+                <span className={styles.dbMenuSize}>{d.size ?? "no access"}</span>
+              </button>
+            ))}
+            {list && items.length === 0 && <div className={styles.dbMenuEmpty}>No database matches</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

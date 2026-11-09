@@ -69,6 +69,11 @@ pub struct DbConnectionDef {
     /// A tag colour, so production never looks like local.
     #[serde(default)]
     pub color: Option<String>,
+    /// A CA certificate (PEM or DER, a bundle is fine) to check the server's
+    /// TLS certificate against, beyond the ones macOS trusts. `sslrootcert`
+    /// in a Postgres URL takes precedence.
+    #[serde(default)]
+    pub ca_cert: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +87,7 @@ const MAX_ROWS_CEILING: usize = 50_000;
 /// grid.
 const MAX_CELL_CHARS: usize = 100_000;
 const AGENT_TIMEOUT: Duration = Duration::from_secs(30);
+const SEARCH_TABLE_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const SCHEMA_TTL: Duration = Duration::from_secs(60);
 
@@ -209,6 +215,10 @@ fn with_network_hint(mut e: DbError) -> DbError {
         Some("Nothing is accepting connections at that host and port. Is the database running, and is the port the one it listens on?".into())
     } else if m.contains("timed out") {
         Some("The server didn't answer. Check the host, and that a firewall or VPN isn't in the way.".into())
+    } else if m.contains("certificate") || m.contains("not trusted") || m.contains("tls handshake") {
+        Some("The server's certificate didn't pass the check sslmode asked for. For a provider's own CA (AWS RDS, Supabase…), choose its CA file under CA certificate; for a local database, drop verify-ca/verify-full.".into())
+    } else if m.contains("server does not support tls") || m.contains("does not support ssl") {
+        Some("The server doesn't offer TLS. Use sslmode=prefer or disable for it.".into())
     } else if m.contains("failed to lookup") || m.contains("nodename nor servname") {
         Some("That host name doesn't resolve. A Docker service name only works inside Docker; from here it's usually localhost.".into())
     } else {
@@ -360,16 +370,39 @@ struct Target {
     password: Option<String>,
     /// The checkout the connection was resolved in, for relative SQLite paths.
     dir: PathBuf,
+    /// Another database on the same server, in place of the URL's.
+    database: Option<String>,
+    /// The connection's CA certificate, resolved to a path.
+    ca_cert: Option<PathBuf>,
 }
 
-fn target_for(def: &DbConnectionDef, dir: &Path, password: Option<String>) -> Result<Target, String> {
+fn target_for(def: &DbConnectionDef, dir: &Path, password: Option<String>, database: Option<&str>) -> Result<Target, String> {
     if def.url.trim().is_empty() {
         return Err(match def.engine {
             Engine::Sqlite => "This connection has no database file set".into(),
             _ => "This connection has no URL set".into(),
         });
     }
-    Ok(Target { engine: def.engine, url: expand_vars(&def.url, dir)?, password, dir: dir.to_path_buf() })
+    Ok(Target {
+        engine: def.engine,
+        url: expand_vars(&def.url, dir)?,
+        password,
+        dir: dir.to_path_buf(),
+        database: database.map(str::to_string).filter(|d| !d.is_empty()),
+        ca_cert: match def.ca_cert.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            Some(c) => Some(resolve_path(&expand_vars(c, dir)?, dir)),
+            None => None,
+        },
+    })
+}
+
+/// A path as typed: `~/…`, absolute, or relative to the checkout.
+fn resolve_path(p: &str, dir: &Path) -> PathBuf {
+    if let Some(rest) = p.strip_prefix("~/") {
+        return PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest);
+    }
+    let path = PathBuf::from(p);
+    if path.is_absolute() { path } else { dir.join(path) }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +417,9 @@ enum Mode {
     Guarded,
     /// An agent: read-only, single statements, a statement timeout.
     Agent,
+    /// A search through every table's values: read-only, and a shorter
+    /// timeout, so one huge table can't hold the rest up for long.
+    Search,
 }
 
 impl Mode {
@@ -392,10 +428,18 @@ impl Mode {
             Mode::Window => "window",
             Mode::Guarded => "guarded",
             Mode::Agent => "agent",
+            Mode::Search => "search",
         }
     }
     fn guarded(self) -> bool {
         self != Mode::Window
+    }
+    fn timeout(self) -> Option<Duration> {
+        match self {
+            Mode::Agent => Some(AGENT_TIMEOUT),
+            Mode::Search => Some(SEARCH_TABLE_TIMEOUT),
+            _ => None,
+        }
     }
 }
 
@@ -434,6 +478,8 @@ struct Session {
     conn: Mutex<Conn>,
     canceller: Canceller,
     mode: Mode,
+    /// How far the server's certificate was checked, if TLS was used.
+    verified: Verified,
     /// Set when a driver error suggests the link is gone, so the next call
     /// reconnects instead of failing the same way.
     broken: std::sync::atomic::AtomicBool,
@@ -452,31 +498,210 @@ fn schemas() -> &'static Mutex<HashMap<String, (Instant, Arc<Schema>)>> {
 
 /// The database a session talks to, without the mode: the window and an
 /// agent looking at the same checkout see the same schema.
-fn db_key(project_id: &str, conn_id: &str, worktree_id: Option<&str>) -> String {
-    format!("{}\u{1f}{}\u{1f}{}", project_id, conn_id, worktree_id.unwrap_or("main"))
+fn db_key(project_id: &str, conn_id: &str, worktree_id: Option<&str>, database: Option<&str>) -> String {
+    format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", project_id, conn_id, worktree_id.unwrap_or("main"), database.unwrap_or(""))
 }
 
-fn pg_tls() -> Result<PgTls, String> {
-    // libpq's sslmode=prefer/require: encrypt when the server offers it, but
-    // don't insist on a certificate chain a local or managed database rarely
-    // has. verify-full users can still pass sslrootcert through psql.
-    let tls = native_tls::TlsConnector::builder()
-        .danger_accept_invalid_certs(true)
-        .danger_accept_invalid_hostnames(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+/// What `sslmode` asks of the server's certificate, as libpq reads it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SslMode {
+    Disable,
+    /// TLS when the server offers it; the certificate isn't checked.
+    Prefer,
+    /// TLS always; the certificate isn't checked.
+    Require,
+    /// The certificate must chain to a trusted authority.
+    VerifyCa,
+    /// …and name the host connected to.
+    VerifyFull,
+}
+
+/// How far a session's server was checked; reported next to the connection.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Verified {
+    No,
+    Ca,
+    Full,
+}
+
+impl Verified {
+    fn label(self) -> &'static str {
+        match self {
+            Verified::No => "none",
+            Verified::Ca => "ca",
+            Verified::Full => "full",
+        }
+    }
+}
+
+/// libpq options the Postgres driver understands. Anything else in a URL —
+/// Prisma's `connection_limit`, `pgbouncer`, `pool_timeout` — belongs to some
+/// other tool and would make the driver refuse the whole URL.
+const PG_URL_OPTIONS: &[&str] = &[
+    "user", "password", "dbname", "options", "application_name", "host", "hostaddr", "port",
+    "connect_timeout", "tcp_user_timeout", "keepalives", "keepalives_idle", "keepalives_interval",
+    "keepalives_retries", "target_session_attrs", "channel_binding", "load_balance_hosts", "sslnegotiation",
+];
+
+/// A Postgres URL's settings that Lever applies itself rather than the driver.
+#[derive(Debug, PartialEq)]
+struct PgUrlExtras {
+    ssl: SslMode,
+    root_cert: Option<String>,
+    /// Prisma's `schema`, applied as the search path.
+    search_path: Option<String>,
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(if b[i] == b'+' { b' ' } else { b[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Takes `sslmode`, `sslrootcert` and Prisma's `schema` out of a Postgres URL
+/// (or key=value string), and drops options the driver doesn't know, so the
+/// rest parses. `verify-*` becomes `require` for the driver; the checking
+/// itself is done by the TLS connector.
+fn split_pg_url(url: &str) -> Result<(String, PgUrlExtras), String> {
+    let mut extras = PgUrlExtras { ssl: SslMode::Prefer, root_cert: None, search_path: None };
+    let mut take = |key: &str, value: &str| -> Result<Option<String>, String> {
+        match key {
+            "sslmode" => {
+                extras.ssl = match value {
+                    "disable" => SslMode::Disable,
+                    "allow" | "prefer" => SslMode::Prefer,
+                    "require" => SslMode::Require,
+                    "verify-ca" => SslMode::VerifyCa,
+                    "verify-full" => SslMode::VerifyFull,
+                    other => return Err(format!("sslmode={} isn't one of disable, prefer, require, verify-ca, verify-full", other)),
+                };
+                Ok(None)
+            }
+            "sslrootcert" => {
+                // libpq's "system" means the platform's trusted roots, which
+                // is what verification uses without a file anyway.
+                if value != "system" {
+                    extras.root_cert = Some(value.to_string());
+                }
+                Ok(None)
+            }
+            "schema" => {
+                extras.search_path = Some(value.to_string());
+                Ok(None)
+            }
+            k if PG_URL_OPTIONS.contains(&k) => Ok(Some(k.to_string())),
+            _ => Ok(None),
+        }
+    };
+    let ssl_for_driver = |m: SslMode| match m {
+        SslMode::Disable => "disable",
+        SslMode::Prefer => "prefer",
+        _ => "require",
+    };
+    if url.contains("://") {
+        let (base, query) = match url.split_once('?') {
+            Some((b, q)) => (b, q),
+            None => return Ok((url.to_string(), extras)),
+        };
+        let mut kept = Vec::new();
+        for pair in query.split('&').filter(|p| !p.is_empty()) {
+            let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+            if take(&percent_decode(k), &percent_decode(v))?.is_some() {
+                kept.push(pair.to_string());
+            }
+        }
+        kept.push(format!("sslmode={}", ssl_for_driver(extras.ssl)));
+        return Ok((format!("{}?{}", base, kept.join("&")), extras));
+    }
+    // key=value form: values with spaces are quoted; keep it simple and only
+    // rewrite the unquoted tokens Lever handles.
+    let mut kept = Vec::new();
+    for token in url.split_whitespace() {
+        match token.split_once('=') {
+            Some((k, v)) if !v.starts_with('\'') => {
+                if take(k, v)?.is_some() {
+                    kept.push(token.to_string());
+                }
+            }
+            _ => kept.push(token.to_string()),
+        }
+    }
+    kept.push(format!("sslmode={}", ssl_for_driver(extras.ssl)));
+    Ok((kept.join(" "), extras))
+}
+
+/// Every certificate in a PEM file (bundles hold many), or a single DER one.
+fn read_certificates(path: &Path) -> Result<Vec<native_tls::Certificate>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("Couldn't read the CA certificate at {}: {}", path.display(), e))?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut certs = Vec::new();
+    if text.contains("-----BEGIN CERTIFICATE-----") {
+        for block in text.split("-----BEGIN CERTIFICATE-----").skip(1) {
+            let body = block.split("-----END CERTIFICATE-----").next().unwrap_or("");
+            let pem = format!("-----BEGIN CERTIFICATE-----{}-----END CERTIFICATE-----\n", body);
+            certs.push(native_tls::Certificate::from_pem(pem.as_bytes()).map_err(|e| format!("{} isn't a valid certificate: {}", path.display(), e))?);
+        }
+    } else {
+        certs.push(native_tls::Certificate::from_der(&bytes).map_err(|e| format!("{} isn't a PEM or DER certificate: {}", path.display(), e))?);
+    }
+    Ok(certs)
+}
+
+/// The TLS connector for a mode. Without verification it mirrors libpq's
+/// prefer/require: encrypt, but accept whatever certificate is shown. With it,
+/// the chain must reach macOS's trusted roots or the given CA file, and for
+/// verify-full the certificate must name the host.
+fn pg_tls(mode: SslMode, root_cert: Option<&Path>) -> Result<PgTls, String> {
+    let mut builder = native_tls::TlsConnector::builder();
+    match mode {
+        SslMode::VerifyCa | SslMode::VerifyFull => {
+            if let Some(path) = root_cert {
+                for cert in read_certificates(path)? {
+                    builder.add_root_certificate(cert);
+                }
+            }
+            builder.danger_accept_invalid_hostnames(mode == SslMode::VerifyCa);
+        }
+        _ => {
+            builder.danger_accept_invalid_certs(true).danger_accept_invalid_hostnames(true);
+        }
+    }
+    let tls = builder.build().map_err(|e| e.to_string())?;
     Ok(postgres_native_tls::MakeTlsConnector::new(tls))
 }
 
 fn open(target: &Target, mode: Mode) -> Result<Session, DbError> {
+    let mut verified = Verified::No;
     let (conn, canceller) = match target.engine {
         Engine::Postgres => {
+            let (url, extras) = split_pg_url(&target.url)?;
             let mut cfg: tokio_postgres::Config =
-                target.url.parse().map_err(|e| format!("Couldn't read the connection URL: {}", e))?;
+                url.parse().map_err(|e| format!("Couldn't read the connection URL: {}", e))?;
+            let root = extras.root_cert.as_deref().map(|r| resolve_path(r, &target.dir)).or_else(|| target.ca_cert.clone());
+            // libpq: require with a root certificate given checks it, as verify-ca.
+            let ssl = match extras.ssl {
+                SslMode::Require if root.is_some() => SslMode::VerifyCa,
+                m => m,
+            };
             if cfg.get_password().is_none() {
                 if let Some(p) = &target.password {
                     cfg.password(p);
                 }
+            }
+            if let Some(db) = &target.database {
+                cfg.dbname(db);
             }
             if cfg.get_user().is_none() {
                 if let Ok(user) = std::env::var("USER") {
@@ -486,16 +711,28 @@ fn open(target: &Target, mode: Mode) -> Result<Session, DbError> {
             if cfg.get_connect_timeout().is_none() {
                 cfg.connect_timeout(CONNECT_TIMEOUT);
             }
-            cfg.application_name(if mode == Mode::Agent { "Lever (agent)" } else { "Lever" });
-            let tls = pg_tls()?;
+            cfg.application_name(match mode {
+                Mode::Agent => "Lever (agent)",
+                Mode::Search => "Lever (value search)",
+                _ => "Lever",
+            });
+            let tls = pg_tls(ssl, root.as_deref())?;
             let (client, connection) = tauri::async_runtime::block_on(cfg.connect(tls.clone()))?;
             tauri::async_runtime::spawn(async move {
                 let _ = connection.await;
             });
-            if mode == Mode::Agent {
+            verified = match ssl {
+                SslMode::VerifyFull => Verified::Full,
+                SslMode::VerifyCa => Verified::Ca,
+                _ => Verified::No,
+            };
+            if let Some(path) = &extras.search_path {
+                tauri::async_runtime::block_on(client.batch_execute(&format!("SET search_path TO {}", quote_ident(Engine::Postgres, path))))?;
+            }
+            if let Some(t) = mode.timeout() {
                 tauri::async_runtime::block_on(client.batch_execute(&format!(
                     "SET statement_timeout = {}; SET default_transaction_read_only = on",
-                    AGENT_TIMEOUT.as_millis()
+                    t.as_millis()
                 )))?;
             } else if mode == Mode::Guarded {
                 tauri::async_runtime::block_on(client.batch_execute("SET default_transaction_read_only = on"))?;
@@ -512,15 +749,30 @@ fn open(target: &Target, mode: Mode) -> Result<Session, DbError> {
                     builder = builder.pass(Some(p.clone()));
                 }
             }
+            if let Some(db) = &target.database {
+                builder = builder.db_name(Some(db.clone()));
+            }
+            // A CA file turns TLS on, checked against it.
+            if let Some(ca) = &target.ca_cert {
+                let ssl = opts.get_ssl_opts().cloned().unwrap_or_default().with_root_cert_path(Some(ca.clone()));
+                builder = builder.ssl_opts(ssl);
+            }
             let opts: mysql::Opts = builder.into();
+            // The MySQL driver checks the certificate and host whenever TLS is
+            // on, unless the URL turned that off.
+            verified = match opts.get_ssl_opts() {
+                Some(o) if !o.accept_invalid_certs() && !o.skip_domain_validation() => Verified::Full,
+                Some(o) if !o.accept_invalid_certs() => Verified::Ca,
+                _ => Verified::No,
+            };
             let mut conn = mysql::Conn::new(opts.clone())?;
             if mode.guarded() {
                 conn.query_drop("SET SESSION TRANSACTION READ ONLY")?;
             }
-            if mode == Mode::Agent {
+            if let Some(t) = mode.timeout() {
                 // MySQL and MariaDB name this differently; whichever one isn't
                 // the server's is just an unknown variable.
-                let ms = AGENT_TIMEOUT.as_millis();
+                let ms = t.as_millis();
                 let _ = conn.query_drop(format!("SET SESSION MAX_EXECUTION_TIME = {}", ms));
                 let _ = conn.query_drop(format!("SET SESSION max_statement_time = {}", ms / 1000));
             }
@@ -554,12 +806,12 @@ fn open(target: &Target, mode: Mode) -> Result<Session, DbError> {
             (Conn::Lite(conn), Canceller::Lite(handle))
         }
     };
-    Ok(Session { conn: Mutex::new(conn), canceller, mode, broken: Default::default() })
+    Ok(Session { conn: Mutex::new(conn), canceller, mode, verified, broken: Default::default() })
 }
 
 /// The open session for a connection in a checkout, opened if it isn't.
-fn session(project_id: &str, def: &DbConnectionDef, worktree_id: Option<&str>, dir: &Path, mode: Mode) -> Result<Arc<Session>, DbError> {
-    let key = format!("{}\u{1f}{}", db_key(project_id, &def.id, worktree_id), mode.key());
+fn session(project_id: &str, def: &DbConnectionDef, worktree_id: Option<&str>, dir: &Path, mode: Mode, database: Option<&str>) -> Result<Arc<Session>, DbError> {
+    let key = format!("{}\u{1f}{}", db_key(project_id, &def.id, worktree_id, database), mode.key());
     if let Some(s) = sessions().lock().unwrap().get(&key) {
         let alive = !s.broken.load(std::sync::atomic::Ordering::Relaxed)
             && match s.conn.try_lock().as_deref() {
@@ -570,7 +822,7 @@ fn session(project_id: &str, def: &DbConnectionDef, worktree_id: Option<&str>, d
             return Ok(s.clone());
         }
     }
-    let target = target_for(def, dir, get_password(project_id, &def.id))?;
+    let target = target_for(def, dir, get_password(project_id, &def.id), database)?;
     let s = Arc::new(open(&target, mode)?);
     sessions().lock().unwrap().insert(key, s.clone());
     Ok(s)
@@ -938,9 +1190,36 @@ pub struct Namespace {
 pub struct Schema {
     pub engine: Engine,
     pub version: String,
+    /// Whether the link is encrypted, and how far the server was checked.
+    /// None for SQLite, or a server that won't say.
+    pub transport: Option<Transport>,
     /// The namespace unqualified names resolve in.
     pub current: Option<String>,
     pub namespaces: Vec<Namespace>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct Transport {
+    pub encrypted: bool,
+    /// "none", "ca" (chain checked) or "full" (chain and host name).
+    pub verified: &'static str,
+}
+
+/// Asks the server whether this session is encrypted: the only reliable
+/// answer under `prefer`, which falls back to plain text silently.
+fn transport(session: &Session, engine: Engine) -> Option<Transport> {
+    let encrypted = match engine {
+        Engine::Postgres => catalog(session, "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+            .ok()?
+            .first()
+            .map(|r| cell(r, 0) == "t")?,
+        Engine::Mysql => catalog(session, "SHOW SESSION STATUS LIKE 'Ssl_cipher'")
+            .ok()?
+            .first()
+            .map(|r| !cell(r, 1).is_empty())?,
+        Engine::Sqlite => return None,
+    };
+    Some(Transport { encrypted, verified: if encrypted { session.verified.label() } else { "none" } })
 }
 
 /// Rows of a catalog query, every cell as text.
@@ -1118,7 +1397,7 @@ fn introspect(session: &Session, engine: Engine) -> Result<Schema, DbError> {
             (version, Some("main".to_string()))
         }
     };
-    Ok(Schema { engine, version, current, namespaces: b.namespaces })
+    Ok(Schema { engine, version, transport: transport(session, engine), current, namespaces: b.namespaces })
 }
 
 fn schema_for(key: &str, session: &Session, engine: Engine, refresh: bool) -> Result<Arc<Schema>, DbError> {
@@ -1238,6 +1517,160 @@ fn browse_sql(engine: Engine, table: &TableInfo, req: &BrowseRequest) -> (String
     );
     let count = format!("SELECT COUNT(*) FROM {}{}", from, where_sql);
     (page, count)
+}
+
+// ---------------------------------------------------------------------------
+// Searching values across every table
+// ---------------------------------------------------------------------------
+
+/// Rows fetched per table: enough to count "20+" and show where it matched.
+const VALUE_SEARCH_ROWS: usize = 20;
+/// Tables estimated bigger than this are skipped unless asked for.
+const LARGE_TABLE_ROWS: i64 = 1_000_000;
+
+/// `col = 'text'` across every column, compared as text.
+fn exact_predicate(engine: Engine, columns: &[ColumnInfo], text: &str) -> String {
+    let lit = literal(engine, &Some(text.to_string()));
+    let parts: Vec<String> = columns
+        .iter()
+        .map(|c| {
+            let col = quote_ident(engine, &c.name);
+            match engine {
+                Engine::Postgres => format!("{}::text = {}", col, lit),
+                Engine::Mysql => format!("CAST({} AS CHAR) = {}", col, lit),
+                Engine::Sqlite => format!("CAST({} AS TEXT) = {}", col, lit),
+            }
+        })
+        .collect();
+    if parts.is_empty() { "FALSE".into() } else { parts.join(" OR ") }
+}
+
+/// Binary values never match typed text, and casting them is wasted work.
+fn is_binary_type(ty: &str) -> bool {
+    let t = ty.to_ascii_lowercase();
+    ["bytea", "blob", "binary", "geometry", "geography"].iter().any(|b| t.contains(b))
+}
+
+fn searchable_columns(t: &TableInfo) -> Vec<ColumnInfo> {
+    t.columns.iter().filter(|c| !is_binary_type(&c.data_type)).cloned().collect()
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ValueHit {
+    pub namespace: String,
+    pub table: String,
+    /// Columns the text turned up in, in table order.
+    pub columns: Vec<String>,
+    /// Matching rows fetched; `more` when there were others past them.
+    pub rows: usize,
+    pub more: bool,
+    /// The first match, with a little context either side.
+    pub preview: String,
+}
+
+/// A stretch of text around the first place `needle` occurs.
+fn snippet(value: &str, needle: &str) -> String {
+    let lower = value.to_lowercase();
+    let at = lower.find(&needle.to_lowercase()).unwrap_or(0);
+    let chars: Vec<(usize, char)> = value.char_indices().collect();
+    let pos = chars.iter().position(|(i, _)| *i >= at).unwrap_or(0);
+    let start = pos.saturating_sub(24);
+    let end = (pos + needle.chars().count() + 40).min(chars.len());
+    let mut out: String = chars[start..end].iter().map(|(_, c)| *c).collect::<String>().replace('\n', " ");
+    if start > 0 {
+        out = format!("…{}", out);
+    }
+    if end < chars.len() {
+        out.push('…');
+    }
+    out
+}
+
+/// Which columns of the fetched rows hold the text, and a preview of the first.
+fn describe_hit(set: &ResultSet, needle: &str, exact: bool) -> (Vec<String>, String) {
+    let n = needle.to_lowercase();
+    let matches = |v: &str| if exact { v.eq_ignore_ascii_case(needle) } else { v.to_lowercase().contains(&n) };
+    let mut cols = Vec::new();
+    let mut preview = String::new();
+    for (ci, col) in set.columns.iter().enumerate() {
+        let mut hit = false;
+        for row in &set.rows {
+            if let Some(v) = row.get(ci).and_then(|v| v.as_deref()) {
+                if matches(v) {
+                    if preview.is_empty() {
+                        preview = snippet(v, needle);
+                    }
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if hit {
+            cols.push(col.name.clone());
+        }
+    }
+    (cols, preview)
+}
+
+/// The tables a value search visits, smallest first so early results come
+/// fast, and the big ones it leaves out.
+fn search_plan(schema: &Schema, skip_large: bool) -> (Vec<(String, TableInfo)>, Vec<String>) {
+    let mut plan = Vec::new();
+    let mut skipped = Vec::new();
+    for ns in &schema.namespaces {
+        for t in &ns.tables {
+            // A view re-runs its query per search; tables hold the data anyway.
+            if t.kind == "view" || t.kind == "foreign table" {
+                continue;
+            }
+            if skip_large && t.rows.map_or(false, |r| r > LARGE_TABLE_ROWS) {
+                skipped.push(format!("{}.{}", ns.name, t.name));
+                continue;
+            }
+            plan.push((ns.name.clone(), t.clone()));
+        }
+    }
+    plan.sort_by_key(|(_, t)| t.rows.unwrap_or(LARGE_TABLE_ROWS / 10));
+    (plan, skipped)
+}
+
+fn search_table(session: &Session, engine: Engine, ns: &str, t: &TableInfo, needle: &str, exact: bool) -> Result<Option<ValueHit>, DbError> {
+    let cols = searchable_columns(t);
+    if cols.is_empty() {
+        return Ok(None);
+    }
+    let pred = if exact { exact_predicate(engine, &cols, needle) } else { search_predicate(engine, &cols, needle) };
+    let sql = format!("SELECT * FROM {} WHERE {} LIMIT {}", qualified(engine, ns, &t.name), pred, VALUE_SEARCH_ROWS + 1);
+    let set = run(session, &sql, VALUE_SEARCH_ROWS + 1)?.into_iter().next().unwrap_or_default();
+    if set.rows.is_empty() {
+        return Ok(None);
+    }
+    let more = set.rows.len() > VALUE_SEARCH_ROWS;
+    let (columns, preview) = describe_hit(&set, needle, exact);
+    Ok(Some(ValueHit {
+        namespace: ns.to_string(),
+        table: t.name.clone(),
+        columns,
+        rows: set.rows.len().min(VALUE_SEARCH_ROWS),
+        more,
+        preview,
+    }))
+}
+
+static VALUE_SEARCHES_CANCELLED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+
+fn search_cancelled() -> &'static Mutex<std::collections::HashSet<String>> {
+    VALUE_SEARCHES_CANCELLED.get_or_init(Default::default)
+}
+
+#[derive(Serialize)]
+pub struct ValueSearchSummary {
+    pub searched: usize,
+    pub total: usize,
+    pub skipped: Vec<String>,
+    pub cancelled: bool,
+    #[serde(rename = "elapsedMs")]
+    pub elapsed_ms: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -1423,12 +1856,13 @@ fn apply_batch(session: &Session, statements: &[(String, bool)]) -> Result<usize
 // ---------------------------------------------------------------------------
 
 struct Located {
+    database: Option<String>,
     def: DbConnectionDef,
     dir: PathBuf,
     worktree_id: Option<String>,
 }
 
-fn locate(state: &AppState, project_id: &str, conn_id: &str, worktree_id: Option<&str>) -> Result<Located, DbError> {
+fn locate(state: &AppState, project_id: &str, conn_id: &str, worktree_id: Option<&str>, database: Option<&str>) -> Result<Located, DbError> {
     let projects = state.projects.lock().unwrap();
     let ps = projects.get(project_id).ok_or("Project not loaded")?;
     let def = ps
@@ -1448,7 +1882,12 @@ fn locate(state: &AppState, project_id: &str, conn_id: &str, worktree_id: Option
             .ok_or("That worktree no longer exists")?,
         None => PathBuf::from(&ps.repo_path),
     };
-    Ok(Located { def, dir, worktree_id: worktree_id.map(str::to_string) })
+    Ok(Located {
+        def,
+        dir,
+        worktree_id: worktree_id.map(str::to_string),
+        database: database.map(str::to_string).filter(|d| !d.is_empty()),
+    })
 }
 
 fn window_mode(def: &DbConnectionDef) -> Mode {
@@ -1487,7 +1926,7 @@ pub async fn db_test(
             }
         };
         let password = password.filter(|p| !p.is_empty()).or_else(|| get_password(&project_id, &connection.id));
-        let target = target_for(&connection, &dir, password)?;
+        let target = target_for(&connection, &dir, password, None)?;
         let session = open(&target, Mode::Window)?;
         let sql = match connection.engine {
             Engine::Postgres => "SELECT current_setting('server_version')",
@@ -1495,7 +1934,60 @@ pub async fn db_test(
             Engine::Sqlite => "SELECT sqlite_version()",
         };
         let version = catalog(&session, sql)?.first().map(|r| cell(r, 0)).unwrap_or_default();
-        Ok(format!("{} {}", connection.engine.label(), version.split_whitespace().next().unwrap_or("")))
+        let link = match transport(&session, connection.engine) {
+            Some(Transport { encrypted: false, .. }) => " · not encrypted",
+            Some(Transport { verified: "full", .. }) => " · encrypted, certificate verified",
+            Some(Transport { verified: "ca", .. }) => " · encrypted, CA verified",
+            Some(_) => " · encrypted, certificate not verified",
+            None => "",
+        };
+        Ok(format!("{} {}{}", connection.engine.label(), version.split_whitespace().next().unwrap_or(""), link))
+    })
+    .await
+}
+
+#[derive(Serialize)]
+pub struct ServerDatabase {
+    pub name: String,
+    /// Human-readable size, when the role may connect to it.
+    pub size: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ServerDatabases {
+    /// The database the connection's URL names.
+    pub home: String,
+    pub databases: Vec<ServerDatabase>,
+}
+
+/// The other databases on the same Postgres server, for switching between
+/// them the way DataGrip's tree does. Templates and databases that refuse
+/// connections are left out.
+#[tauri::command]
+pub async fn db_list_databases(
+    project_id: String,
+    conn_id: String,
+    worktree_id: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<ServerDatabases, DbError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), None)?;
+        if loc.def.engine != Engine::Postgres {
+            return Err("Only PostgreSQL servers have separate databases to switch between".into());
+        }
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def), None)?;
+        let home = catalog(&s, "SELECT current_database()")?.first().map(|r| cell(r, 0)).unwrap_or_default();
+        let databases = catalog(
+            &s,
+            "SELECT datname, CASE WHEN has_database_privilege(datname, 'CONNECT') \
+                    THEN pg_size_pretty(pg_database_size(datname)) END \
+             FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname",
+        )?
+        .into_iter()
+        .map(|r| ServerDatabase { name: cell(&r, 0), size: r.get(1).cloned().flatten() })
+        .collect();
+        Ok(ServerDatabases { home, databases })
     })
     .await
 }
@@ -1527,14 +2019,15 @@ pub async fn db_schema(
     project_id: String,
     conn_id: String,
     worktree_id: Option<String>,
+    database: Option<String>,
     refresh: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<Arc<Schema>, DbError> {
     blocking(move || {
         let state = app.state::<AppState>();
-        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref())?;
-        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def))?;
-        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref());
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), database.as_deref())?;
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def), loc.database.as_deref())?;
+        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref(), loc.database.as_deref());
         schema_for(&key, &s, loc.def.engine, refresh.unwrap_or(false))
     })
     .await
@@ -1545,19 +2038,20 @@ pub async fn db_query(
     project_id: String,
     conn_id: String,
     worktree_id: Option<String>,
+    database: Option<String>,
     sql: String,
     max_rows: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<QueryOutput, DbError> {
     blocking(move || {
         let state = app.state::<AppState>();
-        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref())?;
-        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def))?;
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), database.as_deref())?;
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def), loc.database.as_deref())?;
         let started = Instant::now();
         let sets = run(&s, &sql, self::max_rows(max_rows))?;
         // A statement that changes no rows may still change the schema.
         if sets.iter().any(|set| set.columns.is_empty()) {
-            schemas().lock().unwrap().remove(&db_key(&project_id, &conn_id, loc.worktree_id.as_deref()));
+            schemas().lock().unwrap().remove(&db_key(&project_id, &conn_id, loc.worktree_id.as_deref(), loc.database.as_deref()));
         }
         Ok(QueryOutput { sets, elapsed_ms: started.elapsed().as_millis() as u64 })
     })
@@ -1569,14 +2063,15 @@ pub async fn db_browse(
     project_id: String,
     conn_id: String,
     worktree_id: Option<String>,
+    database: Option<String>,
     request: BrowseRequest,
     app: tauri::AppHandle,
 ) -> Result<BrowseOutput, DbError> {
     blocking(move || {
         let state = app.state::<AppState>();
-        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref())?;
-        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def))?;
-        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref());
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), database.as_deref())?;
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, window_mode(&loc.def), loc.database.as_deref())?;
+        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref(), loc.database.as_deref());
         let schema = schema_for(&key, &s, loc.def.engine, false)?;
         let table = schema
             .namespaces
@@ -1599,6 +2094,7 @@ pub async fn db_apply(
     project_id: String,
     conn_id: String,
     worktree_id: Option<String>,
+    database: Option<String>,
     namespace: String,
     table: String,
     changes: Vec<RowChange>,
@@ -1607,12 +2103,12 @@ pub async fn db_apply(
 ) -> Result<ApplyOutput, DbError> {
     blocking(move || {
         let state = app.state::<AppState>();
-        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref())?;
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), database.as_deref())?;
         if loc.def.read_only {
             return Err("This connection is read-only".into());
         }
-        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, Mode::Window)?;
-        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref());
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, Mode::Window, loc.database.as_deref())?;
+        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref(), loc.database.as_deref());
         let schema = schema_for(&key, &s, loc.def.engine, false)?;
         let info = schema
             .namespaces
@@ -1638,9 +2134,84 @@ pub async fn db_apply(
     .await
 }
 
+/// Looks for a value in every table, one table at a time, reporting each
+/// table as it finishes on `db-value-search` so results arrive while it runs.
+/// It runs on its own read-only session with a per-table timeout: a search
+/// can be slow, but it can't write, and it can't hang on one table forever.
 #[tauri::command]
-pub fn db_cancel(project_id: String, conn_id: String, worktree_id: Option<String>) {
-    let prefix = db_key(&project_id, &conn_id, worktree_id.as_deref());
+pub async fn db_search_values(
+    project_id: String,
+    conn_id: String,
+    worktree_id: Option<String>,
+    database: Option<String>,
+    search_id: String,
+    query: String,
+    exact: bool,
+    skip_large: bool,
+    app: tauri::AppHandle,
+) -> Result<ValueSearchSummary, DbError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let loc = locate(&state, &project_id, &conn_id, worktree_id.as_deref(), database.as_deref())?;
+        let needle = query.trim().to_string();
+        if needle.is_empty() {
+            return Err("Nothing to search for".into());
+        }
+        let window = super::mcp::window_label(&project_id);
+        let s = session(&project_id, &loc.def, loc.worktree_id.as_deref(), &loc.dir, Mode::Search, loc.database.as_deref())?;
+        let key = db_key(&project_id, &conn_id, loc.worktree_id.as_deref(), loc.database.as_deref());
+        let schema = schema_for(&key, &s, loc.def.engine, false)?;
+        let (plan, skipped) = search_plan(&schema, skip_large);
+        let total = plan.len();
+        let started = Instant::now();
+        let mut searched = 0;
+        let mut cancelled = false;
+        for (ns, t) in &plan {
+            if search_cancelled().lock().unwrap().remove(&search_id) {
+                cancelled = true;
+                break;
+            }
+            let _ = app.emit_to(window.as_str(), "db-value-search", json!({
+                "searchId": search_id, "searched": searched, "total": total, "current": format!("{}.{}", ns, t.name),
+            }));
+            let outcome = search_table(&s, loc.def.engine, ns, t, &needle, exact);
+            searched += 1;
+            let mut event = json!({ "searchId": search_id, "searched": searched, "total": total });
+            match outcome {
+                Ok(Some(hit)) => event["hit"] = json!(hit),
+                Ok(None) => {}
+                Err(e) if e.cancelled && search_cancelled().lock().unwrap().remove(&search_id) => {
+                    cancelled = true;
+                    break;
+                }
+                Err(e) => {
+                    event["failed"] = json!({
+                        "table": format!("{}.{}", ns, t.name),
+                        "message": if e.cancelled { "Took longer than 15 s, so it was skipped".to_string() } else { e.message },
+                    });
+                }
+            }
+            let _ = app.emit_to(window.as_str(), "db-value-search", event);
+        }
+        search_cancelled().lock().unwrap().remove(&search_id);
+        Ok(ValueSearchSummary { searched, total, skipped, cancelled, elapsed_ms: started.elapsed().as_millis() as u64 })
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn db_cancel_value_search(project_id: String, conn_id: String, worktree_id: Option<String>, database: Option<String>, search_id: String) {
+    search_cancelled().lock().unwrap().insert(search_id);
+    let key = format!("{}\u{1f}search", db_key(&project_id, &conn_id, worktree_id.as_deref(), database.as_deref()));
+    let found = sessions().lock().unwrap().get(&key).cloned();
+    if let Some(s) = found {
+        std::thread::spawn(move || s.canceller.cancel());
+    }
+}
+
+#[tauri::command]
+pub fn db_cancel(project_id: String, conn_id: String, worktree_id: Option<String>, database: Option<String>) {
+    let prefix = format!("{}\u{1f}", db_key(&project_id, &conn_id, worktree_id.as_deref(), database.as_deref()));
     let found: Vec<Arc<Session>> = sessions()
         .lock()
         .unwrap()
@@ -1763,12 +2334,12 @@ fn pick_connection<'a>(scope: &'a AgentScope, args: &Value) -> Result<&'a DbConn
 }
 
 fn agent_session(scope: &AgentScope, def: &DbConnectionDef) -> Result<Arc<Session>, String> {
-    session(&scope.project_id, def, scope.worktree_id.as_deref(), &scope.dir, Mode::Agent).map_err(|e| e.to_string())
+    session(&scope.project_id, def, scope.worktree_id.as_deref(), &scope.dir, Mode::Agent, None).map_err(|e| e.to_string())
 }
 
 fn agent_schema(scope: &AgentScope, def: &DbConnectionDef) -> Result<Arc<Schema>, String> {
     let s = agent_session(scope, def)?;
-    let key = db_key(&scope.project_id, &def.id, scope.worktree_id.as_deref());
+    let key = db_key(&scope.project_id, &def.id, scope.worktree_id.as_deref(), None);
     schema_for(&key, &s, def.engine, false).map_err(|e| e.to_string())
 }
 
@@ -2149,6 +2720,19 @@ mod tests {
     }
 
     #[test]
+    fn pg_urls_keep_driver_options_and_hand_lever_the_rest() {
+        let (url, x) = split_pg_url("postgres://u@h:5432/db?sslmode=verify-full&sslrootcert=%2Ftmp%2Fca.pem&schema=app&connection_limit=5&application_name=x").unwrap();
+        assert_eq!(url, "postgres://u@h:5432/db?application_name=x&sslmode=require");
+        assert_eq!(x, PgUrlExtras { ssl: SslMode::VerifyFull, root_cert: Some("/tmp/ca.pem".into()), search_path: Some("app".into()) });
+        let (url, x) = split_pg_url("postgres://u@h/db").unwrap();
+        assert_eq!((url.as_str(), x.ssl), ("postgres://u@h/db", SslMode::Prefer));
+        assert!(split_pg_url("postgres://h/db?sslmode=sometimes").is_err());
+        let (kv, x) = split_pg_url("host=h dbname=d sslmode=verify-ca pgbouncer=true").unwrap();
+        assert_eq!((kv.as_str(), x.ssl), ("host=h dbname=d sslmode=require", SslMode::VerifyCa));
+        assert!(url.parse::<tokio_postgres::Config>().is_ok());
+    }
+
+    #[test]
     fn redacts_passwords_only() {
         assert_eq!(redact("postgres://u:secret@h:5432/db"), "postgres://u:•••@h:5432/db");
         assert_eq!(redact("postgres://u@h/db"), "postgres://u@h/db");
@@ -2168,7 +2752,7 @@ mod tests {
              INSERT INTO users VALUES (1, 'a@acme.dev', 1, x'00ff'), (2, NULL, 1, NULL), (3, 'c@b.dev', NULL, NULL);",
         )
         .unwrap();
-        (dir.clone(), Target { engine: Engine::Sqlite, url: "t.sqlite".into(), password: None, dir })
+        (dir.clone(), Target { engine: Engine::Sqlite, url: "t.sqlite".into(), password: None, dir, database: None, ca_cert: None })
     }
 
     #[test]
@@ -2232,6 +2816,47 @@ mod tests {
     }
 
     #[test]
+    fn value_search_finds_rows_and_skips_large_tables() {
+        let (dir, target) = sqlite_fixture();
+        let s = open(&target, Mode::Search).unwrap();
+        let schema = introspect(&s, Engine::Sqlite).unwrap();
+        let (plan, skipped) = search_plan(&schema, true);
+        assert_eq!(plan.len(), 2);
+        assert!(skipped.is_empty());
+        let users = &schema.namespaces[0].tables.iter().find(|t| t.name == "users").unwrap();
+        let orgs = &schema.namespaces[0].tables.iter().find(|t| t.name == "orgs").unwrap();
+
+        let hit = search_table(&s, Engine::Sqlite, "main", users, "ACME", false).unwrap().unwrap();
+        assert_eq!(hit.columns, vec!["email"]);
+        assert_eq!(hit.rows, 1);
+        assert!(hit.preview.contains("acme"));
+        assert!(search_table(&s, Engine::Sqlite, "main", users, "nobody-here", false).unwrap().is_none());
+
+        // Exact matches the whole value only.
+        assert!(search_table(&s, Engine::Sqlite, "main", orgs, "Acm", true).unwrap().is_none());
+        assert_eq!(search_table(&s, Engine::Sqlite, "main", orgs, "Acme", true).unwrap().unwrap().columns, vec!["name"]);
+        // Numbers are searched as their text, so an id turns up too.
+        assert!(search_table(&s, Engine::Sqlite, "main", orgs, "1", true).unwrap().unwrap().columns.contains(&"id".to_string()));
+
+        let mut big = (**users).clone();
+        big.rows = Some(LARGE_TABLE_ROWS + 1);
+        let mut huge = schema.clone();
+        huge.namespaces[0].tables.push(TableInfo { name: "events".into(), ..big });
+        let (plan, skipped) = search_plan(&huge, true);
+        assert_eq!((plan.len(), skipped), (2, vec!["main.events".to_string()]));
+        assert_eq!(search_plan(&huge, false).0.len(), 3);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn snippets_keep_context_around_the_match() {
+        assert_eq!(snippet("hello world", "WORLD"), "hello world");
+        let long = format!("{}needle{}", "a".repeat(50), "b".repeat(80));
+        let s = snippet(&long, "needle");
+        assert!(s.starts_with('…') && s.ends_with('…') && s.contains("needle"));
+    }
+
+    #[test]
     fn sqlite_edits_apply_atomically() {
         let (dir, target) = sqlite_fixture();
         let s = open(&target, Mode::Window).unwrap();
@@ -2262,7 +2887,7 @@ mod tests {
     /// LEVER_TEST_PG=postgres://postgres:pw@localhost:5432/postgres cargo test db::tests::live -- --ignored
     fn live(engine: Engine, var: &str) -> Option<Target> {
         let url = std::env::var(var).ok()?;
-        Some(Target { engine, url, password: None, dir: std::env::temp_dir() })
+        Some(Target { engine, url, password: None, dir: std::env::temp_dir(), database: None, ca_cert: None })
     }
 
     fn exercise_live(target: Target) {
@@ -2296,6 +2921,20 @@ mod tests {
             where_clause: None, order_by: None, descending: false, offset: 0, limit: 10,
         });
         assert_eq!(run(&w, &page, 10).unwrap()[0].rows.len(), 1);
+
+        // Value search, on its own read-only session.
+        let srch = open(&target, Mode::Search).unwrap();
+        let hit = search_table(&srch, engine, &ns, items, "ITEM 3", false).unwrap().unwrap();
+        assert_eq!((hit.columns.clone(), hit.rows), (vec!["label".to_string()], 1));
+        assert!(search_table(&srch, engine, &ns, items, "item", true).unwrap().is_none());
+        assert_eq!(search_table(&srch, engine, &ns, items, "4.50", true).unwrap().unwrap().columns, vec!["price".to_string()]);
+
+        if engine == Engine::Postgres {
+            // Another database on the same server, through the same URL.
+            let other = Target { database: Some("template1".into()), ..live(engine, "LEVER_TEST_PG").unwrap() };
+            let o = open(&other, Mode::Guarded).unwrap();
+            assert_eq!(catalog(&o, "SELECT current_database()").unwrap()[0][0].as_deref(), Some("template1"));
+        }
 
         exercise_edits(&w, engine, &ns, items);
         run(&w, "DELETE FROM lever_items", 10).unwrap();
@@ -2332,6 +2971,44 @@ mod tests {
         }
         run(&w, "DROP TABLE lever_items", 10).unwrap();
         run(&w, "DROP TABLE lever_orgs", 10).unwrap();
+    }
+
+    /// TLS against a server with its own CA. Run with:
+    /// LEVER_TEST_PG_TLS=postgres://postgres:pw@localhost:55433/postgres LEVER_TEST_PG_CA=/path/ca.pem
+    /// LEVER_TEST_PG=postgres://… (a server without TLS) cargo test db::tests::live_tls -- --ignored
+    #[test]
+    #[ignore]
+    fn live_tls() {
+        let (Ok(base), Ok(ca)) = (std::env::var("LEVER_TEST_PG_TLS"), std::env::var("LEVER_TEST_PG_CA")) else { return };
+        let at = |url: String, ca_cert: Option<&str>| Target {
+            engine: Engine::Postgres, url, password: None, dir: std::env::temp_dir(), database: None,
+            ca_cert: ca_cert.map(PathBuf::from),
+        };
+        let link = |t: &Target| -> Result<(bool, &'static str), DbError> {
+            let s = open(t, Mode::Window)?;
+            let tr = transport(&s, Engine::Postgres).unwrap();
+            Ok((tr.encrypted, tr.verified))
+        };
+        // Default: encrypted when offered, nothing checked — local dev just works.
+        assert_eq!(link(&at(base.clone(), None)).unwrap(), (true, "none"));
+        assert_eq!(link(&at(format!("{}?sslmode=disable", base), None)).unwrap(), (false, "none"));
+        // Checking against macOS's roots alone fails for a private CA, with advice.
+        let e = link(&at(format!("{}?sslmode=verify-full", base), None)).unwrap_err();
+        assert!(e.hint.unwrap_or_default().contains("CA certificate"), "{}", e.message);
+        // With the CA: verified, by the field or by sslrootcert in the URL.
+        assert_eq!(link(&at(format!("{}?sslmode=verify-full", base), Some(&ca))).unwrap(), (true, "full"));
+        assert_eq!(link(&at(format!("{}?sslmode=verify-full&sslrootcert={}", base, ca), None)).unwrap(), (true, "full"));
+        // libpq: require plus a CA file checks the chain.
+        assert_eq!(link(&at(format!("{}?sslmode=require", base), Some(&ca))).unwrap(), (true, "ca"));
+        // The certificate names localhost, not 127.0.0.1: verify-full refuses, verify-ca doesn't mind.
+        let by_ip = base.replace("localhost", "127.0.0.1");
+        assert!(link(&at(format!("{}?sslmode=verify-full", by_ip), Some(&ca))).is_err());
+        assert_eq!(link(&at(format!("{}?sslmode=verify-ca", by_ip), Some(&ca))).unwrap(), (true, "ca"));
+        // A server without TLS: fine by default, refused when TLS is required.
+        if let Ok(plain) = std::env::var("LEVER_TEST_PG") {
+            assert_eq!(link(&at(plain.clone(), None)).unwrap(), (false, "none"));
+            assert!(link(&at(format!("{}?sslmode=verify-full", plain), Some(&ca))).is_err());
+        }
     }
 
     #[test]

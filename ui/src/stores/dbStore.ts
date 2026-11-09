@@ -2,6 +2,8 @@ import { create } from "zustand";
 import * as api from "../lib/tauri";
 import { splitStatements, type Statement } from "../lib/sql";
 import type {
+  DbValueHit,
+  DbValueSearchEvent,
   DbRowChange,
   DbTableInfo,
   DbAgentActivity,
@@ -106,16 +108,50 @@ export interface HistoryEntry {
   source: "you" | "agent";
 }
 
-/** Where a pane's queries go: its connection, in its checkout. */
+/** A search for a value through every table, as it runs and when done. */
+export interface ValueSearch {
+  id: string;
+  query: string;
+  exact: boolean;
+  skipLarge: boolean;
+  running: boolean;
+  searched: number;
+  total: number;
+  current: string | null;
+  hits: DbValueHit[];
+  failed: { table: string; message: string }[];
+  skipped: string[];
+  cancelled: boolean;
+  elapsedMs: number | null;
+  error: DbError | null;
+}
+
+/** Where a pane's queries go: its connection, in its checkout, on the
+ *  database picked in the explorer (null is the one the URL names). */
 export interface DbTarget {
   connId: string;
   worktreeId: string | null;
+  database: string | null;
 }
 
 export const PAGE_SIZE = 200;
 const HISTORY_MAX = 200;
 
-const schemaKey = (t: DbTarget) => `${t.connId}|${t.worktreeId ?? "main"}`;
+const schemaKey = (t: DbTarget) => `${t.connId}|${t.worktreeId ?? "main"}|${t.database ?? ""}`;
+/** The database choice is per connection and checkout, not per database. */
+const choiceKey = (connId: string, worktreeId: string | null) => `${connId}|${worktreeId ?? "main"}`;
+
+function choicesKey(): string {
+  return `lever-db-database-${api.getProjectId() ?? "none"}`;
+}
+
+function readChoices(): Record<string, string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(choicesKey()) ?? "{}");
+    if (v && typeof v === "object") return v;
+  } catch {}
+  return {};
+}
 
 let tabCounter = 0;
 const nextTabId = () => `dbt-${++tabCounter}`;
@@ -147,12 +183,22 @@ interface DbState {
   history: Record<string, HistoryEntry[]>;
   /** Agent calls as they arrive, newest first; drives the "agent" chip. */
   agentActivity: DbAgentActivity[];
+  /** The latest value search per connection and checkout. */
+  valueSearches: Record<string, ValueSearch>;
+  /** The database picked per connection and checkout; absent is the URL's. */
+  databaseChoice: Record<string, string>;
+
+  chooseDatabase: (paneId: string, connId: string, worktreeId: string | null, database: string | null) => void;
 
   loadSchema: (t: DbTarget, refresh?: boolean) => Promise<void>;
   pane: (paneId: string) => DbPaneState;
   setActiveTab: (paneId: string, tabId: string) => void;
   addConsole: (paneId: string, sql?: string) => string;
-  openTable: (paneId: string, t: DbTarget, namespace: string, table: string) => void;
+  /** Opens a table's tab, or focuses it; `filter` narrows it as it opens. */
+  openTable: (paneId: string, t: DbTarget, namespace: string, table: string, filter?: { search?: string; where?: string }) => void;
+  startValueSearch: (t: DbTarget, query: string, exact: boolean, skipLarge: boolean) => Promise<void>;
+  cancelValueSearch: (t: DbTarget) => void;
+  onValueSearchEvent: (e: DbValueSearchEvent) => void;
   closeTab: (paneId: string, tabId: string) => void;
   patchTab: (paneId: string, tabId: string, patch: Partial<DbTab>) => void;
   dropPane: (paneId: string) => void;
@@ -209,6 +255,27 @@ export const useDbStore = create<DbState>((set, get) => {
     // Read once the window knows its project; see initDbListeners.
     history: {},
     agentActivity: [],
+    valueSearches: {},
+    databaseChoice: {},
+
+    chooseDatabase: (paneId, connId, worktreeId, database) => {
+      set((s) => {
+        const databaseChoice = { ...s.databaseChoice };
+        if (database) databaseChoice[choiceKey(connId, worktreeId)] = database;
+        else delete databaseChoice[choiceKey(connId, worktreeId)];
+        try {
+          localStorage.setItem(choicesKey(), JSON.stringify(databaseChoice));
+        } catch {}
+        // Table tabs name tables in the database they came from; consoles
+        // simply run against the new one.
+        const pane = s.panes[paneId];
+        if (!pane) return { databaseChoice };
+        let tabs = pane.tabs.filter((t) => t.kind !== "table");
+        if (!tabs.length) tabs = [newConsole()];
+        const activeTabId = tabs.some((t) => t.id === pane.activeTabId) ? pane.activeTabId : tabs[0].id;
+        return { databaseChoice, panes: { ...s.panes, [paneId]: { tabs, activeTabId } } };
+      });
+    },
 
     loadSchema: async (t, refresh = false) => {
       const key = schemaKey(t);
@@ -216,7 +283,7 @@ export const useDbStore = create<DbState>((set, get) => {
       if (prev?.loading) return;
       set((s) => ({ schemas: { ...s.schemas, [key]: { schema: prev?.schema ?? null, loading: true, error: null } } }));
       try {
-        const schema = await api.dbSchema(t.connId, t.worktreeId, refresh);
+        const schema = await api.dbSchema(t.connId, t.worktreeId, t.database, refresh);
         set((s) => ({ schemas: { ...s.schemas, [key]: { schema, loading: false, error: null } } }));
       } catch (e) {
         set((s) => ({
@@ -245,11 +312,15 @@ export const useDbStore = create<DbState>((set, get) => {
       return tab.id;
     },
 
-    openTable: (paneId, t, namespace, table) => {
+    openTable: (paneId, t, namespace, table, filter) => {
       const pane = get().pane(paneId);
       const existing = pane.tabs.find((x) => x.kind === "table" && x.namespace === namespace && x.table === table);
-      if (existing) {
+      if (existing && existing.kind === "table") {
         get().setActiveTab(paneId, existing.id);
+        // A filter re-narrows it — unless that would drop unsaved edits.
+        if (filter && editCount(existing.pending) === 0) {
+          get().browse(paneId, existing.id, t, { search: filter.search ?? "", where: filter.where ?? "", offset: 0 });
+        }
         return;
       }
       const tab: TableTab = {
@@ -257,8 +328,8 @@ export const useDbStore = create<DbState>((set, get) => {
         id: nextTabId(),
         namespace,
         table,
-        search: "",
-        where: "",
+        search: filter?.search ?? "",
+        where: filter?.where ?? "",
         orderBy: null,
         descending: false,
         offset: 0,
@@ -310,7 +381,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const started = performance.now();
         let outcome: StatementOutcome;
         try {
-          const out = await api.dbQuery(t.connId, t.worktreeId, st.sql);
+          const out = await api.dbQuery(t.connId, t.worktreeId, t.database, st.sql);
           // One statement is sent at a time, so one set comes back; a driver
           // that splits further still shows its last.
           const shown = out.sets.find((s) => s.columns.length > 0) ?? out.sets[out.sets.length - 1] ?? null;
@@ -340,7 +411,7 @@ export const useDbStore = create<DbState>((set, get) => {
 
     cancel: (t) => {
       cancelled.add(schemaKey(t));
-      api.dbCancel(t.connId, t.worktreeId).catch(() => {});
+      api.dbCancel(t.connId, t.worktreeId, t.database).catch(() => {});
     },
 
     browse: async (paneId, tabId, t, p = {}) => {
@@ -350,7 +421,7 @@ export const useDbStore = create<DbState>((set, get) => {
       // A new page, filter or sort starts from what the database holds.
       patch(paneId, tabId, { ...p, loading: true, pending: NO_EDITS, failedRow: null, submitError: null });
       try {
-        const data = await api.dbBrowse(t.connId, t.worktreeId, {
+        const data = await api.dbBrowse(t.connId, t.worktreeId, t.database, {
           namespace: next.namespace,
           table: next.table,
           search: next.search || undefined,
@@ -457,7 +528,7 @@ export const useDbStore = create<DbState>((set, get) => {
       if (!changes.length) return [];
       if (!dryRun) patch(paneId, tabId, { submitting: true, submitError: null, failedRow: null });
       try {
-        const out = await api.dbApply(t.connId, t.worktreeId, tab.namespace, tab.table, changes, dryRun);
+        const out = await api.dbApply(t.connId, t.worktreeId, t.database, tab.namespace, tab.table, changes, dryRun);
         if (!dryRun) {
           for (const sql of out.statements) remember(t.connId, { sql, at: Date.now(), ok: true, source: "you" });
           patch(paneId, tabId, { submitting: false });
@@ -472,6 +543,52 @@ export const useDbStore = create<DbState>((set, get) => {
       }
     },
 
+    startValueSearch: async (t, query, exact, skipLarge) => {
+      const key = schemaKey(t);
+      const prev = get().valueSearches[key];
+      if (prev?.running) get().cancelValueSearch(t);
+      const id = `vs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const fresh: ValueSearch = {
+        id, query, exact, skipLarge, running: true, searched: 0, total: 0, current: null,
+        hits: [], failed: [], skipped: [], cancelled: false, elapsedMs: null, error: null,
+      };
+      set((s) => ({ valueSearches: { ...s.valueSearches, [key]: fresh } }));
+      const finish = (p: Partial<ValueSearch>) =>
+        set((s) => {
+          const cur = s.valueSearches[key];
+          if (!cur || cur.id !== id) return s;
+          return { valueSearches: { ...s.valueSearches, [key]: { ...cur, ...p, running: false, current: null } } };
+        });
+      try {
+        const out = await api.dbSearchValues(t.connId, t.worktreeId, t.database, id, query, exact, skipLarge);
+        finish({ searched: out.searched, total: out.total, skipped: out.skipped, cancelled: out.cancelled, elapsedMs: out.elapsedMs });
+      } catch (e) {
+        finish({ error: api.toDbError(e) });
+      }
+    },
+
+    cancelValueSearch: (t) => {
+      const cur = get().valueSearches[schemaKey(t)];
+      if (!cur?.running) return;
+      api.dbCancelValueSearch(t.connId, t.worktreeId, t.database, cur.id).catch(() => {});
+    },
+
+    onValueSearchEvent: (e) =>
+      set((s) => {
+        const entry = Object.entries(s.valueSearches).find(([, v]) => v.id === e.searchId);
+        if (!entry) return s;
+        const [key, cur] = entry;
+        const next: ValueSearch = {
+          ...cur,
+          searched: e.searched,
+          total: e.total,
+          current: e.current ?? cur.current,
+          hits: e.hit ? [...cur.hits, e.hit] : cur.hits,
+          failed: e.failed ? [...cur.failed, e.failed] : cur.failed,
+        };
+        return { valueSearches: { ...s.valueSearches, [key]: next } };
+      }),
+
     recordAgent: (a) => {
       set((s) => ({ agentActivity: [a, ...s.agentActivity].slice(0, 100) }));
       if (a.sql) remember(a.connId, { sql: a.sql, at: a.at, ok: !a.error, source: "agent" });
@@ -485,14 +602,25 @@ export const useDbStore = create<DbState>((set, get) => {
   };
 });
 
+/** The database a pane works in: the one picked, or null for the URL's. */
+export function useDatabaseChoice(connId: string, worktreeId: string | null): string | null {
+  return useDbStore((s) => s.databaseChoice[choiceKey(connId, worktreeId)] ?? null);
+}
+
+export function useValueSearch(t: DbTarget): ValueSearch | undefined {
+  return useDbStore((s) => s.valueSearches[schemaKey(t)]);
+}
+
 export function useSchema(t: DbTarget): SchemaEntry | undefined {
   return useDbStore((s) => s.schemas[schemaKey(t)]);
 }
 
 /** Subscribes the window to agents' database calls; returns the unsubscribe. */
 export function initDbListeners(): Promise<() => void> {
-  useDbStore.setState({ history: readHistory() });
-  return api.tauriListen<DbAgentActivity>("db-agent-activity", (a) => useDbStore.getState().recordAgent(a));
+  useDbStore.setState({ history: readHistory(), databaseChoice: readChoices() });
+  const agents = api.tauriListen<DbAgentActivity>("db-agent-activity", (a) => useDbStore.getState().recordAgent(a));
+  const values = api.tauriListen<DbValueSearchEvent>("db-value-search", (e) => useDbStore.getState().onValueSearchEvent(e));
+  return Promise.all([agents, values]).then((fns) => () => fns.forEach((f) => f()));
 }
 
 export { splitStatements };

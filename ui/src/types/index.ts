@@ -52,6 +52,8 @@ export interface DbConnectionDef {
   read_only: boolean;
   agent_access: boolean;
   color: DbColor | null;
+  /** CA certificate file the server's TLS certificate is checked against. */
+  ca_cert?: string | null;
 }
 
 export interface DbColumnInfo {
@@ -79,6 +81,8 @@ export interface DbNamespace {
 export interface DbSchema {
   engine: DbEngine;
   version: string;
+  /** Whether the link is encrypted and how far the server was checked. */
+  transport?: { encrypted: boolean; verified: "none" | "ca" | "full" } | null;
   current: string | null;
   namespaces: DbNamespace[];
 }
@@ -132,6 +136,32 @@ export type DbRowChange =
   | { kind: "update"; key: DbCellValue[]; set: DbCellValue[] }
   | { kind: "insert"; values: DbCellValue[] }
   | { kind: "delete"; key: DbCellValue[] };
+
+export interface DbValueHit {
+  namespace: string;
+  table: string;
+  columns: string[];
+  rows: number;
+  more: boolean;
+  preview: string;
+}
+
+export interface DbValueSearchEvent {
+  searchId: string;
+  searched: number;
+  total: number;
+  current?: string;
+  hit?: DbValueHit;
+  failed?: { table: string; message: string };
+}
+
+export interface DbValueSearchSummary {
+  searched: number;
+  total: number;
+  skipped: string[];
+  cancelled: boolean;
+  elapsedMs: number;
+}
 
 export interface DbApplyOutput {
   statements: string[];
