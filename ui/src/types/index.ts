@@ -31,6 +31,150 @@ export interface WorktreeDef {
 export interface AppConfig {
   groups: ServiceGroup[];
   worktrees: WorktreeDef[];
+  databases?: DbConnectionDef[];
+}
+
+// ---------------------------------------------------------------------------
+// Databases (mirrors src-tauri/src/db.rs)
+// ---------------------------------------------------------------------------
+
+export type DbEngine = "postgres" | "mysql" | "sqlite";
+
+/** A tag colour, so production never looks like local. */
+export type DbColor = "red" | "yellow" | "green" | "blue";
+
+export interface DbConnectionDef {
+  id: string;
+  name: string;
+  engine: DbEngine;
+  /** A URL, or a file path for SQLite. `${VAR}` reads the checkout's .env. */
+  url: string;
+  read_only: boolean;
+  agent_access: boolean;
+  color: DbColor | null;
+  /** CA certificate file the server's TLS certificate is checked against. */
+  ca_cert?: string | null;
+}
+
+export interface DbColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  pk: boolean;
+  default: string | null;
+  /** `schema.table.column` this column is a foreign key to. */
+  references: string | null;
+}
+
+export interface DbTableInfo {
+  name: string;
+  kind: string;
+  rows: number | null;
+  columns: DbColumnInfo[];
+}
+
+export interface DbNamespace {
+  name: string;
+  tables: DbTableInfo[];
+}
+
+export interface DbSchema {
+  engine: DbEngine;
+  version: string;
+  /** Whether the link is encrypted and how far the server was checked. */
+  transport?: { encrypted: boolean; verified: "none" | "ca" | "full" } | null;
+  current: string | null;
+  namespaces: DbNamespace[];
+}
+
+export interface DbResultSet {
+  columns: { name: string; type: string | null }[];
+  rows: (string | null)[][];
+  truncated: boolean;
+  affected: number | null;
+}
+
+export interface DbQueryOutput {
+  sets: DbResultSet[];
+  elapsedMs: number;
+}
+
+export interface DbBrowseRequest {
+  namespace: string;
+  table: string;
+  search?: string;
+  where?: string;
+  orderBy?: string;
+  descending?: boolean;
+  offset?: number;
+  limit?: number;
+}
+
+export interface DbBrowseOutput {
+  set: DbResultSet;
+  total: number | null;
+  sql: string;
+  elapsedMs: number;
+}
+
+export interface DbError {
+  message: string;
+  detail: string | null;
+  hint: string | null;
+  position: number | null;
+  cancelled: boolean;
+  /** Which of a batch of row changes failed. */
+  changeIndex?: number | null;
+}
+
+export interface DbCellValue {
+  column: string;
+  value: string | null;
+}
+
+export type DbRowChange =
+  | { kind: "update"; key: DbCellValue[]; set: DbCellValue[] }
+  | { kind: "insert"; values: DbCellValue[] }
+  | { kind: "delete"; key: DbCellValue[] };
+
+export interface DbValueHit {
+  namespace: string;
+  table: string;
+  columns: string[];
+  rows: number;
+  more: boolean;
+  preview: string;
+}
+
+export interface DbValueSearchEvent {
+  searchId: string;
+  searched: number;
+  total: number;
+  current?: string;
+  hit?: DbValueHit;
+  failed?: { table: string; message: string };
+}
+
+export interface DbValueSearchSummary {
+  searched: number;
+  total: number;
+  skipped: string[];
+  cancelled: boolean;
+  elapsedMs: number;
+}
+
+export interface DbApplyOutput {
+  statements: string[];
+  applied: number;
+}
+
+export interface DbAgentActivity {
+  connId: string;
+  worktreeId: string | null;
+  tool: string;
+  sql: string | null;
+  error: string | null;
+  at: number;
 }
 
 // ---------------------------------------------------------------------------

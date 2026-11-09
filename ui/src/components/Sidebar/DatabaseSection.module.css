@@ -1,0 +1,122 @@
+/* A database row: one line, the same height and inset as the context rows
+   above it, so the sidebar stays one list. The tag colour lives in the icon. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  margin: 1px 10px 0 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s var(--ease-out), color 0.15s;
+}
+.row:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+/* The tab in front of you is this database: a quiet raised pill. */
+.rowOpen,
+.rowOpen:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+.icon[data-color="red"] { color: var(--red); }
+.icon[data-color="yellow"] { color: var(--yellow); }
+.icon[data-color="green"] { color: var(--green); }
+.icon[data-color="blue"] { color: var(--blue); }
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: opacity 0.15s;
+}
+
+/* The gear takes the engine's place on hover, so the row never gets wider. */
+.gear {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  transition: color 0.15s, background 0.15s, transform 0.25s var(--ease-spring);
+}
+.gear:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.row:hover .gear {
+  display: inline-flex;
+}
+.row:hover .engine {
+  display: none;
+}
+
+.agentDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+  animation: agentPulse 1.2s ease-in-out infinite;
+}
+@keyframes agentPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agentDot {
+    animation: none;
+  }
+}
+
+.emptyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  height: 32px;
+  margin: 0 8px;
+  padding: 0 11px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--radius-lg);
+  transition: color 0.15s, background 0.15s;
+}
+.emptyRow:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.menu {
+  position: fixed;
+  min-width: 190px;
+  --lv-origin: top left;
+}

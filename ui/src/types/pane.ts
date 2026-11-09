@@ -1,5 +1,6 @@
-/** A terminal runs a shell; a chat talks to a coding agent over ACP. */
-export type PaneKind = "terminal" | "chat";
+/** A terminal runs a shell; a chat talks to a coding agent over ACP; a
+ *  database pane browses and queries one of the project's connections. */
+export type PaneKind = "terminal" | "chat" | "db";
 
 export interface PaneLeaf {
   type: "leaf";
@@ -7,6 +8,8 @@ export interface PaneLeaf {
   kind: PaneKind;
   ptyId: string | null;
   title: string | null;
+  /** The connection a database pane is open on. */
+  dbConnId?: string;
 }
 
 export interface PaneSplit {

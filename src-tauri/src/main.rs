@@ -17,6 +17,7 @@ mod agent_status_bridge;
 mod agent_usage;
 mod cli;
 mod daemon;
+mod db;
 mod define;
 mod mcp;
 mod output;
@@ -71,6 +72,8 @@ struct AppConfig {
     groups: Vec<ServiceGroup>,
     #[serde(default)]
     worktrees: Vec<WorktreeDef>,
+    #[serde(default)]
+    databases: Vec<db::DbConnectionDef>,
 }
 
 impl Default for AppConfig {
@@ -78,6 +81,7 @@ impl Default for AppConfig {
         AppConfig {
             groups: vec![],
             worktrees: vec![],
+            databases: vec![],
         }
     }
 }
@@ -1080,6 +1084,7 @@ fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>)
         let mut projects = state.projects.lock().unwrap();
         projects.remove(&id);
     }
+    db::forget_project(&id);
 
     // Remove project directory
     let dir = project_dir(&state.projects_dir, &id);
@@ -3058,6 +3063,18 @@ fn main() {
             acp::acp_read_image,
             acp::acp_read_text,
             acp::acp_revert_edit,
+            db::db_test,
+            db::db_list_databases,
+            db::db_has_password,
+            db::db_set_password,
+            db::db_disconnect,
+            db::db_schema,
+            db::db_query,
+            db::db_browse,
+            db::db_apply,
+            db::db_search_values,
+            db::db_cancel_value_search,
+            db::db_cancel,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -3078,6 +3095,7 @@ fn main() {
                         save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
                         if !ps.tracked.values().any(|t| is_pid_alive(t.pid)) {
                             projects.remove(&project_id);
+                            db::forget_project(&project_id);
                         }
                     }
                 }

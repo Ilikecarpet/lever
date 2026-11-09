@@ -1,0 +1,179 @@
+/* Connection-editor specifics. Shell, fields, segmented control and the
+   confirm accordion come from the service inspector and settings panel, so
+   every flyout in the app is the same object. */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.heroIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  color: var(--text-dim);
+  background: var(--surface);
+  transition: color 0.2s, background 0.2s;
+}
+.heroIcon[data-color="red"] { color: var(--red); background: var(--red-dim); }
+.heroIcon[data-color="yellow"] { color: var(--yellow); background: var(--yellow-dim); }
+.heroIcon[data-color="green"] { color: var(--green); background: var(--green-dim); }
+.heroIcon[data-color="blue"] { color: var(--blue); background: var(--blue-dim); }
+
+.heroText {
+  min-width: 0;
+  flex: 1;
+}
+.heroUrl {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.heroEmpty {
+  font-style: italic;
+}
+
+.sectionWithAction {
+  justify-content: space-between;
+}
+
+.modeSwitch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.modeSwitch button {
+  height: 20px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: 5px;
+  transition: background 0.12s, color 0.12s;
+}
+.modeSwitch button:hover {
+  color: var(--text-dim);
+}
+.modeSwitch .modeOn,
+.modeSwitch .modeOn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.fileRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.fileRow input {
+  flex: 1;
+}
+.fileRow button {
+  flex-shrink: 0;
+}
+
+.inlineLink {
+  display: inline;
+  padding: 0;
+  font-size: inherit;
+  color: var(--text-dim);
+  text-decoration: underline;
+  text-decoration-color: var(--border-hover);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.12s, text-decoration-color 0.12s;
+}
+.inlineLink:hover {
+  color: var(--text);
+  text-decoration-color: var(--text-muted);
+}
+.inlineLink code,
+.keychainNote code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.keychainNote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -2px 0 14px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.keychainNote .inlineLink {
+  margin-left: 2px;
+}
+
+.testRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+}
+.testOk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--green);
+}
+.testFail {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--red);
+  overflow-wrap: anywhere;
+}
+
+.testHint {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.swatches {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.swatch {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+  transition: transform 0.25s var(--ease-spring), box-shadow 0.15s;
+}
+.swatch:hover {
+  transform: scale(1.1);
+}
+.swatch[data-color="none"] {
+  background: linear-gradient(135deg, transparent 45%, var(--text-muted) 45% 55%, transparent 55%);
+}
+.swatch[data-color="green"] { background: var(--green); box-shadow: none; }
+.swatch[data-color="blue"] { background: var(--blue); box-shadow: none; }
+.swatch[data-color="yellow"] { background: var(--yellow); box-shadow: none; }
+.swatch[data-color="red"] { background: var(--red); box-shadow: none; }
+.swatchOn {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--text-dim) !important;
+}

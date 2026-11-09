@@ -29,6 +29,7 @@ import {
 } from "../Icons";
 import GroupItem from "./GroupItem";
 import WorktreeSection from "./WorktreeSection";
+import DatabaseSection from "./DatabaseSection";
 import ContextSubtitle from "./ContextSubtitle";
 import NewWorktreeModal from "../Modals/NewWorktreeModal";
 import menuStyles from "../ContextMenu/ContextMenu.module.css";
@@ -468,6 +469,8 @@ export default function Sidebar() {
             ))}
           </>
         )}
+
+        {repoPath && <DatabaseSection />}
       </div>
       </div>
 

@@ -16,6 +16,8 @@ import MainPanel from "./components/MainPanel/MainPanel";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ServiceInspector from "./components/Modals/ServiceInspector";
 import SettingsPanel from "./components/Modals/SettingsPanel";
+import DbConnectionPanel from "./components/Db/DbConnectionPanel";
+import { initDbListeners } from "./stores/dbStore";
 import StartPage from "./components/StartPage/StartPage";
 import ScratchApp from "./components/ScratchApp/ScratchApp";
 import DebugConsole from "./components/DebugConsole/DebugConsole";
@@ -77,6 +79,7 @@ function ProjectApp() {
     const servicePollId = setInterval(poll, 300);
     const unlistenSvcExit = useServiceStore.getState().initExitListener();
     const unlistenMcp = useServiceStore.getState().initMcpListeners();
+    const unlistenDb = initDbListeners();
 
     const gitPollId = setInterval(() => {
       const repoPath = useGitStore.getState().repoPath;
@@ -97,6 +100,7 @@ function ProjectApp() {
       stopUpdatePolling();
       unlistenSvcExit.then((fn) => fn());
       unlistenMcp.then((fn) => fn());
+      unlistenDb.then((fn) => fn());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
@@ -113,6 +117,7 @@ function ProjectApp() {
           things, and panelStore guarantees only one is open. */}
       <ServiceInspector />
       <SettingsPanel />
+      <DbConnectionPanel />
       <DebugConsole />
     </>
   );

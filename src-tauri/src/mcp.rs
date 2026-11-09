@@ -26,7 +26,7 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 use super::{
-    output,
+    db, output,
     all_services, debug_action, get_shell_path, is_pid_alive, load_project_index, now_unix,
     service_shell_line, start_service_in, stop_service_in, wait_for_exit, AppState, ServiceDef,
     now_millis, AppConfig, LastExit, ServiceGroup, SvcExitEvent, WorktreeDef,
@@ -610,6 +610,11 @@ in Lever are visible. Call list_services to find ids, get_logs to read what a se
 printed (the same text the user sees in Lever), and start_service / stop_service / \
 restart_service to act. Everything you do shows up live in Lever's window when one is open.
 
+Databases the user has added to Lever are readable too: db_connections lists them, db_schema \
+shows tables and columns, db_search finds a table, column or row, and db_query runs a read-only \
+statement. Each checkout resolves its own connection from its .env, so a worktree's queries hit \
+that worktree's database. Prefer these to psql or a script for looking at data.
+
 Before you start a dev server, watcher, database or a build/test/migration task with a shell \
 command, call list_services. If Lever has it, run it through start_service and read it with \
 get_logs rather than launching it yourself: a second copy fights Lever's for the same port, and \
@@ -705,7 +710,7 @@ fn tool_definitions() -> Vec<Value> {
         "type": "string",
         "description": "Service or task id from list_services, or its label (looked up in your checkout)."
     });
-    vec![
+    let mut tools = vec![
         json!({
             "name": "list_projects",
             "description": "Projects open in Lever, with their repo paths and worktrees, and which one you are working in.",
@@ -770,7 +775,9 @@ fn tool_definitions() -> Vec<Value> {
             },
             "annotations": { "destructiveHint": true },
         }),
-    ]
+    ];
+    tools.extend(db::tool_definitions(&project, &checkout));
+    tools
 }
 
 // ---------------------------------------------------------------------------
@@ -990,7 +997,7 @@ pub(crate) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
-fn arg_u64(args: &Value, key: &str) -> Option<u64> {
+pub(crate) fn arg_u64(args: &Value, key: &str) -> Option<u64> {
     args.get(key).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
 }
 
@@ -1078,6 +1085,7 @@ pub(crate) fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: O
         "start_service" => start_service(app, state, args, cwd),
         "stop_service" => stop_service(state, args, cwd),
         "restart_service" => restart_service(app, state, args, cwd),
+        "db_connections" | "db_schema" | "db_search" | "db_query" => db::call_tool(app, state, name, args, cwd),
         _ => Err(format!("unknown tool: {}", name)),
     }
 }
@@ -1338,7 +1346,7 @@ mod tests {
     fn every_listed_tool_has_a_schema() {
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}), no_tools, base).unwrap();
         let tools = reply["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 10);
         for t in tools {
             assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
         }

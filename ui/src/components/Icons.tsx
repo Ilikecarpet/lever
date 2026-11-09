@@ -381,3 +381,91 @@ export function IconPanelNarrow({ size = 14, className }: P) {
     </svg>
   );
 }
+
+export function IconDatabase({ size = 14, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <ellipse cx="8" cy="3.75" rx="5.25" ry="2" />
+      <path d="M2.75 3.75v8.5c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2v-8.5" />
+      <path d="M2.75 8c0 1.1 2.35 2 5.25 2s5.25-.9 5.25-2" />
+    </svg>
+  );
+}
+
+export function IconTable({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.75" />
+      <path d="M2 6.25h12M2 9.75h12M6.5 6.25v7.25" />
+    </svg>
+  );
+}
+
+export function IconView({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.75" strokeDasharray="2.2 1.6" />
+      <path d="M2 6.25h12" />
+    </svg>
+  );
+}
+
+export function IconKey({ size = 10, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <circle cx="5.5" cy="10.5" r="3" />
+      <path d="M7.7 8.3L13.5 2.5M11 5l2 2M12.5 3.5l1.5 1.5" />
+    </svg>
+  );
+}
+
+export function IconLink({ size = 10, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <path d="M6.75 9.25a3 3 0 004.24 0l2.12-2.12a3 3 0 00-4.24-4.24l-.7.7" />
+      <path d="M9.25 6.75a3 3 0 00-4.24 0L2.89 8.87a3 3 0 004.24 4.24l.7-.7" />
+    </svg>
+  );
+}
+
+export function IconRefresh({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <path d="M13.25 8a5.25 5.25 0 11-1.54-3.71" />
+      <path d="M13.25 2.5v3.25H10" />
+    </svg>
+  );
+}
+
+export function IconFilter({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <path d="M2.5 3.5h11l-4.25 5v4l-2.5 1.25V8.5z" />
+    </svg>
+  );
+}
+
+export function IconSortAsc({ size = 10, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <path d="M8 13V3M4 7l4-4 4 4" />
+    </svg>
+  );
+}
+
+export function IconSortDesc({ size = 10, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <path d="M8 3v10M4 9l4 4 4-4" />
+    </svg>
+  );
+}
+
+export function IconLock({ size = 10, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" {...line} style={s} className={className}>
+      <rect x="3" y="7" width="10" height="7" rx="1.75" />
+      <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
+    </svg>
+  );
+}

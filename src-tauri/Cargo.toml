@@ -1,6 +1,6 @@
 [package]
 name = "lever"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 
 [dependencies]
@@ -16,10 +16,18 @@ portable-pty = "0.8"
 tiny_http = "0.12"
 git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
 clap = { version = "4", features = ["derive"] }
+tokio-postgres = "0.7"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+futures-util = "0.3"
+tokio = { version = "1", features = ["time"] }
+rusqlite = { version = "0.32", features = ["bundled", "column_decltype"] }
+mysql = { version = "25", default-features = false, features = ["minimal", "native-tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = "0.3"
+security-framework = "3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
