@@ -2417,6 +2417,56 @@
   animation: rise 0.3s var(--ease-out) both;
 }
 
+.queued {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 14px 0;
+}
+
+.queuedItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  animation: rise 0.3s var(--ease-out) both;
+}
+
+.queuedText {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.queuedBtn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.queuedItem:hover .queuedBtn,
+.queuedBtn:focus-visible {
+  opacity: 1;
+}
+
+.queuedBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 .dropHint {
   position: absolute;
   inset: 0;
