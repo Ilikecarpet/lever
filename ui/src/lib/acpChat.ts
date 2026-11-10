@@ -183,6 +183,12 @@ export interface ChatState {
    *  rewinding needs. Claude's adapter only: the fork point is named in its
    *  own extension. */
   canFork: boolean;
+  /** The agent takes `_session/steering`: a message injected into the
+   *  running turn. Without it a mid-turn prompt is only a turn queued
+   *  behind the running one. */
+  canSteer: boolean;
+  /** Prompts sent while a turn was running, waiting for it to end. */
+  queued: { id: string; text: string }[];
 }
 
 export interface SessionTotals {
@@ -195,6 +201,10 @@ export interface SessionTotals {
 
 const NO_TOTALS: SessionTotals = { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/** `steer` sends mid-turn straight to the agent, to redirect the turn it is
+ *  in, instead of queueing behind it. */
+type PromptOpts = { images?: ImageAttachment[]; files?: string[]; paths?: string[]; steer?: boolean };
+
 type Pending = { resolve: (v: any) => void; reject: (e: Error & { code?: number }) => void };
 
 let chatCounter = 0;
@@ -205,6 +215,9 @@ export class Chat {
   private pending = new Map<number, Pending>();
   private nextRpcId = 0;
   private promptsInFlight = 0;
+  /** Sent mid-turn. A prompt the agent gets while it is working steers the
+   *  turn it is in, so these wait for that turn to end instead. */
+  private queue: { id: string; text: string; opts: PromptOpts }[] = [];
   private unlisten: (() => void)[] = [];
   private itemSeq = 0;
   private chatId = "";
@@ -239,6 +252,8 @@ export class Chat {
       canLoad: false,
       canList: false,
       canFork: false,
+      canSteer: false,
+      queued: [],
     };
   }
 
@@ -582,6 +597,7 @@ export class Chat {
         canLoad: !!caps.loadSession,
         canList: !!caps.sessionCapabilities?.list,
         canFork: !!caps.sessionCapabilities?.fork && this.state.agent === "claude",
+        canSteer: !!init?._meta?.steering?.supported,
         authMethods: init?.authMethods ?? [],
       });
       await this.openSession(this.resumeId);
@@ -641,6 +657,7 @@ export class Chat {
     for (const p of this.pending.values()) p.reject(new Error("The agent exited"));
     this.pending.clear();
     this.promptsInFlight = 0;
+    this.unqueue();
     const why = stderr.trim() ? `\n${stderr.trim().split("\n").slice(-6).join("\n")}` : "";
     this.notice(`${AGENTS[this.state.agent].name} exited${code != null ? ` (code ${code})` : ""}.${why}`, code ? "error" : "info");
     this.set({ status: "exited", turnStartedAt: null });
@@ -652,6 +669,7 @@ export class Chat {
     for (const p of this.pending.values()) p.reject(new Error("Closed"));
     this.pending.clear();
     this.promptsInFlight = 0;
+    this.queue = [];
     if (this.chatId) api.acpStop(this.chatId).catch(() => {});
   }
 
@@ -705,6 +723,7 @@ export class Chat {
   /** Swap this pane's conversation for a past one. The one being left stays
    *  in the agent's history. */
   async loadSession(summary: SessionSummary) {
+    this.unqueue();
     if (this.state.status === "working") this.cancel();
     this.itemSeq = 0;
     this.set({
@@ -726,6 +745,7 @@ export class Chat {
 
   /** A blank conversation in the same pane, with the same agent. */
   async newSession() {
+    this.unqueue();
     if (this.state.status === "working") this.cancel();
     this.itemSeq = 0;
     this.set({ items: [], plan: [], usage: null, totals: NO_TOTALS, title: null, turnStartedAt: null, status: "starting" });
@@ -740,11 +760,17 @@ export class Chat {
 
   /** `files` are @-mentions, relative to the checkout; `paths` are files
    *  attached by absolute path, from anywhere on disk. */
-  async prompt(text: string, opts: { images?: ImageAttachment[]; files?: string[]; paths?: string[] } = {}) {
+  async prompt(text: string, opts: PromptOpts = {}) {
     const sessionId = this.state.sessionId;
     const images = opts.images ?? [];
     const paths = opts.paths ?? [];
     if (!sessionId || (!text.trim() && images.length === 0 && paths.length === 0)) return;
+    const busy = this.state.status === "working";
+    if (busy && !opts.steer) {
+      this.queue.push({ id: this.newItemId(), text, opts });
+      this.syncQueued();
+      return;
+    }
     if (text.trim()) this.sent.push(text);
     // Until the agent names the conversation, it is called what it was asked.
     if (!this.state.title && text.trim()) this.set({ title: text.trim().split("\n")[0].slice(0, 60) });
@@ -756,32 +782,30 @@ export class Chat {
       attached: paths.length ? paths : undefined,
     });
 
+    if (busy && this.state.canSteer) {
+      // Into the running turn, which answers it before it ends. Should that
+      // turn end first, the agent hands the message back to be sent as one
+      // of its own.
+      try {
+        const blocks = await this.blocksFor(text, opts);
+        const res = await this.request("_session/steering", {
+          sessionId,
+          prompt: blocks,
+          _meta: { steering: { idleBehavior: "promptRequired" } },
+        });
+        if (res?.outcome !== "promptRequired") return;
+      } catch (e) {
+        if (!this.disposed && this.state.status !== "exited") this.notice((e as Error).message, "error");
+        return;
+      }
+    }
+
     this.promptsInFlight += 1;
     const startedAt = this.state.turnStartedAt ?? Date.now();
     this.set({ status: "working", turnStartedAt: startedAt });
     let stopReason: string | undefined;
     try {
-      const blocks: object[] = [];
-      if (text.trim()) blocks.push({ type: "text", text });
-      const files = [
-        ...(opts.files ?? []).map((f) => ({ abs: `${this.cwd}/${f}`, name: f })),
-        ...paths.map((p) => ({ abs: p, name: p.split("/").pop() ?? p })),
-      ];
-      // Small text files go in whole, as `@file` does in Claude Code, so the
-      // agent has them without spending a step (or a permission) opening
-      // them. Anything big or binary goes as a link it can read from.
-      const contents = await Promise.all(files.map((f) => api.acpReadText(f.abs).catch(() => null)));
-      files.forEach((f, i) => {
-        const uri = `file://${f.abs}`;
-        const body = contents[i];
-        blocks.push(
-          body != null
-            ? { type: "resource", resource: { uri, mimeType: "text/plain", text: body } }
-            : { type: "resource_link", uri, name: f.name }
-        );
-      });
-      for (const img of images) blocks.push({ type: "image", mimeType: img.mimeType, data: img.data });
-
+      const blocks = await this.blocksFor(text, opts);
       const res = await this.request("session/prompt", { sessionId, prompt: blocks });
       stopReason = res?.stopReason;
       // Each turn reports the tokens its requests used; the session's totals
@@ -807,9 +831,66 @@ export class Chat {
       if (this.promptsInFlight === 0 && this.state.status === "working") {
         this.push({ kind: "turnEnd", id: this.newItemId(), durationMs: Date.now() - startedAt, stopReason });
         this.set({ status: "ready", turnStartedAt: null });
-        this.flagIfUnwatched();
+        const next = this.queue.shift();
+        if (next) {
+          this.syncQueued();
+          void this.prompt(next.text, next.opts);
+        } else this.flagIfUnwatched();
       }
     }
+  }
+
+  private syncQueued() {
+    this.set({ queued: this.queue.map(({ id, text }) => ({ id, text })) });
+  }
+
+  /** Take one queued prompt back out, unsent. */
+  dropQueued(id: string) {
+    this.queue = this.queue.filter((q) => q.id !== id);
+    this.syncQueued();
+  }
+
+  /** Send one queued prompt now, into the running turn. */
+  steerQueued(id: string) {
+    const q = this.queue.find((q) => q.id === id);
+    if (!q) return;
+    this.dropQueued(id);
+    void this.prompt(q.text, { ...q.opts, steer: true });
+  }
+
+  /** Empty the queue, returning its text so it can go back in the composer. */
+  unqueue(): string {
+    const text = this.queue.map((q) => q.text).filter((t) => t.trim()).join("\n\n");
+    this.queue = [];
+    this.syncQueued();
+    return text;
+  }
+
+  /** A prompt's text and attachments as the content blocks the agent takes. */
+  private async blocksFor(text: string, opts: PromptOpts): Promise<object[]> {
+    const images = opts.images ?? [];
+    const paths = opts.paths ?? [];
+    const blocks: object[] = [];
+    if (text.trim()) blocks.push({ type: "text", text });
+    const files = [
+      ...(opts.files ?? []).map((f) => ({ abs: `${this.cwd}/${f}`, name: f })),
+      ...paths.map((p) => ({ abs: p, name: p.split("/").pop() ?? p })),
+    ];
+    // Small text files go in whole, as `@file` does in Claude Code, so the
+    // agent has them without spending a step (or a permission) opening
+    // them. Anything big or binary goes as a link it can read from.
+    const contents = await Promise.all(files.map((f) => api.acpReadText(f.abs).catch(() => null)));
+    files.forEach((f, i) => {
+      const uri = `file://${f.abs}`;
+      const body = contents[i];
+      blocks.push(
+        body != null
+          ? { type: "resource", resource: { uri, mimeType: "text/plain", text: body } }
+          : { type: "resource_link", uri, name: f.name }
+      );
+    });
+    for (const img of images) blocks.push({ type: "image", mimeType: img.mimeType, data: img.data });
+    return blocks;
   }
 
   /** A finished turn or a question nobody is looking at marks the pane, and

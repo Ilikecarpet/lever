@@ -283,7 +283,15 @@ export const Composer = forwardRef<ComposerHandle, {
 
   // --- sending -------------------------------------------------------------
 
-  const send = () => {
+  /** Stopping a turn stops what was queued behind it too; its text comes
+   *  back to the draft rather than being lost. */
+  const stop = () => {
+    const back = chat.unqueue();
+    if (back) setDraft((d) => (d.trim() ? `${back}\n\n${d}` : back));
+    chat.cancel();
+  };
+
+  const send = (steer = false) => {
     if (!canSend) return;
     const known = new Set(files ?? []);
     const mentioned = [...draft.matchAll(/(^|\s)@([\w./-]+)/g)].map((m) => m[2]).filter((p) => known.has(p));
@@ -291,6 +299,7 @@ export const Composer = forwardRef<ComposerHandle, {
       images: attachments.filter((a): a is Extract<Attachment, { kind: "image" }> => a.kind === "image"),
       paths: attachments.flatMap((a) => (a.kind === "file" ? [a.path] : [])),
       files: [...new Set(mentioned)],
+      steer,
     });
     // The arrow flies off; the class comes off again once it has.
     setLaunch((n) => n + 1);
@@ -329,12 +338,12 @@ export const Composer = forwardRef<ComposerHandle, {
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      send(e.metaKey || e.ctrlKey);
       return;
     }
     if (e.key === "Escape" && working) {
       e.preventDefault();
-      chat.cancel();
+      stop();
       return;
     }
     if (e.key === "Escape" && onDoubleEscape) {
@@ -447,6 +456,22 @@ export const Composer = forwardRef<ComposerHandle, {
 
       {dragging && <div className={styles.dropHint}>Drop to attach</div>}
 
+      {state.queued.length > 0 && (
+        <div className={styles.queued}>
+          {state.queued.map((q) => (
+            <div key={q.id} className={styles.queuedItem}>
+              <span className={styles.queuedText}>{q.text.trim() || "(attachments)"}</span>
+              <button className={styles.queuedBtn} title="Steer now" onClick={() => chat.steerQueued(q.id)}>
+                <IconSend size={11} />
+              </button>
+              <button className={styles.queuedBtn} title="Remove from queue" onClick={() => chat.dropQueued(q.id)}>
+                <IconClose size={9} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {attachments.length > 0 && (
         <div className={styles.attachments}>
           {attachments.map((a, i) =>
@@ -487,7 +512,7 @@ export const Composer = forwardRef<ComposerHandle, {
           state.status === "exited"
             ? "The agent stopped. Restart it above to keep going."
             : working
-              ? "Queue a follow-up…"
+              ? "Queue a follow-up… ⌘Enter to steer now"
               : placeholder ?? "Ask anything, @ to mention a file, / for commands"
         }
         disabled={state.status === "exited" || state.status === "auth"}
@@ -534,9 +559,9 @@ export const Composer = forwardRef<ComposerHandle, {
             two swapping places. */}
         <button
           className={`${styles.sendBtn}${working && !canSend ? ` ${styles.stopBtn}` : ""}${launch ? ` ${styles.launch}` : ""}`}
-          onClick={working && !canSend ? () => chat.cancel() : send}
+          onClick={working && !canSend ? stop : (e) => send(e.metaKey || e.ctrlKey)}
           disabled={!(working && !canSend) && !canSend}
-          title={working && !canSend ? "Stop (Esc)" : working ? "Queue (Enter)" : "Send (Enter)"}
+          title={working && !canSend ? "Stop (Esc)" : working ? "Queue (Enter) · Steer (⌘Enter)" : "Send (Enter)"}
         >
           <span className={styles.sendIcon}>
             <IconSend size={13} />
