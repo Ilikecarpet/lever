@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import type { ServiceGroup } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
@@ -17,7 +17,10 @@ interface Props {
   worktreeId?: string | null;
 }
 
-export default function GroupItem({ group, worktreeId }: Props) {
+/** Memoised, and subscribed to counts rather than the whole status map, so a
+ *  service starting re-renders its own group — not every group in every
+ *  folded context. */
+export default memo(function GroupItem({ group, worktreeId }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -28,7 +31,6 @@ export default function GroupItem({ group, worktreeId }: Props) {
   useClampToViewport(contextMenuRef, menu.pos.x, menu.pos.y);
   const rise = useRiseOnMount();
 
-  const statuses = useServiceStore((s) => s.statuses);
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
   const removeGroup = useConfigStore((s) => s.removeGroup);
@@ -38,9 +40,9 @@ export default function GroupItem({ group, worktreeId }: Props) {
   const saveConfig = useConfigStore((s) => s.saveConfig);
   const addInInspector = usePanelStore((s) => s.addService);
 
-  const runningCount = group.services.filter(
-    (svc) => (statuses[svc.id] ?? "stopped") === "running"
-  ).length;
+  const runningCount = useServiceStore((s) =>
+    group.services.filter((svc) => s.statuses[svc.id] === "running").length
+  );
 
   // A group of nothing but tasks gets no master: there is no sustained state to
   // latch, and tasks are fired individually from their own rows.
@@ -50,9 +52,11 @@ export default function GroupItem({ group, worktreeId }: Props) {
   // The master rides the fraction of the group that is actually up, so 1-of-4
   // and 3-of-4 are distinguishable at a glance rather than both reading as
   // "some". Tasks are excluded — they are never part of the latched state.
-  const startableRunning = startable.filter(
-    (svc) => (statuses[svc.id] ?? "stopped") === "running"
-  ).length;
+  const startableRunning = useServiceStore((s) =>
+    group.services.filter(
+      (svc) => svc.service_type !== "task" && s.statuses[svc.id] === "running"
+    ).length
+  );
   const fraction = hasStartable ? startableRunning / startable.length : 0;
 
   useEffect(() => {
@@ -76,6 +80,7 @@ export default function GroupItem({ group, worktreeId }: Props) {
   // walks it bottom-up, so the levers ripple in the order things really happen.
   const handleStartAll = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const { statuses } = useServiceStore.getState();
     for (const svc of group.services) {
       if (svc.service_type === "task") continue;
       if ((statuses[svc.id] ?? "stopped") === "running") continue;
@@ -85,6 +90,7 @@ export default function GroupItem({ group, worktreeId }: Props) {
 
   const handleStopAll = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const { statuses } = useServiceStore.getState();
     for (const svc of [...group.services].reverse()) {
       if ((statuses[svc.id] ?? "stopped") === "running") {
         await stopService(svc.id);
@@ -125,6 +131,7 @@ export default function GroupItem({ group, worktreeId }: Props) {
     setContextMenu(null);
     setConfirmDelete(false);
     // Stop all running services in this group first
+    const { statuses } = useServiceStore.getState();
     for (const svc of group.services) {
       if ((statuses[svc.id] ?? "stopped") === "running") {
         stopService(svc.id);
@@ -251,4 +258,4 @@ export default function GroupItem({ group, worktreeId }: Props) {
       )}
     </div>
   );
-}
+});
