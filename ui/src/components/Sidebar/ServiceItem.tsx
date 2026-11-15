@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import type { ServiceDef } from "../../types";
 import { useServiceStore } from "../../stores/serviceStore";
 import { useConfigStore } from "../../stores/configStore";
@@ -23,12 +23,15 @@ interface Props {
   worktreeId?: string | null;
 }
 
-export default function ServiceItem({ service, groupId, worktreeId }: Props) {
+/** Memoised so a status change re-renders only the row it belongs to, not every
+ *  row in every (folded) context of the sidebar. */
+export default memo(function ServiceItem({ service, groupId, worktreeId }: Props) {
   const status = useServiceStore((s) => s.statuses[service.id] ?? "stopped");
   const pending = useServiceStore((s) => s.pending[service.id]);
   const startService = useServiceStore((s) => s.startService);
   const stopService = useServiceStore((s) => s.stopService);
-  const activeServiceId = useServiceStore((s) => s.activeServiceId);
+  // Selected as a boolean so changing focus re-renders only the two rows involved.
+  const isActive = useServiceStore((s) => s.activeServiceId === service.id);
   const setActiveService = useServiceStore((s) => s.setActiveService);
   const removeService = useConfigStore((s) => s.removeService);
   const removeWorktreeService = useWorktreeStore((s) => s.removeWorktreeService);
@@ -43,7 +46,6 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
   const rise = useRiseOnMount();
 
   const isRunning = status === "running";
-  const isActive = activeServiceId === service.id;
   const isTask = service.service_type === "task";
   const inFlight = pending !== undefined;
 
@@ -206,4 +208,4 @@ export default function ServiceItem({ service, groupId, worktreeId }: Props) {
       )}
     </>
   );
-}
+});

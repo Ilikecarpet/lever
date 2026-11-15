@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import type { AgentInfo, WorktreeDef } from "../../types";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
@@ -52,8 +52,10 @@ interface ContextMenu {
   y: number;
 }
 
-export default function WorktreeSection({ worktree }: Props) {
-  const activeWorktreeId = useWorktreeStore((s) => s.activeWorktreeId);
+/** Memoised, with narrow selectors, so switching context re-renders only the
+ *  two rows whose open state changes. */
+export default memo(function WorktreeSection({ worktree }: Props) {
+  const isActive = useWorktreeStore((s) => s.activeWorktreeId === worktree.id);
   const deleteWorktree = useWorktreeStore((s) => s.deleteWorktree);
   const closeWorktreeWorkspaces = useWorkspaceStore(
     (s) => s.closeWorktreeWorkspaces
@@ -62,8 +64,7 @@ export default function WorktreeSection({ worktree }: Props) {
   const focused = useWorktreeFocusedAgent(worktree.id);
   const wantsYou = useWorktreeNeedsAttention(worktree.id);
   const contextWindow = useSettingsStore((s) => s.agentContextWindow);
-  const statuses = useServiceStore((s) => s.statuses);
-  const activeGitGroupId = useGitStore((s) => s.activeGitGroupId);
+  const gitOpen = useGitStore((s) => s.activeGitGroupId === worktree.id);
   const setActiveGitGroup = useGitStore((s) => s.setActiveGitGroup);
   const gitInfo = useGitStore((s) => s.worktreeGitInfo[worktree.id]);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -77,13 +78,14 @@ export default function WorktreeSection({ worktree }: Props) {
   useClampToViewport(contextMenuRef, menu.pos.x, menu.pos.y);
   const rise = useRiseOnMount();
 
-  const isActive = activeWorktreeId === worktree.id;
-
   // Collapsing hides the services themselves, so the row carries the count —
   // otherwise a worktree can be running things with nothing on screen saying so.
-  const runningCount = worktree.groups
-    .flatMap((g) => g.services)
-    .filter((svc) => (statuses[svc.id] ?? "stopped") === "running").length;
+  const runningCount = useServiceStore((s) =>
+    worktree.groups.reduce(
+      (n, g) => n + g.services.filter((svc) => s.statuses[svc.id] === "running").length,
+      0
+    )
+  );
 
   // Everything above just folded shut, so bring the newly-opened section into
   // view rather than leaving it pinned wherever the old layout left it.
@@ -119,7 +121,6 @@ export default function WorktreeSection({ worktree }: Props) {
 
   // Staging and diffing run against this worktree's own working tree, so the
   // panel is opened on it rather than on the main repo.
-  const gitOpen = activeGitGroupId === worktree.id;
   const handleOpenGitPanel = (e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveGitGroup(gitOpen ? null : worktree.id, worktree.path);
@@ -293,4 +294,4 @@ export default function WorktreeSection({ worktree }: Props) {
 
     </>
   );
-}
+});

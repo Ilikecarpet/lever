@@ -67,8 +67,6 @@ export default function Sidebar() {
   const updateVersion = useUpdateStore((s) => s.version);
   const checkForUpdate = useUpdateStore((s) => s.check);
 
-  const statuses = useServiceStore((s) => s.statuses);
-
   const mainAgent = useWorktreeAgent(null);
   const mainFocusedAgent = useWorktreeFocusedAgent(null);
   const mainWantsYou = useWorktreeNeedsAttention(null);
@@ -78,9 +76,12 @@ export default function Sidebar() {
   // Collapsing hides the services themselves, so the row carries the count —
   // otherwise the main repo can be running things with nothing on screen
   // saying so.
-  const mainRunningCount = groups
-    .flatMap((g) => g.services)
-    .filter((svc) => (statuses[svc.id] ?? "stopped") === "running").length;
+  const mainRunningCount = useServiceStore((s) =>
+    groups.reduce(
+      (n, g) => n + g.services.filter((svc) => s.statuses[svc.id] === "running").length,
+      0
+    )
+  );
 
   const [adding, setAdding] = useState(false);
   const [worktreeModalOpen, setWorktreeModalOpen] = useState(false);
