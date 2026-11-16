@@ -269,6 +269,7 @@ mod tests {
     #[test]
     fn one_word_is_the_whole_line_and_several_are_quoted() {
         assert_eq!(command_line(&["npm run dev | tee log".into()]), "npm run dev | tee log");
-        assert_eq!(command_line(&["echo".into(), "hi there".into()]), "echo 'hi there'");
+        let quoted = if cfg!(windows) { "echo \"hi there\"" } else { "echo 'hi there'" };
+        assert_eq!(command_line(&["echo".into(), "hi there".into()]), quoted);
     }
 }

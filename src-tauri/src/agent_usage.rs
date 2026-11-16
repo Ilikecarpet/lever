@@ -1037,7 +1037,7 @@ mod tests {
             let t = std::time::SystemTime::now()
                 .checked_sub(std::time::Duration::from_secs((-mtime_offset_secs).max(0) as u64))
                 .unwrap();
-            fs::File::open(&path).unwrap().set_modified(t).unwrap();
+            fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(t).unwrap();
         }
     }
     impl Drop for PayloadDir {
