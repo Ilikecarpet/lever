@@ -53,8 +53,10 @@ jobs:
         with:
           node-version: 20
 
+      # npm on Windows ignores --prefix for install, so run it from ui/.
       - name: Install frontend dependencies
-        run: npm install --prefix ui
+        working-directory: ui
+        run: npm install
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -65,7 +67,8 @@ jobs:
           workspaces: src-tauri
 
       - name: Build frontend
-        run: npm run build --prefix ui
+        working-directory: ui
+        run: npm run build
 
       - name: Test
         working-directory: src-tauri
