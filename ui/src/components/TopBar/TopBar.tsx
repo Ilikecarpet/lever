@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useUiStore } from "../../stores/uiStore";
 import { IconSidebarCollapse, IconSidebarExpand } from "../Icons";
 import WorkspaceBar from "../MainPanel/WorkspaceBar";
+import { isWindows } from "../../lib/platform";
 import styles from "./TopBar.module.css";
 
 /**
@@ -37,7 +38,7 @@ export default function TopBar() {
         style={collapsed ? undefined : { width: sidebarWidth }}
         data-app-drag
       >
-        <div className={styles.lightsSpacer} data-app-drag />
+        {!isWindows && <div className={styles.lightsSpacer} data-app-drag />}
         <span className={styles.leftSpacer} data-app-drag />
         <button
           className={`${styles.toggleBtn} lv-press`}

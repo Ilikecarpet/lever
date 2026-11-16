@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { terminalFont } from "../lib/platform";
 import * as api from "../lib/tauri";
 import { tauriListen } from "../lib/tauri";
 import { useWorkspaceStore } from "../stores/workspaceStore";
@@ -235,7 +236,7 @@ export function usePty(
 
     const term = new Terminal({
       theme: useThemeStore.getState().getTerminalTheme(),
-      fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
+      fontFamily: terminalFont,
       fontSize: useSettingsStore.getState().terminalFontSize,
       lineHeight: 1.4,
       scrollback: useSettingsStore.getState().terminalScrollback,

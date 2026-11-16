@@ -339,7 +339,12 @@ fn get_password(project_id: &str, conn_id: &str) -> Option<String> {
         .and_then(|b| String::from_utf8(b).ok())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn get_password(project_id: &str, conn_id: &str) -> Option<String> {
+    crate::platform::credential_get(&format!("{}:{}", KEYCHAIN_SERVICE, keychain_account(project_id, conn_id)))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn get_password(_: &str, _: &str) -> Option<String> {
     None
 }
@@ -358,7 +363,20 @@ fn set_password(project_id: &str, conn_id: &str, password: Option<&str>) -> Resu
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn set_password(project_id: &str, conn_id: &str, password: Option<&str>) -> Result<(), String> {
+    let target = format!("{}:{}", KEYCHAIN_SERVICE, keychain_account(project_id, conn_id));
+    match password.filter(|p| !p.is_empty()) {
+        Some(p) => crate::platform::credential_set(&target, p)
+            .map_err(|e| format!("Couldn't save the password to Windows Credential Manager: {}", e)),
+        None => {
+            crate::platform::credential_delete(&target);
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn set_password(_: &str, _: &str, _: Option<&str>) -> Result<(), String> {
     Err("Saved passwords need the macOS Keychain".into())
 }
@@ -399,7 +417,7 @@ fn target_for(def: &DbConnectionDef, dir: &Path, password: Option<String>, datab
 /// A path as typed: `~/…`, absolute, or relative to the checkout.
 fn resolve_path(p: &str, dir: &Path) -> PathBuf {
     if let Some(rest) = p.strip_prefix("~/") {
-        return PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest);
+        return crate::platform::home_dir().unwrap_or_default().join(rest);
     }
     let path = PathBuf::from(p);
     if path.is_absolute() { path } else { dir.join(path) }
@@ -783,7 +801,7 @@ fn open(target: &Target, mode: Mode) -> Result<Session, DbError> {
             use rusqlite::OpenFlags;
             let path = target.url.strip_prefix("sqlite://").or_else(|| target.url.strip_prefix("sqlite:")).unwrap_or(&target.url);
             let path = if let Some(rest) = path.strip_prefix("~/") {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest)
+                crate::platform::home_dir().unwrap_or_default().join(rest)
             } else {
                 let p = PathBuf::from(path);
                 if p.is_absolute() { p } else { target.dir.join(p) }

@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorktreeStore } from "../../stores/worktreeStore";
 import { useDbStore } from "../../stores/dbStore";
 import { usePresence } from "../../hooks/usePresence";
+import { isWindows, secretStore } from "../../lib/platform";
 import * as api from "../../lib/tauri";
 import { ENGINE_LABEL, ENGINE_PORT, buildUrl, getParam, parseUrl, setParam, type UrlParts } from "../../lib/sql";
 import type { DbColor, DbConnectionDef, DbEngine } from "../../types";
@@ -316,7 +317,7 @@ export default function DbConnectionPanel() {
   const passwordPlaceholder = clearPassword
     ? "Will be removed"
     : hasPassword
-      ? "Saved in Keychain — type to replace"
+      ? `Saved in ${secretStore} — type to replace`
       : draft.mode === "url"
         ? "If the URL needs one"
         : "Optional";
@@ -545,8 +546,8 @@ export default function DbConnectionPanel() {
               <div className={styles.keychainNote}>
                 <IconLock size={10} />
                 {movedPassword
-                  ? "The password was taken out of the URL; it will be saved to your Keychain, not the project config."
-                  : "Passwords are kept in your macOS Keychain, never in the project config."}
+                  ? `The password was taken out of the URL; it will be saved to your ${secretStore}, not the project config.`
+                  : `Passwords are kept in ${isWindows ? "Windows Credential Manager" : "your macOS Keychain"}, never in the project config.`}
                 {hasPassword && !draft.password && !clearPassword && (
                   <button className={styles.inlineLink} onClick={() => setClearPassword(true)}>
                     Remove saved password

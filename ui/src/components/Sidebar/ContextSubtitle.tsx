@@ -8,7 +8,7 @@ import styles from "./ContextSubtitle.module.css";
  *  narrow. A worktree can hold several conversations, so the caller passes the
  *  one in the focused pane. The path stays reachable in the tooltip. */
 export default function ContextSubtitle({ path, agent }: { path: string; agent: AgentInfo | null }) {
-  const shortPath = path.replace(/^\/Users\/[^/]+/, "~");
+  const shortPath = path.replace(/^(\/Users\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)/, "~");
   const usage = agent?.usage;
   const conversation = usage?.reported?.title ?? usage?.sessionName ?? null;
   const lines = usage?.reported;

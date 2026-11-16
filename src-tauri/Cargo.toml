@@ -23,11 +23,17 @@ futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 rusqlite = { version = "0.32", features = ["bundled", "column_decltype"] }
 mysql = { version = "25", default-features = false, features = ["minimal", "native-tls"] }
+getrandom = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 security-framework = "3"
+
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1"
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_Threading"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

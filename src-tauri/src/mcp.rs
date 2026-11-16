@@ -66,8 +66,8 @@ struct McpConfig {
 }
 
 fn config_path() -> Result<PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(CONFIG_SUBPATH))
+    crate::platform::home_dir()
+        .map(|h| h.join(CONFIG_SUBPATH))
         .ok_or_else(|| "HOME is not set".to_string())
 }
 
@@ -77,6 +77,7 @@ fn load_config() -> Option<McpConfig> {
 }
 
 fn save_config(cfg: &McpConfig) -> Result<(), String> {
+    #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;
     use std::io::Write;
     let path = config_path()?;
@@ -84,8 +85,11 @@ fn save_config(cfg: &McpConfig) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {}", dir.display(), e))?;
     }
     let json = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    let mut f = fs::OpenOptions::new()
-        .write(true).create(true).truncate(true).mode(0o600)
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let mut f = opts
         .open(&path)
         .map_err(|e| format!("could not write {}: {}", path.display(), e))?;
     f.write_all(json.as_bytes()).map_err(|e| e.to_string())
@@ -93,9 +97,7 @@ fn save_config(cfg: &McpConfig) -> Result<(), String> {
 
 fn new_token() -> Result<String, String> {
     let mut bytes = [0u8; 24];
-    fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| format!("could not read /dev/urandom: {}", e))?;
+    getrandom::fill(&mut bytes).map_err(|e| format!("could not make a token: {}", e))?;
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
@@ -211,7 +213,7 @@ pub fn start_if_enabled(app: tauri::AppHandle) {
 const CODEX_MARKER: &str = "# Added by Lever; removed when you turn off its MCP server in Settings.";
 
 fn codex_config_path() -> Option<PathBuf> {
-    let dir = PathBuf::from(std::env::var_os("HOME")?).join(".codex");
+    let dir = crate::platform::home_dir()?.join(".codex");
     dir.is_dir().then(|| dir.join("config.toml"))
 }
 
@@ -284,7 +286,7 @@ fn register_codex(cfg: Option<&McpConfig>) -> Result<bool, String> {
 }
 
 fn run_claude(args: &[&str]) -> Result<(), String> {
-    let out = std::process::Command::new("claude")
+    let out = crate::platform::command("claude")
         .args(args)
         .env("PATH", get_shell_path())
         .output()
@@ -797,6 +799,7 @@ const CALLER_CACHE_TTL: Duration = Duration::from_secs(30);
 /// `lsof -iTCP:<peer port> -F pn`: the socket whose local end is the peer's
 /// port and whose remote end is our server's. Our own accepted socket matches
 /// the reverse, and is skipped by pid as well.
+#[cfg_attr(windows, allow(dead_code))]
 fn pid_owning(lsof: &str, peer_port: u16, server_port: u16, own_pid: u32) -> Option<u32> {
     let local = format!(":{}", peer_port);
     let remote = format!(":{}", server_port);
@@ -835,7 +838,12 @@ fn process_cwd(pid: u32) -> Option<PathBuf> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn process_cwd(pid: u32) -> Option<PathBuf> {
+    crate::platform::process_cwd(pid)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn process_cwd(_pid: u32) -> Option<PathBuf> {
     None
 }
@@ -849,12 +857,22 @@ fn caller_cwd(peer: std::net::SocketAddr, server_port: u16) -> Option<PathBuf> {
             return cwd.clone();
         }
     }
-    let out = std::process::Command::new("lsof")
-        .args(["-nP", &format!("-iTCP:{}", peer.port()), "-sTCP:ESTABLISHED", "-Fpn"])
-        .output()
-        .ok()?;
-    let cwd = pid_owning(&String::from_utf8_lossy(&out.stdout), peer.port(), server_port, std::process::id())
-        .and_then(process_cwd);
+    #[cfg(windows)]
+    let owner = crate::platform::netstat_tcp().into_iter()
+        .find(|(local, remote, state, pid)| state == "ESTABLISHED"
+            && crate::platform::port_of(local) == Some(peer.port())
+            && crate::platform::port_of(remote) == Some(server_port)
+            && *pid != std::process::id())
+        .map(|(_, _, _, pid)| pid);
+    #[cfg(not(windows))]
+    let owner = {
+        let out = std::process::Command::new("lsof")
+            .args(["-nP", &format!("-iTCP:{}", peer.port()), "-sTCP:ESTABLISHED", "-Fpn"])
+            .output()
+            .ok()?;
+        pid_owning(&String::from_utf8_lossy(&out.stdout), peer.port(), server_port, std::process::id())
+    };
+    let cwd = owner.and_then(process_cwd);
     let mut cache = cache.lock().unwrap();
     cache.retain(|_, (_, at)| at.elapsed() < CALLER_CACHE_TTL);
     cache.insert(peer.port(), (cwd.clone(), std::time::Instant::now()));

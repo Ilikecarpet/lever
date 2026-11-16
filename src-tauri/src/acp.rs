@@ -13,7 +13,6 @@
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::process::CommandExt;
 use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Emitter;
@@ -42,9 +41,7 @@ struct Session {
 impl Drop for Session {
     /// npx runs the adapter as its own child, so the whole group goes.
     fn drop(&mut self) {
-        unsafe {
-            libc::kill(-(self.pid as i32), libc::SIGTERM);
-        }
+        crate::platform::terminate_tree(self.pid);
     }
 }
 
@@ -80,7 +77,7 @@ pub fn acp_start(chat_id: String, cwd: String, agent: String, window: tauri::Web
         .map(|(_, pkg)| *pkg)
         .ok_or_else(|| format!("Unknown agent {}", agent))?;
 
-    let mut cmd = Command::new("npx");
+    let mut cmd = crate::platform::command("npx");
     cmd.args(["-y", adapter])
         .current_dir(&cwd)
         // Lever started from the Dock has launchd's PATH, which has no Node.
@@ -91,8 +88,8 @@ pub fn acp_start(chat_id: String, cwd: String, agent: String, window: tauri::Web
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0);
+        .stderr(Stdio::piped());
+    crate::platform::own_process_group(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("Failed to start the agent (npx {}): {}", adapter, e))?;
     let pid = child.id();
     let stdin = child.stdin.take().ok_or("Agent has no stdin")?;

@@ -27,8 +27,7 @@ const CHAIN_FILE: &str = "chained-command";
 const STALE_PAYLOAD_SECS: u64 = 7 * 24 * 60 * 60;
 
 fn home() -> Result<PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
+    crate::platform::home_dir()
         .ok_or_else(|| "HOME is not set".to_string())
 }
 

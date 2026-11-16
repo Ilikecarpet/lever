@@ -11,13 +11,19 @@
 //! then one `{"type":"done"}` with the result or the error.
 //!
 //! The socket sits in ~/.lever and is made 0600: only this user can drive it.
+//! Windows has Unix sockets too (since 10 1803); there the profile folder's
+//! own permissions keep other users out.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(windows)]
+use uds_windows::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -36,7 +42,7 @@ const SOCKET_SUBPATH: &str = ".lever/lever.sock";
 static SERVING: AtomicBool = AtomicBool::new(false);
 
 pub fn socket_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(SOCKET_SUBPATH))
+    super::platform::home_dir().map(|h| h.join(SOCKET_SUBPATH))
 }
 
 #[derive(Deserialize)]
@@ -89,6 +95,7 @@ fn try_serve(app: &tauri::AppHandle) -> bool {
             return true;
         }
     };
+    #[cfg(unix)]
     let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     SERVING.store(true, Ordering::SeqCst);
 
@@ -107,13 +114,12 @@ fn try_serve(app: &tauri::AppHandle) -> bool {
 /// An exclusive lock beside the socket, released when the file drops. None
 /// when it cannot be taken; the takeover then goes ahead unguarded.
 fn lock_takeover(socket: &Path) -> Option<fs::File> {
-    use std::os::unix::io::AsRawFd;
     let file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .open(socket.with_extension("sock.lock"))
         .ok()?;
-    (unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0).then_some(file)
+    file.lock().ok().map(|()| file)
 }
 
 /// Removes the socket on quit, so the next CLI call starts a fresh Lever

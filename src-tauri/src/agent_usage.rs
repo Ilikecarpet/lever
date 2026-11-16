@@ -139,7 +139,7 @@ struct SessionMeta {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    crate::platform::home_dir()
 }
 
 fn read_session_meta(pid: u32) -> Option<SessionMeta> {

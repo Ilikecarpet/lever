@@ -39,3 +39,39 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         with:
           args: --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+  # Lever ships for macOS only so far; this keeps the Windows port compiling
+  # and its tests passing until it ships too.
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm install --prefix ui
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build frontend
+        run: npm run build --prefix ui
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Build Tauri app (validation)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --config '{"bundle":{"createUpdaterArtifacts":false}}'

@@ -1,12 +1,13 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::PathBuf;
+#[cfg(not(windows))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -22,6 +23,7 @@ mod define;
 mod mcp;
 mod output;
 mod plan_usage;
+mod platform;
 use agent_usage::{AgentUsage, RateLimits, UsageTracker};
 
 
@@ -197,7 +199,7 @@ fn debug_action(category: &str, summary: &str) {
 fn run_git_logged(args: &[&str], cwd: &str) -> std::io::Result<std::process::Output> {
     let shell_path = get_shell_path();
     debug_log("git", "cmd", &format!("git {}  (in {})", args.join(" "), cwd));
-    let out = Command::new("git").args(args).current_dir(cwd)
+    let out = platform::command("git").args(args).current_dir(cwd)
         .env("PATH", &shell_path).output();
     match &out {
         Ok(o) => {
@@ -344,13 +346,7 @@ struct PtyInfo {
 // ---------------------------------------------------------------------------
 
 fn shell_escape(s: &str) -> String {
-    if s.is_empty() {
-        return "''".to_string();
-    }
-    if s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' || c == ':' || c == '=' || c == '@') {
-        return s.to_string();
-    }
-    format!("'{}'", s.replace('\'', "'\\''"))
+    platform::shell_escape(s)
 }
 
 /// The shell line a service is spawned with.
@@ -377,20 +373,7 @@ fn get_shell_path() -> String {
     // can take hundreds of ms — compute once and reuse.
     static SHELL_PATH: OnceLock<String> = OnceLock::new();
     SHELL_PATH
-        .get_or_init(|| {
-            if let Ok(output) = Command::new("/bin/zsh")
-                .args(["-il", "-c", "echo $PATH"])
-                .output()
-            {
-                if let Ok(path) = String::from_utf8(output.stdout) {
-                    let trimmed = path.trim();
-                    if !trimmed.is_empty() {
-                        return trimmed.to_string();
-                    }
-                }
-            }
-            std::env::var("PATH").unwrap_or_default()
-        })
+        .get_or_init(platform::shell_path)
         .clone()
 }
 
@@ -404,6 +387,7 @@ fn reaped() -> &'static Mutex<HashMap<u32, i32>> {
 }
 
 fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
     unsafe {
         let mut status: i32 = 0;
         let ret = libc::waitpid(pid as i32, &mut status, libc::WNOHANG);
@@ -411,8 +395,8 @@ fn is_pid_alive(pid: u32) -> bool {
             reaped().lock().unwrap().insert(pid, status);
             return false;
         }
-        libc::kill(pid as i32, 0) == 0
     }
+    platform::pid_exists(pid)
 }
 
 /// How a service's shell ended: its exit code, or the signal that ended it.
@@ -440,6 +424,9 @@ fn collect_exit(child: &mut Box<dyn portable_pty::Child + Send + Sync>, pid: u32
             // Already reaped by the poll's liveness check.
             Err(_) => {
                 let raw = reaped().lock().unwrap().remove(&pid);
+                #[cfg(not(unix))]
+                return { let _ = raw; (None, None) };
+                #[cfg(unix)]
                 return match raw {
                     Some(raw) if libc::WIFEXITED(raw) => (Some(libc::WEXITSTATUS(raw)), None),
                     Some(raw) if libc::WIFSIGNALED(raw) => {
@@ -464,7 +451,7 @@ const AGENT_COMMANDS: &[&str] = &[
 const INTERPRETERS: &[&str] = &["node", "bun", "deno", "python", "python3"];
 
 fn path_basename(s: &str) -> &str {
-    s.rsplit('/').next().unwrap_or(s)
+    platform::exe_basename(s)
 }
 
 /// Output arriving within this window after user input is treated as
@@ -592,26 +579,18 @@ struct ProcessTable {
 
 impl ProcessTable {
     fn scan() -> Self {
-        let output = match Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output() {
-            Ok(o) => o,
-            Err(_) => return Self::default(),
-        };
-        Self::parse(&String::from_utf8_lossy(&output.stdout))
+        Self::from_list(platform::process_list())
     }
 
+    #[cfg(test)]
     fn parse(text: &str) -> Self {
+        Self::from_list(platform::parse_ps(text))
+    }
+
+    fn from_list(list: Vec<(u32, u32, Vec<String>)>) -> Self {
         let mut table = Self::default();
-        for line in text.lines() {
-            let mut parts = line.split_whitespace();
-            let pid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
-                Some(p) => p,
-                None => continue,
-            };
-            let ppid = match parts.next().and_then(|s| s.parse::<u32>().ok()) {
-                Some(p) => p,
-                None => continue,
-            };
-            let tokens: Vec<&str> = parts.collect();
+        for (pid, ppid, words) in list {
+            let tokens: Vec<&str> = words.iter().map(String::as_str).collect();
             table.children.entry(ppid).or_default().push(pid);
             if let Some(name) = agent_name_for_command(&tokens) {
                 table.agents_by_pid.insert(pid, name);
@@ -666,17 +645,36 @@ fn listening_ports(pids: &[u32]) -> HashMap<u32, Vec<u16>> {
     if pids.is_empty() {
         return HashMap::new();
     }
-    let list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
-    let output = match Command::new("lsof")
-        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &list, "-Fpn"])
-        .output()
+    #[cfg(windows)]
     {
-        Ok(o) => o,
-        Err(_) => return HashMap::new(),
-    };
-    parse_listening_ports(&String::from_utf8_lossy(&output.stdout))
+        let mut out: HashMap<u32, Vec<u16>> = HashMap::new();
+        for (local, _, state, pid) in platform::netstat_tcp() {
+            if state == "LISTENING" && pids.contains(&pid) {
+                if let Some(port) = platform::port_of(&local) {
+                    let ports = out.entry(pid).or_default();
+                    if !ports.contains(&port) {
+                        ports.push(port);
+                    }
+                }
+            }
+        }
+        out
+    }
+    #[cfg(not(windows))]
+    {
+        let list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+        let output = match Command::new("lsof")
+            .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &list, "-Fpn"])
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => return HashMap::new(),
+        };
+        parse_listening_ports(&String::from_utf8_lossy(&output.stdout))
+    }
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn parse_listening_ports(text: &str) -> HashMap<u32, Vec<u16>> {
     let mut out: HashMap<u32, Vec<u16>> = HashMap::new();
     let mut current: Option<u32> = None;
@@ -1037,11 +1035,7 @@ fn on_quit(state: &AppState) {
     for (project_id, ps) in projects.iter_mut() {
         if stop {
             for t in ps.tracked.values() {
-                #[cfg(unix)]
-                unsafe {
-                    libc::kill(-(t.pid as i32), libc::SIGTERM);
-                    libc::kill(t.pid as i32, libc::SIGTERM);
-                }
+                platform::terminate_tree(t.pid);
             }
             ps.tracked.clear();
         }
@@ -1062,11 +1056,7 @@ fn delete_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>)
                 .map(|(k, v)| (k.clone(), v.pid))
                 .collect();
             for (_svc_id, pid) in &pids {
-                #[cfg(unix)]
-                unsafe {
-                    libc::kill(-(*pid as i32), libc::SIGTERM);
-                    libc::kill(*pid as i32, libc::SIGTERM);
-                }
+                platform::terminate_tree(*pid);
             }
             ps.tracked.clear();
             ps.pty_sessions.clear();
@@ -1435,17 +1425,21 @@ fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -
 
     // Project windows draw their own header into the title bar area
     // (unified top bar in the UI); the native title stays hidden and the
-    // traffic lights are repositioned to center in the 38px header.
-    let window = tauri::WebviewWindowBuilder::new(
+    // traffic lights are repositioned to center in the 38px header. Elsewhere
+    // the native title bar stays, with the window's own buttons in it.
+    let builder = tauri::WebviewWindowBuilder::new(
         &app,
         &label,
         tauri::WebviewUrl::App("index.html".into()),
     )
     .title(format!("Lever — {}", project_name))
     .inner_size(900.0, 700.0)
-    .min_inner_size(600.0, 400.0)
-    .title_bar_style(tauri::TitleBarStyle::Overlay)
-    .hidden_title(true)
+    .min_inner_size(600.0, 400.0);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    let window = builder
     .on_page_load(close_hidden_start_page)
     .build()
     .map_err(|e| e.to_string())?;
@@ -1522,8 +1516,7 @@ fn start_service_in(app: &tauri::AppHandle, state: &AppState, project_id: &str, 
         .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    let mut cmd = CommandBuilder::new("/bin/zsh");
-    cmd.args(["-il", "-c", &shell_cmd]);
+    let mut cmd = platform::service_command(&shell_cmd);
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
@@ -1652,7 +1645,7 @@ fn stop_service_in(state: &AppState, project_id: &str, id: &str) -> Result<(), S
                 "."
             };
             debug_log("service", "cmd", &format!("{} {}  (in {})", cmd, args.join(" "), cwd));
-            let _ = Command::new(cmd).args(args).current_dir(cwd).env("PATH", &shell_path).output();
+            let _ = platform::command(cmd).args(args).current_dir(cwd).env("PATH", &shell_path).output();
         }
 
         // Remove the PTY session (closing master fd causes reader to exit)
@@ -1661,22 +1654,14 @@ fn stop_service_in(state: &AppState, project_id: &str, id: &str) -> Result<(), S
         }
 
         // Kill process group as fallback
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(-(t.pid as i32), libc::SIGTERM);
-            libc::kill(t.pid as i32, libc::SIGTERM);
-        }
+        platform::terminate_tree(t.pid);
     } else if let Some(ref t) = tracked {
         // No service def found but we have a tracked service — still clean up
         if let Some(ref pty_id) = t.pty_id {
             ps.pty_sessions.remove(pty_id);
         }
 
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(-(t.pid as i32), libc::SIGTERM);
-            libc::kill(t.pid as i32, libc::SIGTERM);
-        }
+        platform::terminate_tree(t.pid);
     }
 
     save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
@@ -1872,9 +1857,7 @@ fn create_pty(project_id: String, cols: u16, rows: u16, cwd: Option<String>, win
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
+    let mut cmd = platform::terminal_command();
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
@@ -2548,7 +2531,7 @@ fn sanitize_branch_for_path(branch: &str) -> String {
 
 fn list_git_worktrees(repo_path: &str) -> Vec<(String, Option<String>)> {
     let shell_path = get_shell_path();
-    let output = Command::new("git")
+    let output = platform::command("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(repo_path)
         .env("PATH", &shell_path)
@@ -2748,22 +2731,11 @@ fn create_worktree(
     Ok(worktree_def)
 }
 
-#[cfg(unix)]
-fn signal_pids(pids: &[u32], sig: i32) {
-    for &pid in pids {
-        unsafe {
-            libc::kill(-(pid as i32), sig);
-            libc::kill(pid as i32, sig);
-        }
-    }
-}
-
-#[cfg(unix)]
 fn wait_for_exit(pids: &[u32], timeout_ms: u64) -> Vec<u32> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
     loop {
         let alive: Vec<u32> = pids.iter().copied()
-            .filter(|&pid| unsafe { libc::kill(pid as i32, 0) } == 0)
+            .filter(|&pid| platform::pid_exists(pid))
             .collect();
         if alive.is_empty() || std::time::Instant::now() >= deadline {
             return alive;
@@ -2914,26 +2886,22 @@ fn remove_worktree(
         save_project_persistent_state(&state.projects_dir, &project_id, &ps.tracked);
     }
 
-    #[cfg(unix)]
     {
         if !pids.is_empty() {
             debug_log("worktree", "info", &format!("Stopping {} running service(s): SIGTERM {:?}", pids.len(), pids));
         }
-        signal_pids(&pids, libc::SIGTERM);
+        pids.iter().for_each(|&p| platform::terminate_tree(p));
         if cleanup {
             // Anything still writing while git deletes the directory can abort the
             // removal halfway and orphan it.
             let alive = wait_for_exit(&pids, 3000);
             if !alive.is_empty() {
                 debug_log("worktree", "info", &format!("Still alive after 3s, sending SIGKILL: {:?}", alive));
-                signal_pids(&alive, libc::SIGKILL);
+                alive.iter().for_each(|&p| platform::kill_tree(p));
                 wait_for_exit(&alive, 1000);
             }
         }
     }
-    #[cfg(not(unix))]
-    let _ = &pids;
-
     if cleanup {
         let index = load_project_index(&state.projects_dir);
         if let Some(meta) = index.projects.iter().find(|p| p.id == project_id) {

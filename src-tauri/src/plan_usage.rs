@@ -12,7 +12,7 @@
 //! answer.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -62,7 +62,7 @@ pub fn refresh_if_stale(max_age: Duration) {
 /// One `get_usage` round trip. `None` when `claude` is missing, signed out,
 /// on an API key (no plan windows), or slow to answer.
 fn fetch() -> Option<RateLimits> {
-    let mut child = Command::new("claude")
+    let mut child = crate::platform::command("claude")
         .args([
             "-p",
             "--input-format",
