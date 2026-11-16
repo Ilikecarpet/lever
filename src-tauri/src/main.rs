@@ -1273,7 +1273,11 @@ fn keep_traffic_lights_positioned(window: &tauri::WebviewWindow) {
 // Tauri commands: start page + open project window
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
+// Async on Windows: a command runs inside WebView2's message callback there,
+// and building a webview from inside it deadlocks the new window blank. Not on
+// macOS, where windows and AppKit want the main thread a sync command runs on.
+#[cfg_attr(windows, tauri::command(async))]
+#[cfg_attr(not(windows), tauri::command)]
 fn show_start_page(app: tauri::AppHandle) -> Result<(), String> {
     set_in_dock(&app, true);
     if let Some(window) = app.get_webview_window("main") {
@@ -1311,7 +1315,9 @@ fn close_hidden_start_page<R: tauri::Runtime>(
     }
 }
 
-#[tauri::command]
+// Async on Windows; see show_start_page.
+#[cfg_attr(windows, tauri::command(async))]
+#[cfg_attr(not(windows), tauri::command)]
 fn open_scratch_terminal(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     set_in_dock(&app, true);
     let scratch_id = format!("scratch-{}", now_unix());
@@ -1400,7 +1406,9 @@ fn ensure_project_loaded(state: &AppState, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+// Async on Windows; see show_start_page.
+#[cfg_attr(windows, tauri::command(async))]
+#[cfg_attr(not(windows), tauri::command)]
 fn open_project(id: String, app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let label = format!("project-{}", id);
     set_in_dock(&app, true);
