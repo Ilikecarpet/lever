@@ -39,3 +39,52 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         with:
           args: --target aarch64-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+  # Lever ships for macOS only so far; this keeps the Windows port compiling
+  # and its tests passing until it ships too.
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # npm on Windows ignores --prefix for install, so run it from ui/.
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm install
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build frontend
+        working-directory: ui
+        run: npm run build
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Build Tauri app (validation)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      # Unsigned; for trying the port on a Windows machine.
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: lever-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error

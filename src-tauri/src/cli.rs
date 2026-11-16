@@ -9,7 +9,10 @@
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(windows)]
+use uds_windows::UnixStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -151,11 +154,13 @@ pub fn invoked_as_cli() -> bool {
     match args.next() {
         Some(a) => a != "--headless" && !a.starts_with("-psn_"),
         // `cargo tauri dev` runs the bare binary from target/.
-        None => !cfg!(debug_assertions) && !argv0.contains(".app/Contents/MacOS/"),
+        // On Windows the Start menu runs it bare too.
+        None => !cfg!(debug_assertions) && !cfg!(windows) && !argv0.contains(".app/Contents/MacOS/"),
     }
 }
 
 pub fn main() -> i32 {
+    super::platform::attach_parent_console();
     let cli = Cli::parse();
     match run(cli) {
         Ok(code) => code,
@@ -478,16 +483,15 @@ fn launch_headless() -> Result<(), String> {
             .status()
             .map_err(|e| format!("could not start Lever: {}", e))
             .and_then(|s| if s.success() { Ok(()) } else { Err(format!("`open` could not start {}", app.display())) }),
-        // A development build outside any bundle.
+        // A development build outside any bundle, or any Windows install.
         None => {
-            use std::os::unix::process::CommandExt;
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            std::process::Command::new(exe)
-                .arg("--headless")
+            let mut cmd = std::process::Command::new(exe);
+            cmd.arg("--headless")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .process_group(0)
+                .stderr(std::process::Stdio::null());
+            super::platform::own_process_group(&mut cmd)
                 .spawn()
                 .map(|_| ())
                 .map_err(|e| format!("could not start Lever: {}", e))
@@ -510,21 +514,65 @@ pub struct CliState {
 
 /// /usr/local/bin where it can be written without a password, which on Apple
 /// Silicon — no Homebrew there — it often cannot; then ~/.local/bin.
+#[cfg(unix)]
 fn link_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("/usr/local/bin")];
-    if let Some(home) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(home).join(".local/bin"));
+    if let Some(home) = super::platform::home_dir() {
+        dirs.push(home.join(".local/bin"));
     }
     dirs
 }
 
+/// The WindowsApps folder: per user, writable, and on PATH out of the box.
+#[cfg(windows)]
+fn link_dirs() -> Vec<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|d| vec![PathBuf::from(d).join("Microsoft").join("WindowsApps")])
+        .unwrap_or_default()
+}
+
+/// What `lever` is called in a PATH directory. On Windows it is a batch shim
+/// rather than a link: symlinks need admin rights there, and a batch file waits
+/// for Lever — a GUI program — to finish, which a terminal would not.
+#[cfg(unix)]
+const LINK_NAME: &str = "lever";
+#[cfg(windows)]
+const LINK_NAME: &str = "lever.cmd";
+
+#[cfg(unix)]
+fn make_link(exe: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(exe, link)
+}
+
+#[cfg(windows)]
+fn make_link(exe: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    std::fs::write(link, shim_body(exe))
+}
+
+#[cfg(windows)]
+fn shim_body(exe: &std::path::Path) -> String {
+    format!("@\"{}\" %*\r\n@exit /b %errorlevel%\r\n", exe.display())
+}
+
 fn this_exe() -> Result<PathBuf, String> {
+    // canonicalize on Windows gives a \\?\ path, which batch files cannot run.
+    #[cfg(windows)]
+    return std::env::current_exe().map_err(|e| e.to_string());
+    #[cfg(not(windows))]
     std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| e.to_string())
 }
 
-/// The `lever` link in `dir`, if it is one to this Lever.
+/// The `lever` shim in `dir`, if it is one to this Lever.
+#[cfg(windows)]
 fn our_link(dir: &std::path::Path, exe: &std::path::Path) -> Option<PathBuf> {
-    let link = dir.join("lever");
+    let link = dir.join(LINK_NAME);
+    (std::fs::read_to_string(&link).ok()? == shim_body(exe)).then_some(link)
+}
+
+/// The `lever` link in `dir`, if it is one to this Lever.
+#[cfg(unix)]
+fn our_link(dir: &std::path::Path, exe: &std::path::Path) -> Option<PathBuf> {
+    let link = dir.join(LINK_NAME);
     let target = std::fs::read_link(&link).ok()?;
     (std::fs::canonicalize(&target).ok()? == exe).then_some(link)
 }
@@ -552,15 +600,15 @@ pub fn install_cli() -> Result<CliState, String> {
     }
     let mut last_err = String::from("nowhere to put it");
     for dir in link_dirs() {
-        let link = dir.join("lever");
+        let link = dir.join(LINK_NAME);
         if link.symlink_metadata().is_ok() {
             last_err = format!("{} already exists and is not this Lever; remove it first", link.display());
             continue;
         }
-        if dir.starts_with(std::env::var_os("HOME").unwrap_or_default()) {
+        if super::platform::home_dir().is_some_and(|h| dir.starts_with(h)) {
             let _ = std::fs::create_dir_all(&dir);
         }
-        match std::os::unix::fs::symlink(&exe, &link) {
+        match make_link(&exe, &link) {
             Ok(()) => return cli_state_now(),
             Err(e) => last_err = format!("could not create {}: {}", link.display(), e),
         }
@@ -590,6 +638,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn only_a_link_to_this_lever_counts_as_installed() {
         let dir = std::env::temp_dir().join(format!("lever-cli-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

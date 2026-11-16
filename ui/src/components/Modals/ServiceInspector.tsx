@@ -8,6 +8,7 @@ import { usePanelStore } from "../../stores/panelStore";
 import type { PanelTarget } from "../../stores/panelStore";
 import { usePresence } from "../../hooks/usePresence";
 import type { ServiceDef, ServiceGroup } from "../../types";
+import { isWindows } from "../../lib/platform";
 import shell from "./Panel.module.css";
 import styles from "./ServiceInspector.module.css";
 
@@ -447,7 +448,9 @@ export default function ServiceInspector() {
                     placeholder="e.g. PORT=5001 npm run dev -- --host 0.0.0.0"
                   />
                   <div className={shell.hint}>
-                    Runs in zsh exactly as typed — env prefixes, quotes and pipes all work.
+                    {isWindows
+                      ? "Runs in cmd.exe exactly as typed — quotes, pipes and && all work."
+                      : "Runs in zsh exactly as typed — env prefixes, quotes and pipes all work."}
                   </div>
                 </div>
                 <div className={styles.f}>

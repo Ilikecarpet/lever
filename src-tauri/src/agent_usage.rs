@@ -139,7 +139,7 @@ struct SessionMeta {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    crate::platform::home_dir()
 }
 
 fn read_session_meta(pid: u32) -> Option<SessionMeta> {
@@ -1037,7 +1037,7 @@ mod tests {
             let t = std::time::SystemTime::now()
                 .checked_sub(std::time::Duration::from_secs((-mtime_offset_secs).max(0) as u64))
                 .unwrap();
-            fs::File::open(&path).unwrap().set_modified(t).unwrap();
+            fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(t).unwrap();
         }
     }
     impl Drop for PayloadDir {

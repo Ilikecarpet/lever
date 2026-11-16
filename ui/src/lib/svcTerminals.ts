@@ -1,5 +1,6 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { terminalFont } from "./platform";
 import * as api from "./tauri";
 import { tauriListen } from "./tauri";
 import { useThemeStore, onTerminalThemeChange } from "../stores/themeStore";
@@ -125,7 +126,7 @@ export function ensureSvcTerm(serviceId: string, ptyId: string): SvcTermEntry {
 
   const term = new Terminal({
     theme: useThemeStore.getState().getTerminalTheme(),
-    fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", monospace',
+    fontFamily: terminalFont,
     fontSize: useSettingsStore.getState().terminalFontSize,
     lineHeight: 1.4,
     scrollback: useSettingsStore.getState().terminalScrollback,

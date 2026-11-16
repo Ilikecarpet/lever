@@ -27,8 +27,7 @@ const CHAIN_FILE: &str = "chained-command";
 const STALE_PAYLOAD_SECS: u64 = 7 * 24 * 60 * 60;
 
 fn home() -> Result<PathBuf, String> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
+    crate::platform::home_dir()
         .ok_or_else(|| "HOME is not set".to_string())
 }
 
@@ -95,7 +94,7 @@ fi
 # With nothing chained this prints nothing, and Claude Code shows no status
 # line — exactly as it did before the bridge was installed.
 "#,
-        sessions = sessions_dir_in(home).display(),
+        sessions = sh_path(&sessions_dir_in(home)),
         chain = chain_path_in(home).display(),
     )
 }
@@ -143,8 +142,14 @@ fn command_of(settings: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// A path as the script's shell sees it. Claude Code on Windows runs status
+/// lines through Git Bash, where a backslash is an escape, not a separator.
+fn sh_path(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
 fn is_ours(command: &str) -> bool {
-    command.contains(&format!("{}/{}", BRIDGE_SUBDIR, SCRIPT_NAME))
+    command.replace('\\', "/").contains(&format!("{}/{}", BRIDGE_SUBDIR, SCRIPT_NAME))
 }
 
 pub fn state() -> Result<BridgeState, String> {
@@ -213,7 +218,7 @@ fn install_in(home: &Path) -> Result<BridgeState, String> {
     entry.insert("type".into(), serde_json::json!("command"));
     entry.insert(
         "command".into(),
-        serde_json::json!(script.to_string_lossy()),
+        serde_json::json!(sh_path(&script)),
     );
 
     write_settings(home, &settings)?;
@@ -314,7 +319,7 @@ mod tests {
     /// Runs the installed script the way Claude Code does: payload on stdin.
     fn run_script(home: &PathBuf, payload: &str) -> String {
         let script = home.join(BRIDGE_SUBDIR).join(SCRIPT_NAME);
-        let mut child = Command::new("/bin/sh")
+        let mut child = Command::new(if cfg!(windows) { "sh" } else { "/bin/sh" })
             .arg(&script)
             .env("HOME", home)
             .stdin(Stdio::piped())
