@@ -92,6 +92,8 @@ export type ToolItem = {
   kind: "tool";
   id: string;
   title: string;
+  /** The tool's own name, e.g. `mcp__lever__show_artifact`, when the agent says. */
+  name?: string;
   toolKind?: string;
   status?: string;
   content: ToolContent[];
@@ -122,6 +124,45 @@ export function allTools(items: ChatItem[]): ToolItem[] {
   return out;
 }
 
+/** Appended to the agent's system prompt. Left alone, an agent shows a chart
+ *  by writing an HTML file and opening it: it has no idea it is talking
+ *  through a window that can draw one in the conversation. */
+const ARTIFACT_PROMPT = `You are running inside Lever's chat pane, a desktop GUI that renders artifacts inline in the conversation. To show the user something visual — a chart, graph, diagram, mockup, styled report, HTML or SVG preview, or a long formatted document — call the show_artifact tool from Lever's MCP server (mcp__lever__show_artifact; load it through tool search first if it is deferred). Do this instead of writing an HTML or image file, opening a browser, starting a server, or drawing ASCII art; only write a file when the user asks for one. Artifacts sit in a chat column 360-800px wide, so make them compact and responsive: no fixed widths over 360px, no 100vw or 100vh, nothing that scrolls sideways, and follow the layout rules in the tool's description. They have no network access, so inline all CSS and JavaScript. After showing one, refer to it briefly rather than repeating its content.`;
+
+/** The `_meta` every session starts with: the artifact prompt, when Lever's
+ *  MCP server is up to take the call. Agents that do not know the field
+ *  ignore it. */
+async function sessionMeta(): Promise<Record<string, unknown>> {
+  const mcp = await api.mcpState().catch(() => null);
+  return mcp?.running ? { systemPrompt: { append: ARTIFACT_PROMPT } } : {};
+}
+
+export type ArtifactType = "html" | "svg" | "markdown";
+
+export interface Artifact {
+  title: string;
+  type: ArtifactType;
+  /** Empty while the agent is still writing it. */
+  content: string;
+}
+
+const ARTIFACT_TYPES: readonly string[] = ["html", "svg", "markdown"];
+
+/** What a call to Lever's show_artifact tool asks to show, or null for any
+ *  other tool. Claude names it `mcp__lever__show_artifact`; other agents
+ *  title it their own way, and may nest the input under `arguments`. */
+export function artifactOf(t: ToolItem): Artifact | null {
+  if (!/lever.{0,3}show_artifact/.test(t.name ?? t.title)) return null;
+  const raw = t.rawInput ?? {};
+  const input = (raw.arguments && typeof raw.arguments === "object" ? raw.arguments : raw) as Record<string, unknown>;
+  const type = typeof input.type === "string" && ARTIFACT_TYPES.includes(input.type) ? (input.type as ArtifactType) : "html";
+  return {
+    title: typeof input.title === "string" && input.title.trim() ? input.title.trim() : "Artifact",
+    type,
+    content: typeof input.content === "string" ? input.content : "",
+  };
+}
+
 /** A tool call with an update folded in; the update carries only what changed. */
 function mergeTool(prev: ToolItem | null, u: any): ToolItem {
   const rawInput = u.rawInput && Object.keys(u.rawInput).length ? u.rawInput : prev?.rawInput;
@@ -129,6 +170,7 @@ function mergeTool(prev: ToolItem | null, u: any): ToolItem {
     kind: "tool",
     id: u.toolCallId,
     title: u.title ?? prev?.title ?? u.name ?? "Tool",
+    name: u.name ?? u._meta?.claudeCode?.toolName ?? prev?.name,
     toolKind: u.kind ?? prev?.toolKind,
     status: u.status ?? prev?.status,
     content: u.content ?? prev?.content ?? [],
@@ -613,7 +655,7 @@ export class Chat {
     try {
       if (resumeId && this.state.canLoad) {
         this.set({ loading: true, sessionId: resumeId });
-        const res = await this.request("session/load", { sessionId: resumeId, cwd: this.cwd, mcpServers: [] });
+        const res = await this.request("session/load", { sessionId: resumeId, cwd: this.cwd, mcpServers: [], _meta: await sessionMeta() });
         // A replayed tool call that never reported an outcome is history, not
         // something still running.
         const settle = (t: ToolItem): ToolItem =>
@@ -635,7 +677,7 @@ export class Chat {
         });
         this.set({ status: "ready", loading: false, items, configOptions: res?.configOptions ?? this.state.configOptions });
       } else {
-        const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [] });
+        const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [], _meta: await sessionMeta() });
         this.set({ status: "ready", sessionId: res.sessionId, configOptions: res.configOptions ?? [] });
       }
     } catch (e) {
@@ -992,11 +1034,11 @@ export class Chat {
           sessionId: st.sessionId,
           cwd: this.cwd,
           mcpServers: [],
-          _meta: { jetbrains: { air: { fork: { version: 1, messageId: lastReply.messageId } } } },
+          _meta: { ...(await sessionMeta()), jetbrains: { air: { fork: { version: 1, messageId: lastReply.messageId } } } },
         });
         this.set({ sessionId: res.sessionId, configOptions: res.configOptions ?? st.configOptions });
       } else {
-        const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [] });
+        const res = await this.request("session/new", { cwd: this.cwd, mcpServers: [], _meta: await sessionMeta() });
         this.set({ sessionId: res.sessionId, configOptions: res.configOptions ?? st.configOptions });
       }
     } catch (e) {

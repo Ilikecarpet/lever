@@ -1,6 +1,6 @@
 import { renderTokens } from "./tokens";
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { editedFiles, lineCounts, lineDiff, shortPath, shortenPaths, type ChatItem, type ToolContent, type ToolItem } from "../../lib/acpChat";
+import { artifactOf, editedFiles, lineCounts, lineDiff, shortPath, shortenPaths, type ChatItem, type ToolContent, type ToolItem } from "../../lib/acpChat";
 
 /** The chat's checkout, for showing paths relative to it. */
 export const CwdContext = createContext("");
@@ -22,6 +22,7 @@ import {
   IconUndo,
 } from "../Icons";
 import { CopyButton, Markdown } from "./Markdown";
+import { ArtifactCard } from "./Artifact";
 import { LeverMark } from "./LeverMark";
 import styles from "./Chat.module.css";
 
@@ -35,11 +36,21 @@ type ActivityEntry = ToolItem | Extract<ChatItem, { kind: "thought" }> | Extract
 
 type Block =
   | { type: "item"; item: ChatItem }
+  | { type: "artifact"; item: ToolItem }
   | { type: "activity"; id: string; entries: ActivityEntry[] };
 
 function toBlocks(items: ChatItem[]): Block[] {
   const blocks: Block[] = [];
+  const artifacts = new Set(items.filter((i) => i.kind === "tool" && i.status !== "failed" && artifactOf(i)).map((i) => i.id));
   for (const item of items) {
+    // Approving one to be shown says nothing the artifact itself doesn't.
+    if (item.kind === "permission" && item.outcome && artifacts.has(item.toolCallId ?? "")) continue;
+    // An artifact is something to look at, not activity to fold away. One
+    // that failed stays a tool row, where its error can be read.
+    if (artifacts.has(item.id) && item.kind === "tool") {
+      blocks.push({ type: "artifact", item });
+      continue;
+    }
     const isActivity =
       item.kind === "tool" || item.kind === "thought" || (item.kind === "permission" && !!item.outcome);
     if (item.kind === "permission" && !item.outcome) continue; // shown in the dock until answered
@@ -148,6 +159,8 @@ export function Transcript({
       {blocks.map((b, i) =>
         b.type === "activity" ? (
           <ActivityGroup key={b.id} entries={b.entries} live={working && i === blocks.length - 1} />
+        ) : b.type === "artifact" ? (
+          <ArtifactCard key={b.item.id} item={b.item} />
         ) : (
           <ItemView
             key={b.item.id}

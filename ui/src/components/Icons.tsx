@@ -469,3 +469,12 @@ export function IconLock({ size = 10, className }: P) {
     </svg>
   );
 }
+
+/** Opening something out to the whole window. */
+export function IconExpand({ size = 12, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={s} className={className}>
+      <path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9" />
+    </svg>
+  );
+}
