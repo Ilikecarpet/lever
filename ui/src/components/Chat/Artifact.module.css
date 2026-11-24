@@ -1,0 +1,211 @@
+.card {
+  margin: 6px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  overflow: hidden;
+  animation: rise 0.45s var(--ease-out) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.type {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Clips the frame to its scaled size; the frame itself is laid out at the
+   page's own size and transformed down. */
+.frameWrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  border: none;
+  background: var(--bg);
+  transform-origin: 0 0;
+}
+
+/* Over the bottom of an artifact cut off inline. */
+.more {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 72px;
+  padding-bottom: 10px;
+  border: none;
+  background: linear-gradient(to bottom, transparent, var(--bg) 75%);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.more span {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.more:hover span {
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+/* A popover, so it can be lifted into the top layer without moving (which
+   would reload its frame). Closed, a popover is display: none; inline, this
+   one is an ordinary block. */
+.box {
+  position: static;
+  display: block;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  color: inherit;
+}
+
+/* Below Lever's top bar, not over it: the title bar band belongs to macOS,
+   which draws over it, and the window is dragged by it. Pinned by its
+   edges, not sized in vw/vh: it inherits the chat's Type size zoom, which
+   WebKit does not take out of viewport units, so 100vw ran off the window.
+   The top bar's height is divided by the zoom for the same reason. */
+.box:popover-open {
+  position: fixed;
+  inset: calc(var(--topbar-h) / var(--chat-zoom, 1)) 0 0;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  height: auto;
+  border-top: 1px solid var(--border);
+  max-width: none;
+  max-height: none;
+  background: var(--bg);
+  animation: open 0.18s var(--ease-out) both;
+}
+
+.box::backdrop {
+  background: transparent;
+}
+
+@keyframes open {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+.fullHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-left: 4px;
+  padding: 0 6px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.close:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+.close kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.box:popover-open .frameWrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.box:popover-open .frame {
+  height: 100%;
+}
+
+.doc {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 16px 4px;
+}
+
+.box:popover-open .doc {
+  flex: 1;
+  overflow: auto;
+}
+
+.box:popover-open .doc > * {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 12px 0;
+}
+
+.writing {
+  padding: 16px;
+  font-size: 12px;
+}

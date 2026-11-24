@@ -148,6 +148,40 @@ pub fn acp_stop(chat_id: String) {
     sessions().lock().unwrap().remove(&chat_id);
 }
 
+/// Whether `pid` is a chat's agent or runs beneath one: how Lever's MCP
+/// server tells an agent in a chat pane from one in a terminal. The adapter
+/// runs the agent as its own child, and that child is what connects.
+pub fn is_chat_agent(pid: u32) -> bool {
+    let roots: Vec<u32> = sessions().lock().unwrap().values().map(|s| s.pid).collect();
+    let mut pid = pid;
+    // A chat's agent sits a few levels under npx; this bounds a cycle-free walk anyway.
+    for _ in 0..16 {
+        if roots.contains(&pid) {
+            return true;
+        }
+        match parent_pid(pid) {
+            Some(p) if p > 1 => pid = p,
+            _ => return false,
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn parent_pid(pid: u32) -> Option<u32> {
+    unsafe {
+        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        let got = libc::proc_pidinfo(pid as i32, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size);
+        (got == size).then_some(info.pbi_ppid)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn parent_pid(_pid: u32) -> Option<u32> {
+    None
+}
+
 /// Largest image a chat sends to its agent inline.
 const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -211,6 +245,13 @@ mod tests {
         assert_eq!(super::base64(b"foo"), "Zm9v");
         assert_eq!(super::base64(b"foobar"), "Zm9vYmFy");
         assert_eq!(super::base64(&[0xff, 0xfe, 0x00]), "//4A");
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_process_is_not_a_chat_agent_with_no_chat_above_it() {
+        assert_eq!(super::parent_pid(std::process::id()), Some(std::os::unix::process::parent_id()));
+        assert!(!super::is_chat_agent(std::process::id()));
     }
 }
 

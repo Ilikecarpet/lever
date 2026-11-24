@@ -175,13 +175,25 @@ fn start_server(app: tauri::AppHandle, cfg: &McpConfig) -> Result<(), String> {
             // Own thread each: a task start can wait minutes for the task.
             std::thread::spawn(move || serve(&token, request,
                 &|name, args, peer| {
-                    let cwd = peer.and_then(|p| caller_cwd(p, port));
-                    call_tool(&app, name, args, cwd.as_deref())
+                    let pid = peer.and_then(|p| caller_pid(p, port));
+                    // Only a chat pane has anywhere to show an artifact.
+                    if name == "show_artifact" {
+                        return show_artifact(args, pid.is_some_and(crate::acp::is_chat_agent));
+                    }
+                    call_tool(&app, name, args, pid.and_then(process_cwd).as_deref())
                 },
                 &|peer| {
-                    let cwd = peer.and_then(|p| caller_cwd(p, port));
-                    instructions_for(&app.state::<AppState>(), cwd.as_deref())
+                    let pid = peer.and_then(|p| caller_pid(p, port));
+                    let brief = instructions_for(&app.state::<AppState>(), pid.and_then(process_cwd).as_deref());
+                    // Told up front: an agent cannot see that it is in a chat
+                    // pane, and without this it writes an HTML file instead.
+                    if pid.is_some_and(crate::acp::is_chat_agent) {
+                        format!("{}\n\n{}", CHAT_INSTRUCTIONS, brief)
+                    } else {
+                        brief
+                    }
                 },
+                &|peer| peer.and_then(|p| caller_pid(p, port)).is_some_and(crate::acp::is_chat_agent),
             ));
         }
     });
@@ -516,7 +528,10 @@ type ToolCall<'a> = &'a dyn Fn(&str, &Value, Option<std::net::SocketAddr>) -> Re
 /// The instructions sent on `initialize`, given the same address.
 type Briefing<'a> = &'a dyn Fn(Option<std::net::SocketAddr>) -> String;
 
-fn serve(token: &str, mut req: tiny_http::Request, call: ToolCall, brief: Briefing) {
+/// Whether the caller at that address is an agent in a chat pane.
+type InChat<'a> = &'a dyn Fn(Option<std::net::SocketAddr>) -> bool;
+
+fn serve(token: &str, mut req: tiny_http::Request, call: ToolCall, brief: Briefing, in_chat: InChat) {
     let path = req.url().split('?').next().unwrap_or("").to_string();
     if path != "/mcp" {
         return respond(req, 404, None);
@@ -540,7 +555,7 @@ fn serve(token: &str, mut req: tiny_http::Request, call: ToolCall, brief: Briefi
         Ok(v) => v,
         Err(e) => return respond(req, 400, Some(rpc_error(Value::Null, -32700, &format!("parse error: {}", e)))),
     };
-    match handle_rpc(&msg, |name, args| call(name, args, peer), || brief(peer)) {
+    match handle_rpc(&msg, |name, args| call(name, args, peer), || brief(peer), || in_chat(peer)) {
         Some(reply) => respond(req, 200, Some(reply)),
         // A notification, or a response to something we never asked.
         None => respond(req, 202, None),
@@ -561,6 +576,7 @@ fn handle_rpc(
     msg: &Value,
     call: impl Fn(&str, &Value) -> Result<String, String>,
     instructions: impl Fn() -> String,
+    in_chat: impl Fn() -> bool,
 ) -> Option<Value> {
     let id = msg.get("id").cloned()?;
     let method = match msg.get("method").and_then(Value::as_str) {
@@ -580,7 +596,15 @@ fn handle_rpc(
             })
         }
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tool_definitions() }),
+        // Only a chat pane has anywhere to show an artifact, so only an agent
+        // in one is offered the tool.
+        "tools/list" => {
+            let chat = in_chat();
+            let tools: Vec<Value> = tool_definitions().into_iter()
+                .filter(|t| chat || t["name"] != "show_artifact")
+                .collect();
+            json!({ "tools": tools })
+        }
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -619,6 +643,12 @@ Before you start a dev server, watcher, database or a build/test/migration task 
 command, call list_services. If Lever has it, run it through start_service and read it with \
 get_logs rather than launching it yourself: a second copy fights Lever's for the same port, and \
 its output is invisible to the user.";
+
+/// Put ahead of the briefing for an agent running in a chat pane.
+const CHAT_INSTRUCTIONS: &str = "You are running in Lever's chat pane, which draws artifacts inline \
+in the conversation. To show the user a chart, diagram, mockup, styled report, HTML or SVG preview, \
+or a long formatted document, call show_artifact rather than writing a file, opening a browser or \
+drawing ASCII art.";
 
 /// At most this many services are named in a briefing; the rest are one
 /// list_services call away.
@@ -777,6 +807,34 @@ fn tool_definitions() -> Vec<Value> {
         }),
     ];
     tools.extend(db::tool_definitions(&project, &checkout));
+    tools.push(json!({
+        "name": "show_artifact",
+        "description": "Show the user an artifact inline in Lever's chat pane: an HTML page (a chart, diagram, \
+table, mockup or small interactive demo), an SVG image, or a Markdown document. Use it when something is \
+clearer seen than described. HTML runs in a sandbox with \
+no network: inline all CSS and JavaScript, no external scripts, fonts or images (data: URIs are fine). Lever \
+provides the page: the body already has 16px padding, the theme's background and font, and \
+border-box sizing on every element, and Lever sizes html and body itself, so don't set their width, \
+height, margin or min-height. Colours are CSS variables: --bg, --surface, --border, --text, \
+--text-muted, --accent, --green, --red, --yellow, --blue, plus --font-sans and --font-mono. Layout: \
+it sits in a chat column 360-800px wide and can be expanded to the whole window, so it must reflow \
+at any width without scrolling sideways. Use width: 100% and max-width rather than fixed pixel \
+widths (none over 360px), flex-wrap or grid with repeat(auto-fit, minmax(160px, 1fr)) for rows of \
+cards, and never 100vw or 100vh. Keep it under 480px tall where you can: anything taller is cut off \
+inline until the user expands it, so put what matters first. Use 13-14px text; make charts 240-320px \
+tall and give SVG a viewBox with width: 100% so it scales. Calling again with the same title shows a new version below \
+the old one.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "A short name shown above the artifact." },
+                "type": { "type": "string", "enum": ARTIFACT_TYPES },
+                "content": { "type": "string", "description": "The whole HTML document or fragment, SVG markup, or Markdown text." },
+            },
+            "required": ["title", "type", "content"],
+        },
+        "annotations": { "readOnlyHint": true },
+    }));
     tools
 }
 
@@ -840,26 +898,26 @@ fn process_cwd(_pid: u32) -> Option<PathBuf> {
     None
 }
 
-/// The working directory of whoever is on the other end of `peer`.
-fn caller_cwd(peer: std::net::SocketAddr, server_port: u16) -> Option<PathBuf> {
-    static CACHE: OnceLock<Mutex<HashMap<u16, (Option<PathBuf>, std::time::Instant)>>> = OnceLock::new();
+/// The pid on the other end of `peer`.
+fn caller_pid(peer: std::net::SocketAddr, server_port: u16) -> Option<u32> {
+    static CACHE: OnceLock<Mutex<HashMap<u16, (Option<u32>, std::time::Instant)>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some((cwd, at)) = cache.lock().unwrap().get(&peer.port()) {
+    if let Some((pid, at)) = cache.lock().unwrap().get(&peer.port()) {
         if at.elapsed() < CALLER_CACHE_TTL {
-            return cwd.clone();
+            return *pid;
         }
     }
     let out = std::process::Command::new("lsof")
         .args(["-nP", &format!("-iTCP:{}", peer.port()), "-sTCP:ESTABLISHED", "-Fpn"])
         .output()
         .ok()?;
-    let cwd = pid_owning(&String::from_utf8_lossy(&out.stdout), peer.port(), server_port, std::process::id())
-        .and_then(process_cwd);
+    let pid = pid_owning(&String::from_utf8_lossy(&out.stdout), peer.port(), server_port, std::process::id());
     let mut cache = cache.lock().unwrap();
     cache.retain(|_, (_, at)| at.elapsed() < CALLER_CACHE_TTL);
-    cache.insert(peer.port(), (cwd.clone(), std::time::Instant::now()));
-    cwd
+    cache.insert(peer.port(), (pid, std::time::Instant::now()));
+    pid
 }
+
 
 // ---------------------------------------------------------------------------
 // Scope: which project and checkout a call is about
@@ -1086,8 +1144,30 @@ pub(crate) fn call_tool(app: &tauri::AppHandle, name: &str, args: &Value, cwd: O
         "stop_service" => stop_service(state, args, cwd),
         "restart_service" => restart_service(app, state, args, cwd),
         "db_connections" | "db_schema" | "db_search" | "db_query" => db::call_tool(app, state, name, args, cwd),
+        // Reached from the CLI, which has no chat to show it in.
+        "show_artifact" => show_artifact(args, false),
         _ => Err(format!("unknown tool: {}", name)),
     }
+}
+
+const ARTIFACT_TYPES: &[&str] = &["html", "svg", "markdown"];
+
+/// Checks an artifact and says whether it was shown. The chat draws it from
+/// the tool call's own arguments, so nothing is stored or sent from here.
+fn show_artifact(args: &Value, in_chat: bool) -> Result<String, String> {
+    let title = arg_str(args, "title").ok_or("`title` is required")?;
+    let kind = arg_str(args, "type").ok_or("`type` is required")?;
+    if !ARTIFACT_TYPES.contains(&kind) {
+        return Err(format!("`type` must be one of {}", ARTIFACT_TYPES.join(", ")));
+    }
+    if arg_str(args, "content").is_none() {
+        return Err("`content` is required".into());
+    }
+    if !in_chat {
+        return Err("Not shown: artifacts appear only in Lever's chat pane, and you are not running in one. \
+Give the user the content another way, such as a file.".into());
+    }
+    Ok(format!("Shown to the user inline in the chat as \"{}\". They can see it, so don't repeat its content in your reply.", title))
 }
 
 fn list_projects(state: &AppState, cwd: Option<&Path>) -> Result<String, String> {
@@ -1328,34 +1408,45 @@ mod tests {
     #[test]
     fn initialize_echoes_a_version_it_speaks_and_falls_back_otherwise() {
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"initialize",
-            "params":{"protocolVersion":"2025-03-26"}}), no_tools, base).unwrap();
+            "params":{"protocolVersion":"2025-03-26"}}), no_tools, base, || false).unwrap();
         assert_eq!(reply["result"]["protocolVersion"], "2025-03-26");
         assert!(reply["result"]["capabilities"]["tools"].is_object());
 
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":2,"method":"initialize",
-            "params":{"protocolVersion":"1999-01-01"}}), no_tools, base).unwrap();
+            "params":{"protocolVersion":"1999-01-01"}}), no_tools, base, || false).unwrap();
         assert_eq!(reply["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
     }
 
     #[test]
     fn notifications_get_no_reply() {
-        assert!(handle_rpc(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}), no_tools, base).is_none());
+        assert!(handle_rpc(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}), no_tools, base, || false).is_none());
     }
 
     #[test]
     fn every_listed_tool_has_a_schema() {
-        let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}), no_tools, base).unwrap();
+        let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}), no_tools, base, || true).unwrap();
         let tools = reply["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 11);
         for t in tools {
             assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
         }
     }
 
     #[test]
+    fn only_a_chat_agent_is_offered_show_artifact() {
+        let names = |chat: bool| {
+            let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}), no_tools, base, move || chat).unwrap();
+            reply["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        assert!(names(true).contains(&"show_artifact".to_string()));
+        assert!(!names(false).contains(&"show_artifact".to_string()));
+        assert_eq!(names(true).len(), names(false).len() + 1);
+    }
+
+    #[test]
     fn a_failing_tool_is_a_result_not_a_protocol_error() {
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":7,"method":"tools/call",
-            "params":{"name":"list_projects","arguments":{}}}), no_tools, base).unwrap();
+            "params":{"name":"list_projects","arguments":{}}}), no_tools, base, || false).unwrap();
         assert_eq!(reply["result"]["isError"], true);
         assert_eq!(reply["result"]["content"][0]["text"], "no tools in this test");
     }
@@ -1364,7 +1455,7 @@ mod tests {
     fn tool_arguments_reach_the_tool() {
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":"a","method":"tools/call",
             "params":{"name":"get_logs","arguments":{"service":"web"}}}),
-            |name, args| Ok(format!("{}:{}", name, args["service"].as_str().unwrap())), base).unwrap();
+            |name, args| Ok(format!("{}:{}", name, args["service"].as_str().unwrap())), base, || false).unwrap();
         assert_eq!(reply["id"], "a");
         assert_eq!(reply["result"]["content"][0]["text"], "get_logs:web");
         assert_eq!(reply["result"]["isError"], false);
@@ -1372,10 +1463,10 @@ mod tests {
 
     #[test]
     fn unknown_methods_and_tools_are_rpc_errors() {
-        let r = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"resources/list"}), no_tools, base).unwrap();
+        let r = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"resources/list"}), no_tools, base, || false).unwrap();
         assert_eq!(r["error"]["code"], -32601);
         let r = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
-            "params":{"name":"rm_rf"}}), no_tools, base).unwrap();
+            "params":{"name":"rm_rf"}}), no_tools, base, || false).unwrap();
         assert_eq!(r["error"]["code"], -32602);
     }
 
@@ -1407,7 +1498,7 @@ mod tests {
         let addr = server.server_addr().to_ip().unwrap();
         let handle = std::thread::spawn(move || {
             let req = server.recv().unwrap();
-            serve("s3cret", req, &|name, _, _| Ok(format!("called {}", name)), &|_| base());
+            serve("s3cret", req, &|name, _, _| Ok(format!("called {}", name)), &|_| base(), &|_| false);
         });
         let mut stream = std::net::TcpStream::connect(addr).unwrap();
         stream.write_all(request.as_bytes()).unwrap();
@@ -1462,7 +1553,7 @@ mod tests {
     #[test]
     fn initialize_carries_the_callers_briefing() {
         let reply = handle_rpc(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
-            no_tools, || "you are in feat/a".to_string()).unwrap();
+            no_tools, || "you are in feat/a".to_string(), || false).unwrap();
         assert_eq!(reply["result"]["instructions"], "you are in feat/a");
     }
 
@@ -1711,12 +1802,24 @@ mod tests {
             .spawn()
             .unwrap();
         let req = server.recv().unwrap();
-        let cwd = caller_cwd(*req.remote_addr().unwrap(), port);
+        let cwd = caller_pid(*req.remote_addr().unwrap(), port).and_then(process_cwd);
         let _ = req.respond(tiny_http::Response::empty(200));
         let _ = client.wait_with_output();
         let (got, want) = (cwd.map(|p| canon(&p)), Some(canon(&dir)));
         let _ = fs::remove_dir(&dir);
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn an_artifact_is_checked_and_shown_only_in_a_chat() {
+        let ok = json!({ "title": "Plan", "type": "html", "content": "<p>hi</p>" });
+        assert!(show_artifact(&ok, true).unwrap().contains("\"Plan\""));
+        assert!(show_artifact(&ok, false).unwrap_err().starts_with("Not shown"));
+        let bad_type = json!({ "title": "Plan", "type": "pdf", "content": "x" });
+        assert!(show_artifact(&bad_type, true).unwrap_err().contains("`type`"));
+        let empty = json!({ "title": "Plan", "type": "svg", "content": "  " });
+        assert!(show_artifact(&empty, true).unwrap_err().contains("`content`"));
+        assert!(tool_definitions().iter().any(|t| t["name"] == "show_artifact"));
     }
 
     #[test]
